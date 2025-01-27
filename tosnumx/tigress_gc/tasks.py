@@ -14,7 +14,7 @@ def run_grid(s, num, overwrite=False):
 
     Parameters
     ----------
-    s : LoadSimTIGRESSGC
+    s : LoadSim
         Simulation metadata.
     num : int
         Snapshot number.
@@ -46,7 +46,7 @@ def linewidth_size_grid_dendro(s, num, overwrite=False):
 
     Parameters
     ----------
-    s : LoadSimTIGRESSGC
+    s : LoadSim
         Simulation metadata.
     num : int
         Snapshot number.
@@ -150,7 +150,7 @@ def save_ring_averages(s, Rmax, mf_crit=0.9, overwrite=False):
 
     Parameters
     ----------
-    s : pyathena.LoadSim instance
+    s : LoadSim instance
     """
     fname = Path(s.basedir, 'ring_averages', 'gc_ring_average_warmcold.nc')
     fname.parent.mkdir(exist_ok=True)
@@ -173,7 +173,7 @@ def save_azimuthal_averages(s, overwrite=False):
 
     Parameters
     ----------
-    s : pyathena.LoadSim instance
+    s : LoadSim instance
     """
     for num in s.nums:
         fname = Path(s.basedir, 'azimuthal_averages_warmcold',
@@ -192,7 +192,7 @@ def prfm_quantities(s, num, overwrite=False):
 
     Parameters
     ----------
-    s : pyathena.LoadSimTIGRESSGC
+    s : LoadSim
         LoadSim instance.
     num : int
         Snapshot number
@@ -243,7 +243,7 @@ def save_time_averaged_snapshot(s, ts, te, overwrite=False):
 
     Parameters
     ----------
-    s : pyathena.LoadSim instance
+    s : LoadSim instance
     ts : start time
     te : end time
     """

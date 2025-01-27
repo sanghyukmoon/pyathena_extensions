@@ -18,7 +18,7 @@ if __name__ == "__main__":
                   S1='/projects/EOSTRIKE/TIGRESS-GC/S1_256',
                   S2='/projects/EOSTRIKE/TIGRESS-GC/S2_256',
                   S3='/projects/EOSTRIKE/TIGRESS-GC/S3_256')
-    sa = load_sim.LoadSimTIGRESSGCAll(models)
+    sa = load_sim.LoadSimAll(models)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("models", nargs='+', type=str,

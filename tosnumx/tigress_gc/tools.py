@@ -17,7 +17,7 @@ def calculate_ring_averages(s, num, Rmax, mf_crit=0.9, warmcold=False):
 
     Parameters
     ----------
-    s : pa.LoadSim object
+    s : LoadSim object
     num : integer index of simulation output
     warmcold : if True, calculate quantities only for T < 2e4 gas
     """
@@ -88,7 +88,7 @@ def calculate_azimuthal_averages(s, num, warmcold=False):
 
     Parameters
     ----------
-    s : pa.LoadSim object
+    s : LoadSim object
     num : integer index of simulation output
     warmcold : if True, calculate quantities only for T < 2e4 gas
 
@@ -240,7 +240,7 @@ def mask_ring_by_mass(s, dat, Rmax, mf_crit=0.9):
 
     Parameters
     ----------
-    s : pa.LoadSim object
+    s : LoadSim object
     dat : xarray dataset
     Rmax : maximum radius to exclude dust lanes
     mf_crit : mass fraction threshold
@@ -277,7 +277,7 @@ def find_snapshot_number(s, t0):
 
     Parameters
     ----------
-    s : pa.LoadSim object
+    s : LoadSim object
     t0 : desired time in Myr
     """
     nl, nu = _bracket_snapshot_number(s, t0)
@@ -296,7 +296,7 @@ def _bracket_snapshot_number(s, t0):
 
     Parameters
     ----------
-    s : pa.LoadSim object
+    s : LoadSim object
     t0 : desired time in Myr
     """
     a = s.nums[0]

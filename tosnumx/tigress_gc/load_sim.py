@@ -10,13 +10,13 @@ from pyathena.util.units import Units
 
 from . import hst, slc_prj, config, tools
 
-class LoadSimTIGRESSGC(LoadSimBase, hst.Hst, slc_prj.SliceProj):
+class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj):
     """LoadSim class for analyzing TIGRESS-GC simulations.
     """
 
     def __init__(self, basedir, savdir=None, load_method='pyathena',
                  verbose=False, force_override=False):
-        """The constructor for LoadSimTIGRESSGC class
+        """The constructor for LoadSim class for TIGRESS-GC simulations.
 
         Parameters
         ----------
@@ -37,7 +37,7 @@ class LoadSimTIGRESSGC(LoadSimBase, hst.Hst, slc_prj.SliceProj):
             accepted.
         """
 
-        super(LoadSimTIGRESSGC,self).__init__(basedir, savdir=savdir,
+        super(LoadSim,self).__init__(basedir, savdir=savdir,
                                                load_method=load_method, verbose=verbose)
 
         # Set unit and domain
@@ -113,7 +113,7 @@ class LoadSimTIGRESSGC(LoadSimBase, hst.Hst, slc_prj.SliceProj):
         rprofs = xr.concat(rprofs, 't')
         return rprofs
 
-class LoadSimTIGRESSGCAll(object):
+class LoadSimAll(object):
     """Class to load multiple simulations"""
     def __init__(self, models=None):
 
@@ -126,7 +126,7 @@ class LoadSimTIGRESSGCAll(object):
 
         for mdl, basedir in models.items():
             if not osp.exists(basedir):
-                print('[LoadSimTIGRESSGCAll]: Model {0:s} doesn\'t exist: {1:s}'.format(
+                print('[LoadSimAll]: Model {0:s} doesn\'t exist: {1:s}'.format(
                     mdl,basedir))
             else:
                 self.models.append(mdl)
@@ -137,17 +137,17 @@ class LoadSimTIGRESSGCAll(object):
                   verbose=False, reset=False, force_override=False):
         self.model = model
         if reset or force_override:
-            self.sim = LoadSimTIGRESSGC(self.basedirs[model], savdir=savdir,
-                                        load_method=load_method, verbose=verbose,
-                                        force_override=force_override)
+            self.sim = LoadSim(self.basedirs[model], savdir=savdir,
+                               load_method=load_method, verbose=verbose,
+                               force_override=force_override)
             self.simdict[model] = self.sim
         else:
             try:
                 self.sim = self.simdict[model]
             except KeyError:
-                self.sim = LoadSimTIGRESSGC(self.basedirs[model], savdir=savdir,
-                                            load_method=load_method, verbose=verbose,
-                                            force_override=force_override)
+                self.sim = LoadSim(self.basedirs[model], savdir=savdir,
+                                   load_method=load_method, verbose=verbose,
+                                   force_override=force_override)
                 self.simdict[model] = self.sim
 
         return self.sim
