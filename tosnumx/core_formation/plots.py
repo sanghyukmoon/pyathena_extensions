@@ -25,7 +25,7 @@ def plot_projection(s, ds, field='dens', axis='z', op='sum',
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
+    s : LoadSim
         Object containing simulation metadata.
     ds : AthenaPPDataset or xarray.Dataset
         Object containing fluid variables.
@@ -140,7 +140,7 @@ def plot_grid_dendro_contours(s, gd, nodes, coords, axis='z', color='k',
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
+    s : LoadSim
         Object containing simulation metadata.
     gd : grid_dendro.dendrogram.Dendrogram
         GRID-dendro dendrogram instance.
@@ -254,7 +254,7 @@ def plot_diagnostics(s, pid, normalize_time=True):
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
+    s : LoadSim
         Simulation metadata
     pid : int
         Unique particle ID.

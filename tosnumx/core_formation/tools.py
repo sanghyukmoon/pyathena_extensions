@@ -81,7 +81,7 @@ def find_tcoll_core(s, pid, ncells_min=27):
     Parameters
     ----------
     s : LoadSim
-        LoadSimCoreFormation instance.
+        LoadSim instance.
     pid : int
         Particle id.
 
@@ -119,7 +119,7 @@ def track_cores(s, pid):
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
+    s : LoadSim
     pid : int
 
     Returns
@@ -228,7 +228,7 @@ def track_protostellar_cores(s, pid):
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
+    s : LoadSim
     pid : int
 
     Returns
@@ -306,7 +306,7 @@ def calculate_tidal_radius(s, gd, node, leaf=None):
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
+    s : LoadSim
         Object containing simulation metadata.
     gd : grid_dendro.Dendrogram
         Dendrogram object.
@@ -339,7 +339,7 @@ def calculate_critical_tes(s, rprf, core):
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
+    s : LoadSim
         Object containing simulation metadata.
     rprf : xarray.Dataset
         Object containing radial profiles.
@@ -397,7 +397,7 @@ def calculate_radial_profile(s, ds, origin, rmax, lvec=None):
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
+    s : LoadSim
         Object containing simulation metadata.
     ds : xarray.Dataset
         Object containing simulation data.
@@ -486,7 +486,7 @@ def calculate_prj_radial_profile(s, num, origin):
     Parameters
     ----------
     s : LoadSim
-        LoadSimCoreFormation instance.
+        LoadSim instance.
     core : pandas.Series
         Object containing core informations
 
@@ -579,7 +579,7 @@ def calculate_lagrangian_props(s, cores, rprofs):
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
+    s : LoadSim
         Object containing simulation metadata.
     cores : pandas.DataFrame
         Object containing core informations.
@@ -709,7 +709,7 @@ def calculate_cumulative_energies(s, rprf, core):
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
+    s : LoadSim
         Object containing simulation metadata.
     rprf : xarray.Dataset
         Object containing radial profiles.
@@ -1075,7 +1075,7 @@ def get_coords_node(s, nd):
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
+    s : LoadSim
         Simulation metadata.
     nd : int
         GRID-dendro node ID.
@@ -1110,7 +1110,7 @@ def get_node_distance(s, nd1, nd2):
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
+    s : LoadSim
         Simulation metadata.
     nd1 : int
         GRID-dendro node ID
@@ -1191,7 +1191,7 @@ def test_resolved_core(s, cores, nres):
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
+    s : LoadSim
         Object containing simulation metadata
     pid : int
         Particle ID.
@@ -1221,7 +1221,7 @@ def test_isolated_core(s, cores):
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
+    s : LoadSim
         Object containing simulation metadata.
     pid : int
         Particle ID.

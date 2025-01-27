@@ -14,7 +14,7 @@ from pyathena.io.timing_reader import TimingReader
 from . import tools, hst, slc_prj
 
 
-class LoadSimCoreFormation(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
+class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                            TimingReader):
     """LoadSim class for analyzing core collapse simulations.
 
@@ -52,7 +52,7 @@ class LoadSimCoreFormation(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.Lognor
 
     def __init__(self, basedir_or_Mach=None, method='empirical', savdir=None,
                  load_method='pyathena', verbose=False, force_override=False):
-        """The constructor for LoadSimCoreFormation class
+        """The constructor for LoadSim class for core formation simulations.
 
         Parameters
         ----------
@@ -524,7 +524,7 @@ class LoadSimCoreFormation(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.Lognor
         return rprofs_dict
 
 
-class LoadSimCoreFormationAll(object):
+class LoadSimAll(object):
     """Class to load multiple simulations"""
     def __init__(self, models=None):
 
@@ -537,7 +537,7 @@ class LoadSimCoreFormationAll(object):
 
         for mdl, basedir in models.items():
             if not osp.exists(basedir):
-                msg = "[LoadSimCoreFormationAll]: "\
+                msg = "[LoadSimAll]: "\
                       "Model {0:s} doesn\'t exist: {1:s}".format(mdl, basedir)
                 print(msg)
             else:
@@ -549,23 +549,23 @@ class LoadSimCoreFormationAll(object):
                   reset=False, force_override=False):
         self.model = model
         if reset or force_override:
-            self.sim = LoadSimCoreFormation(self.basedirs[model],
-                                            method=method,
-                                            savdir=savdir,
-                                            load_method=load_method,
-                                            verbose=verbose,
-                                            force_override=force_override)
+            self.sim = LoadSim(self.basedirs[model],
+                               method=method,
+                               savdir=savdir,
+                               load_method=load_method,
+                               verbose=verbose,
+                               force_override=force_override)
             self.simdict[model] = self.sim
         else:
             try:
                 self.sim = self.simdict[model]
             except KeyError:
-                self.sim = LoadSimCoreFormation(self.basedirs[model],
-                                                method=method,
-                                                savdir=savdir,
-                                                load_method=load_method,
-                                                verbose=verbose,
-                                                force_override=force_override)
+                self.sim = LoadSim(self.basedirs[model],
+                                   method=method,
+                                   savdir=savdir,
+                                   load_method=load_method,
+                                   verbose=verbose,
+                                   force_override=force_override)
                 self.simdict[model] = self.sim
 
         return self.sim

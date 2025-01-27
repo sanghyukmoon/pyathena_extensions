@@ -7,7 +7,7 @@ from multiprocessing import Pool
 from . import config, tasks, models, load_sim
 
 if __name__ == "__main__":
-    sa = load_sim.LoadSimCoreFormationAll(models.models)
+    sa = load_sim.LoadSimAll(models.models)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("models", nargs='+', type=str,

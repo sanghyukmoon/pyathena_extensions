@@ -20,8 +20,8 @@ def combine_partab(s, ns=None, ne=None, partag="par0", remove=False,
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
-        LoadSimCoreFormation instance.
+    s : LoadSim
+        LoadSim instance.
     ns : int, optional
         Starting snapshot number.
     ne : int, optional
@@ -83,8 +83,8 @@ def critical_tes(s, pid, num, overwrite=False):
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
-        LoadSimCoreFormation instance.
+    s : LoadSim
+        LoadSim instance.
     pid : int
         Particle id.
     num : int
@@ -133,8 +133,8 @@ def core_tracking(s, pid, protostellar=False, overwrite=False):
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
-        LoadSimCoreFormation instance.
+    s : LoadSim
+        LoadSim instance.
     pid : int
         Particle ID
     protostellar : bool
@@ -163,8 +163,8 @@ def radial_profile(s, num, pids, overwrite=False, full_radius=False, days_overwr
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
-        LoadSimCoreFormation instance.
+    s : LoadSim
+        LoadSim instance.
     pid : int
         Particle id.
     num : int
@@ -387,7 +387,7 @@ def run_grid(s, num, overwrite=False):
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
+    s : LoadSim
         Simulation metadata.
     num : int
         Snapshot number.
@@ -418,7 +418,7 @@ def prune(s, num, overwrite=False):
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
+    s : LoadSim
         Simulation metadata.
     num : int
         Snapshot number.
@@ -475,7 +475,7 @@ def plot_core_evolution(s, pid, num, method='empirical', overwrite=False, rmax=N
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
+    s : LoadSim
         Simulation metadata.
     pid : int
         Unique ID of a selected particle.
@@ -556,7 +556,7 @@ def plot_diagnostics(s, pid, overwrite=False):
 
     Parameters
     ----------
-    s : LoadSimCoreFormation
+    s : LoadSim
         LoadSim instance
     pid : int
         Particle ID
