@@ -8,7 +8,7 @@ import astropy.constants as ac
 from matplotlib.colors import Normalize, LogNorm
 from mpl_toolkits.axes_grid1 import ImageGrid
 import xarray as xr
-from pyathena.load_sim import LoadSim
+from pyathena.load_sim import LoadSim as LoadSimBase
 from pyathena.plt_tools.cmap_shift import cmap_shift
 from pyathena.plt_tools.plt_starpar import scatter_sp
 from pyathena.classic.utils import texteffect
@@ -44,7 +44,7 @@ class SliceProj:
 
         return r
 
-    @LoadSim.Decorators.check_pickle
+    @LoadSimBase.Decorators.check_pickle
     def read_slc(self, num, axes=['x', 'y', 'z'], fields=None, prefix='slc',
                  savdir=None, force_override=False):
 
@@ -73,7 +73,7 @@ class SliceProj:
 
         return res
 
-    @LoadSim.Decorators.check_pickle
+    @LoadSimBase.Decorators.check_pickle
     def read_prj(self, num, axes=['x', 'y', 'z'], prefix='prj',
                  savdir=None, force_override=False, id0=True):
 

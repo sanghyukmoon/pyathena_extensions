@@ -2,7 +2,7 @@ from pathlib import Path
 import argparse
 from multiprocessing import Pool
 
-from . import load_sim_tigress_gc, tasks, config
+from . import load_sim, tasks, config
 
 if __name__ == "__main__":
     # load all models
@@ -18,7 +18,7 @@ if __name__ == "__main__":
                   S1='/projects/EOSTRIKE/TIGRESS-GC/S1_256',
                   S2='/projects/EOSTRIKE/TIGRESS-GC/S2_256',
                   S3='/projects/EOSTRIKE/TIGRESS-GC/S3_256')
-    sa = load_sim_tigress_gc.LoadSimTIGRESSGCAll(models)
+    sa = load_sim.LoadSimTIGRESSGCAll(models)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("models", nargs='+', type=str,

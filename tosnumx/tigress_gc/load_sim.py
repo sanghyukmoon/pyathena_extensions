@@ -5,12 +5,12 @@ import pandas as pd
 import numpy as np
 import xarray as xr
 import pickle
-from pyathena.load_sim import LoadSim
+from pyathena.load_sim import LoadSim as LoadSimBase
 from pyathena.util.units import Units
 
 from . import hst, slc_prj, config, tools
 
-class LoadSimTIGRESSGC(LoadSim, hst.Hst, slc_prj.SliceProj):
+class LoadSimTIGRESSGC(LoadSimBase, hst.Hst, slc_prj.SliceProj):
     """LoadSim class for analyzing TIGRESS-GC simulations.
     """
 
@@ -71,7 +71,7 @@ class LoadSimTIGRESSGC(LoadSim, hst.Hst, slc_prj.SliceProj):
         with open(fname, 'rb') as handle:
             return pickle.load(handle)
 
-    @LoadSim.Decorators.check_pickle
+    @LoadSimBase.Decorators.check_pickle
     def _load_nodes(self, prefix='nodes', savdir=None, force_override=False):
         """Load pickled linewidth-sized rel."""
 
@@ -85,7 +85,7 @@ class LoadSimTIGRESSGC(LoadSim, hst.Hst, slc_prj.SliceProj):
             res = pd.DataFrame(res).set_index('num').sort_index()
         return res
 
-    @LoadSim.Decorators.check_pickle
+    @LoadSimBase.Decorators.check_pickle
     def load_prfm(self, prefix='prfm_quantities', savdir=None,
                   force_override=False):
         """Load prfm quantities"""
