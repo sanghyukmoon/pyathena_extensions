@@ -10,7 +10,7 @@ import astropy.constants as ac
 from matplotlib.colors import Normalize, LogNorm
 from mpl_toolkits.axes_grid1 import ImageGrid
 import xarray as xr
-from pyathena.load_sim import LoadSim
+from pyathena.load_sim import LoadSim as LoadSimBase
 
 cmap_def = dict(
     Sigma_gas=plt.cm.pink_r,
@@ -35,7 +35,7 @@ class SliceProj:
 
         return r
 
-    @LoadSim.Decorators.check_pickle
+    @LoadSimBase.Decorators.check_pickle
     def read_prj(self, num, axes=['x', 'y', 'z'], prefix='prj',
                  savdir=None, force_override=False):
         axtoi = dict(x=0, y=1, z=2)

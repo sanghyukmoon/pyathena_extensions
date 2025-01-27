@@ -1,11 +1,11 @@
 import numpy as np
 import pandas as pd
 from pyathena.io.read_hst import read_hst
-from pyathena.load_sim import LoadSim
+from pyathena.load_sim import LoadSim as LoadSimBase
 
 class Hst:
 
-    @LoadSim.Decorators.check_pickle_hst
+    @LoadSimBase.Decorators.check_pickle_hst
     def read_hst(self, savdir=None, force_override=False):
         """Function to read hst and convert quantities to convenient units
         """

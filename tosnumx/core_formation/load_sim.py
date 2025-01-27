@@ -7,14 +7,14 @@ import pickle
 from scipy.interpolate import interp1d
 from astropy import units as au
 from astropy import constants as ac
-from pyathena.load_sim import LoadSim
+from pyathena.load_sim import LoadSim as LoadSimBase
 from pyathena.util.units import Units
 from pyathena.io.timing_reader import TimingReader
 
 from . import tools, hst, slc_prj
 
 
-class LoadSimCoreFormation(LoadSim, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
+class LoadSimCoreFormation(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                            TimingReader):
     """LoadSim class for analyzing core collapse simulations.
 
@@ -208,7 +208,7 @@ class LoadSimCoreFormation(LoadSim, hst.Hst, slc_prj.SliceProj, tools.LognormalP
                 good_cores.append(pid)
         return good_cores
 
-    @LoadSim.Decorators.check_pickle
+    @LoadSimBase.Decorators.check_pickle
     def update_core_props(self, method,
                           prefix=None, savdir=None, force_override=False):
         """Update core properties
@@ -346,7 +346,7 @@ class LoadSimCoreFormation(LoadSim, hst.Hst, slc_prj.SliceProj, tools.LognormalP
 
         return core_dict
 
-    @LoadSim.Decorators.check_pickle
+    @LoadSimBase.Decorators.check_pickle
     def _load_tcoll_cores(self, prefix='tcoll_cores', savdir=None, force_override=False):
         """Read .csv output and find their collapse time and snapshot number.
 
@@ -380,7 +380,7 @@ class LoadSimCoreFormation(LoadSim, hst.Hst, slc_prj.SliceProj, tools.LognormalP
         tcoll_cores.index.name = 'pid'
         return tcoll_cores
 
-    @LoadSim.Decorators.check_pickle
+    @LoadSimBase.Decorators.check_pickle
     def _load_cores(self, prefix='cores', savdir=None, force_override=False):
         cores_dict = {}
         pids_not_found = []
@@ -442,7 +442,7 @@ class LoadSimCoreFormation(LoadSim, hst.Hst, slc_prj.SliceProj, tools.LognormalP
             self.logger.warning(msg)
         return cores_dict
 
-    @LoadSim.Decorators.check_pickle
+    @LoadSimBase.Decorators.check_pickle
     def _load_radial_profiles(self, prefix='radial_profile', savdir=None, force_override=False):
         """
         Raises
