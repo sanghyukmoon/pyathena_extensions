@@ -4,10 +4,10 @@ import argparse
 import subprocess
 from multiprocessing import Pool
 
-from . import config, tasks, models, load_sim_core_formation
+from . import config, tasks, models, load_sim
 
 if __name__ == "__main__":
-    sa = load_sim_core_formation.LoadSimCoreFormationAll(models.models)
+    sa = load_sim.LoadSimCoreFormationAll(models.models)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("models", nargs='+', type=str,
