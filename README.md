@@ -1,2 +1,1 @@
-# ToSNumX
-ToSNumX: Theory of Star formation through Numerical eXperiments
+Personal analysis tools using pyathena (https://github.com/jeonggyukim/pyathena) package
