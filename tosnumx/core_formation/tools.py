@@ -8,8 +8,9 @@ from scipy.integrate import quad
 from scipy.interpolate import interp1d
 from pathlib import Path
 from pyathena.util import transform
-from pyathena.core_formation import config
 from tesphere import utils, tes
+
+from . import config
 
 class LognormalPDF:
     """Lognormal probability distribution function"""

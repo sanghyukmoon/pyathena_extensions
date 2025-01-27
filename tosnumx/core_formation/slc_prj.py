@@ -10,8 +10,7 @@ import astropy.constants as ac
 from matplotlib.colors import Normalize, LogNorm
 from mpl_toolkits.axes_grid1 import ImageGrid
 import xarray as xr
-
-from ..load_sim import LoadSim
+from pyathena.load_sim import LoadSim
 
 cmap_def = dict(
     Sigma_gas=plt.cm.pink_r,

@@ -5,14 +5,12 @@ import pandas as pd
 import numpy as np
 import xarray as xr
 import pickle
+from pyathena.load_sim import LoadSim
+from pyathena.util.units import Units
 
-from ..load_sim import LoadSim
-from ..util.units import Units
-from .hst import Hst
-from .slc_prj import SliceProj
-from pyathena.tigress_gc import config, tools
+from . import hst, slc_prj, config, tools
 
-class LoadSimTIGRESSGC(LoadSim, Hst, SliceProj):
+class LoadSimTIGRESSGC(LoadSim, hst.Hst, slc_prj.SliceProj):
     """LoadSim class for analyzing TIGRESS-GC simulations.
     """
 

@@ -1,11 +1,7 @@
-# read_hst.py
-
 import numpy as np
 import pandas as pd
-
-from ..io.read_hst import read_hst
-from ..load_sim import LoadSim
-
+from pyathena.io.read_hst import read_hst
+from pyathena.load_sim import LoadSim
 
 class Hst:
 

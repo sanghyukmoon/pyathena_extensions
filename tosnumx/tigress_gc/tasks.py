@@ -1,6 +1,3 @@
-"""Module containing functions that are not generally reusable"""
-
-# python modules
 import pyathena as pa
 from pathlib import Path
 import numpy as np
@@ -9,8 +6,7 @@ import pandas as pd
 import pickle
 from grid_dendro import dendrogram
 
-# pyathena modules
-from pyathena.tigress_gc import tools
+from . import tools
 
 
 def run_grid(s, num, overwrite=False):

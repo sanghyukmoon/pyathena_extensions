@@ -12,11 +12,10 @@ from matplotlib.markers import MarkerStyle
 import numpy as np
 import xarray as xr
 from yt.frontends.athena_pp.data_structures import AthenaPPDataset
-# pythena modules
-from pyathena.core_formation import tools
 from tesphere import tes
 from grid_dendro import energy
 
+from . import tools
 
 def plot_projection(s, ds, field='dens', axis='z', op='sum',
                     vmin=1e-1, vmax=2e2, cmap='pink_r', alpha=1,

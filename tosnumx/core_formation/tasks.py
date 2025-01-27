@@ -1,6 +1,4 @@
 """Module containing functions that are not generally reusable"""
-
-# python modules
 from pathlib import Path
 import datetime
 import matplotlib.pyplot as plt
@@ -10,13 +8,10 @@ import subprocess
 import pickle
 import glob
 import logging
-
-# pyathena modules
-from pyathena.core_formation import plots
-from pyathena.core_formation import tools
-from pyathena.core_formation import config
 from pyathena.util import uniform, transform
 from grid_dendro import dendrogram
+
+from . import plots, tools, config
 
 
 def combine_partab(s, ns=None, ne=None, partag="par0", remove=False,

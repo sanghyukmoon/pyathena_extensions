@@ -7,17 +7,14 @@ import pickle
 from scipy.interpolate import interp1d
 from astropy import units as au
 from astropy import constants as ac
-
 from pyathena.load_sim import LoadSim
 from pyathena.util.units import Units
 from pyathena.io.timing_reader import TimingReader
-from pyathena.core_formation.hst import Hst
-from pyathena.core_formation.slc_prj import SliceProj
-from pyathena.core_formation.tools import LognormalPDF
-from pyathena.core_formation import tools
+
+from . import tools, hst, slc_prj
 
 
-class LoadSimCoreFormation(LoadSim, Hst, SliceProj, LognormalPDF,
+class LoadSimCoreFormation(LoadSim, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                            TimingReader):
     """LoadSim class for analyzing core collapse simulations.
 
@@ -91,7 +88,7 @@ class LoadSimCoreFormation(LoadSim, Hst, SliceProj, LognormalPDF,
                              units=Units('code'), verbose=verbose)
             self.Mach = self.par['problem']['Mach']
 
-            LognormalPDF.__init__(self, self.Mach)
+            tools.LognormalPDF.__init__(self, self.Mach)
             TimingReader.__init__(self, self.basedir, self.problem_id)
 
 #            # Set nums dictionary (when hdf5 is stored in elsewhere for storage reasons)
@@ -152,7 +149,7 @@ class LoadSimCoreFormation(LoadSim, Hst, SliceProj, LognormalPDF,
                 self.logger.warning(f"Failed to select core with method {method} for model {self.basename}")
         elif isinstance(basedir_or_Mach, (float, int)):
             self.Mach = basedir_or_Mach
-            LognormalPDF.__init__(self, self.Mach)
+            tools.LognormalPDF.__init__(self, self.Mach)
         elif basedir_or_Mach is None:
             pass
         else:

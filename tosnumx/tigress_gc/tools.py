@@ -4,10 +4,10 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from scipy import optimize
-from pyathena.tigress_gc import config
-from pyathena.util import transform
-from pyathena.util import units
+from pyathena.util import transform, units
 from pyathena.classic import cooling
+
+from . import config
 
 u = units.Units(muH=config.muH)
 

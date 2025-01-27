@@ -1,5 +1,3 @@
-# slc_prj.py
-
 import os
 import os.path as osp
 import numpy as np
@@ -10,12 +8,10 @@ import astropy.constants as ac
 from matplotlib.colors import Normalize, LogNorm
 from mpl_toolkits.axes_grid1 import ImageGrid
 import xarray as xr
-
-from ..load_sim import LoadSim
-from ..io.read_starpar_vtk import read_starpar_vtk
-from ..plt_tools.cmap_shift import cmap_shift
-from ..plt_tools.plt_starpar import scatter_sp
-from ..classic.utils import texteffect
+from pyathena.load_sim import LoadSim
+from pyathena.plt_tools.cmap_shift import cmap_shift
+from pyathena.plt_tools.plt_starpar import scatter_sp
+from pyathena.classic.utils import texteffect
 
 cmap_def = dict(
     Sigma_gas=plt.cm.pink_r,

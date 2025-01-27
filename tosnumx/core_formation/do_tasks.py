@@ -3,8 +3,8 @@ import numpy as np
 import argparse
 import subprocess
 from multiprocessing import Pool
-import pyathena as pa
-from pyathena.core_formation import config, tasks, tools, models, load_sim_core_formation
+
+from . import config, tasks, models, load_sim_core_formation
 
 if __name__ == "__main__":
     sa = load_sim_core_formation.LoadSimCoreFormationAll(models.models)
