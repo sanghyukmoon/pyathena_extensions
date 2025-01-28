@@ -4,7 +4,7 @@ import argparse
 import subprocess
 from multiprocessing import Pool
 
-from . import config, tasks, models, load_sim
+from core_formation import config, tasks, models, load_sim
 
 if __name__ == "__main__":
     sa = load_sim.LoadSimAll(models.models)
