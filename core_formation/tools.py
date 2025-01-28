@@ -75,7 +75,7 @@ class LognormalPDF:
         return np.exp(x)
 
 
-def find_tcoll_core(s, pid, ncells_min=27):
+def find_tcoll_core(s, pid):
     """Find the GRID-dendro ID of the t_coll core of particle pid
 
     Parameters
@@ -92,7 +92,7 @@ def find_tcoll_core(s, pid, ncells_min=27):
     """
     # load dendrogram at t = t_coll
     num = s.tcoll_cores.loc[pid].num
-    gd = s.load_dendro(num, pruned=False)
+    gd = s.load_dendro(num)
 
     # find closeast leaf node to this particle
     pos_particle = s.tcoll_cores.loc[pid][['x1', 'x2', 'x3']]
@@ -101,12 +101,8 @@ def find_tcoll_core(s, pid, ncells_min=27):
            for lid in gd.leaves]
     lid = gd.leaves[np.argmin(dst)]
 
-    if gd.len(lid) < ncells_min:
-        # t_coll core is unresolved
-        return None
-    else:
-        # return the grid-dendro ID of the t_coll core
-        return lid
+    # return the grid-dendro ID of the t_coll core
+    return lid
 
 
 # TODO Can we predict the new sink position using the mean velocity inside the core?
