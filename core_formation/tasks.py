@@ -528,7 +528,7 @@ def plot_sink_history(s, num, overwrite=False):
         print('[plot_sink_history] file already exists. Skipping...')
         return
     ds = s.load_hdf5(num, quantities=['dens',], load_method='pyathena')
-    pds = s.load_parbin(num)
+    pds = s.load_par(num)
     fig = plots.plot_sinkhistory(s, ds, pds)
     fig.savefig(fname, bbox_inches='tight', dpi=200)
     plt.close(fig)

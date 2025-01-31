@@ -171,7 +171,7 @@ def track_cores(s, pid):
             print(msg.format(s.basename, pid, num))
             gd = s.load_dendro(num)
             ds = s.load_hdf5(num, header_only=True)
-            pds = s.load_parbin(num)
+            pds = s.load_par(num)
 
             # find closeast leaf to the previous preimage
             dst = [get_node_distance(s, leaf, leaf_id[-1]) for leaf in gd.leaves]
@@ -260,7 +260,7 @@ def track_protostellar_cores(s, pid):
         print(msg.format(s.basename, pid, num))
         gd = s.load_dendro(num)
         ds = s.load_hdf5(num, header_only=True)
-        pds = s.load_parbin(num)
+        pds = s.load_par(num)
 
         if pid not in pds.index:
             # This sink particle has merged to other sink. Stop tracking
@@ -1230,7 +1230,7 @@ def test_isolated_core(s, cores):
     ncrit = cores.attrs['numcrit']
     if np.isnan(ncrit):
         return False
-    pds = s.load_parbin(ncrit)
+    pds = s.load_par(ncrit)
     pstar = pds[['x1', 'x2', 'x3']]
     core = cores.loc[ncrit]
 

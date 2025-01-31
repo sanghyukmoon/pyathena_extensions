@@ -371,7 +371,7 @@ def plot_core_evolution(s, pid, num, rmax=None):
     xc, yc, zc = tools.get_coords_node(s, core.leaf_id)
 
     # Load sink particles
-    pds = s.load_parbin(num)
+    pds = s.load_par(num)
     pds = pds[((pds.x1 > xc - hw) & (pds.x1 < xc + hw)
              & (pds.x2 > yc - hw) & (pds.x2 < yc + hw)
              & (pds.x3 > zc - hw) & (pds.x3 < zc + hw))]

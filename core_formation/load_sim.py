@@ -173,6 +173,14 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                       'mean_mass_per_hydrogen': (muH*mH).cgs.value}
         self.u = Units('custom', units_dict=units_dict)
 
+    def load_par(self, num, **kwargs):
+        """Load partab or parbin"""
+        if 'parbin' in self.files:
+            return self.load_parbin(num, **kwargs)
+        elif 'partab' in self.files:
+            return self.load_partab(num, **kwargs)
+        else:
+            raise FileNotFoundError("partab or parbin not found")
 
     def load_dendro(self, num, pruned=True):
         """Load pickled dendrogram object
