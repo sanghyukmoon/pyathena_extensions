@@ -790,14 +790,21 @@ def calculate_accelerations(s, rprf):
                grv=rprf.gacc1_mw,
                ani=((rprf.dvel2_sq_mw + rprf.dvel3_sq_mw - 2*rprf.dvel1_sq_mw)
                     / rprf.r).where(rprf.r > 0, other=0))
+    if s.mhd:
+        pmag = 0.5*(rprf.b2**2 + rprf.b3**2 - rprf.b1**2)
+        acc['mag'] = -pmag.differentiate('r') / rprf.rho
+    else:
+        acc['mag'] = rprf.rho*0
+
     acc = xr.Dataset(acc)
-    acc['dvdt_lagrange'] = acc.thm + acc.trb + acc.grv + acc.cen + acc.ani
+    acc['dvdt_lagrange'] = acc.thm + acc.trb + acc.mag + acc.grv + acc.cen + acc.ani
     acc['dvdt_euler'] = acc.dvdt_lagrange - acc.adv
 
     dm = 4*np.pi*rprf.r**2*rprf.rho
     acc['Fadv'] = (dm*acc.adv).cumulative_integrate('r')
     acc['Fthm'] = (dm*acc.thm).cumulative_integrate('r')
     acc['Ftrb'] = (dm*acc.trb).cumulative_integrate('r')
+    acc['Fmag'] = (dm*acc.mag).cumulative_integrate('r')
     acc['Fcen'] = (dm*acc.cen).cumulative_integrate('r')
     acc['Fgrv'] = (-dm*acc.grv).cumulative_integrate('r')
     acc['Fani'] = (dm*acc.ani).cumulative_integrate('r')
