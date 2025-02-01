@@ -453,33 +453,28 @@ def calculate_radial_profile(s, ds, origin, rmax, lvec=None):
     # Perform radial binnings
     rprofs = {}
 
-    # Volume-weighted averages
-    k = 'rho'
-    rprf_c = ds[k].sel(x=origin[0], y=origin[1], z=origin[2]).drop_vars(['x', 'y', 'z'])
-    rprf = transform.fast_groupby_bins(ds[k], 'r', ledge, redge, nbin)
-    rprofs[k] = xr.concat([rprf_c, rprf], 'r')
-    if s.mhd:
-        for k in ['bx', 'by', 'bz', 'b1', 'b2', 'b3']:
-            rprf_c = ds[k].sel(x=origin[0], y=origin[1], z=origin[2]).drop_vars(['x', 'y', 'z'])
-            rprf = transform.fast_groupby_bins(ds[k], 'r', ledge, redge, nbin)
-            rprofs[k] = xr.concat([rprf_c, rprf], 'r')
-            # Squared average
-            rprf_c = ds[k].sel(x=origin[0], y=origin[1], z=origin[2]).drop_vars(['x', 'y', 'z'])**2
-            rprf = transform.fast_groupby_bins(ds[k]**2, 'r', ledge, redge, nbin)
-            rprofs[k+'_sq'] = xr.concat([rprf_c, rprf], 'r')
+    def rprf_incl_center(qty, mass_weighted=False):
+        """Inner wrapper function for radial binning
 
+        This function assumes that rprofs['rho'] is already calculated.
+        """
+        rprf_c = qty.sel(x=origin[0], y=origin[1], z=origin[2]).drop_vars(['x', 'y', 'z'])
+        if mass_weighted:
+            rprf = transform.fast_groupby_bins(ds.rho*qty, 'r', ledge, redge, nbin) / rprofs['rho']
+        else:
+            rprf = transform.fast_groupby_bins(qty, 'r', ledge, redge, nbin)
+        return xr.concat([rprf_c, rprf], 'r')
+
+    # Volume-weighted averages
+    rprofs['rho'] = rprf_incl_center(ds['rho'])
     # Mass-weighted averages
     for k in ['gacc1', 'velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3', 'phi']:
-        rprf_c = ds[k].sel(x=origin[0], y=origin[1], z=origin[2]).drop_vars(['x', 'y', 'z'])
-        rprf = transform.fast_groupby_bins(ds.rho*ds[k], 'r', ledge, redge, nbin) / rprofs['rho']
-        rprofs[k+'_mw'] = xr.concat([rprf_c, rprf], 'r')
-
-    # Mass-weighted average of the quantity squared
-    for k in ['velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3']:
-        rprf_c = ds[k].sel(x=origin[0], y=origin[1], z=origin[2]).drop_vars(['x', 'y', 'z'])**2
-        rprf = transform.fast_groupby_bins(ds.rho*ds[k]**2, 'r', ledge, redge, nbin) / rprofs['rho']
-        rprofs[k+'_sq_mw'] = xr.concat([rprf_c, rprf], 'r')
-
+        rprofs[k+'_mw'] = rprf_incl_center(ds[k], mass_weighted=True)
+        rprofs[k+'_sq_mw'] = rprf_incl_center(ds[k]**2, mass_weighted=True)
+    if s.mhd:
+        for k in ['bx', 'by', 'bz', 'b1', 'b2', 'b3']:
+            rprofs[k] = rprf_incl_center(ds[k])
+            rprofs[k+'_sq'] = rprf_incl_center(ds[k]**2)
     rprofs = xr.Dataset(rprofs)
 
     # Drop theta and phi coordinates
