@@ -229,7 +229,7 @@ def plot_cum_forces(s, rprf, core, ax=None, lw=1):
 
 
 def plot_forces(s, rprf, ax=None, xlim=(0, 0.2), ylim=(-20, 50)):
-    acc = tools.calculate_accelerations(rprf)
+    acc = tools.calculate_accelerations(s, rprf)
 
     if ax is not None:
         plt.sca(ax)
