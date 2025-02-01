@@ -229,16 +229,14 @@ def plot_cum_forces(s, rprf, core, ax=None, lw=1):
 
 
 def plot_forces(s, rprf, ax=None, xlim=(0, 0.2), ylim=(-20, 50)):
-    acc = tools.calculate_accelerations(s, rprf)
-
     if ax is not None:
         plt.sca(ax)
 
-    (acc.thm/(-acc.grv)).plot(lw=1, color='tab:blue', label=r'$f_\mathrm{thm}$')
-    (acc.trb/(-acc.grv)).plot(lw=1, color='tab:orange', label=r'$f_\mathrm{trb}$')
-    (acc.cen/(-acc.grv)).plot(lw=1, color='tab:green', label=r'$f_\mathrm{cen}$')
-    (acc.ani/(-acc.grv)).plot(lw=1, color='tab:purple', label=r'$f_\mathrm{ani}$')
-    net = (acc.thm + acc.trb + acc.cen + acc.ani + acc.grv)/(-acc.grv)
+    (rprf.thm/(-rprf.grv)).plot(lw=1, color='tab:blue', label=r'$f_\mathrm{thm}$')
+    (rprf.trb/(-rprf.grv)).plot(lw=1, color='tab:orange', label=r'$f_\mathrm{trb}$')
+    (rprf.cen/(-rprf.grv)).plot(lw=1, color='tab:green', label=r'$f_\mathrm{cen}$')
+    (rprf.ani/(-rprf.grv)).plot(lw=1, color='tab:purple', label=r'$f_\mathrm{ani}$')
+    net = (rprf.thm + rprf.trb + rprf.cen + rprf.ani + rprf.grv)/(-rprf.grv)
     net.plot(lw=1.5, color='k', label='net')
 
 
