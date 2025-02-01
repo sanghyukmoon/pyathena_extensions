@@ -228,7 +228,7 @@ def plot_cum_forces(s, rprf, core, ax=None, lw=1):
     plt.legend(ncol=3, loc='lower left')
 
 
-def plot_forces(s, rprf, ax=None, xlim=(0, 0.2), ylim=(-20, 50)):
+def plot_forces(s, rprf, ax=None, xlim=(0, 0.2), ylim=(-2, 3)):
     if ax is not None:
         plt.sca(ax)
 
@@ -547,7 +547,7 @@ def plot_core_evolution(s, pid, num, rmax=None):
 
     # 6. Accelerations
     plt.sca(axs['acc'])
-    plot_forces(s, rprf, ylim=(-2, 3))
+    plot_forces(s, rprf)
     plt.title('')
     plt.xlim(0, rmax)
     plt.legend(ncol=3, fontsize=17, loc='upper right')
