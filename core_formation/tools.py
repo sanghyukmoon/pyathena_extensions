@@ -763,11 +763,13 @@ def calculate_infall_rate(rprofs, cores):
     return rprofs
 
 
-def calculate_accelerations(rprf):
+def calculate_accelerations(s, rprf):
     """Calculate RHS of the Lagrangian EOM (force per unit mass)
 
     Parameters
     ----------
+    s : LoadSim
+        Object containing simulation metadata.
     rprf : xarray.Dataset
         Radial profiles
 
@@ -779,7 +781,7 @@ def calculate_accelerations(rprf):
     """
     if 'num' in rprf.indexes:
         rprf = rprf.drop_indexes('num')
-    pthm = rprf.rho
+    pthm = rprf.rho*s.cs**2
     ptrb = rprf.rho*rprf.dvel1_sq_mw
     acc = dict(adv=rprf.vel1_mw*rprf.vel1_mw.differentiate('r'),
                thm=-pthm.differentiate('r') / rprf.rho,
