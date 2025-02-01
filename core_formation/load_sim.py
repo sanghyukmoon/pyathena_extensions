@@ -11,7 +11,7 @@ from pyathena.load_sim import LoadSim as LoadSimBase
 from pyathena.util.units import Units
 from pyathena.io.timing_reader import TimingReader
 
-from . import tools, hst, slc_prj
+from . import models, tools, hst, slc_prj
 
 
 class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
@@ -87,6 +87,15 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             super().__init__(basedir, savdir=savdir, load_method=load_method,
                              units=Units('code'), verbose=verbose)
             self.Mach = self.par['problem']['Mach']
+            if self.basename.replace(".", "") in models.hydro_old:
+                # Old hydro models does not have 'configure' block
+                # Simply set mhd = False
+                self.mhd = False
+            else:
+                if self.par['configure']['Magnetic_fields'] == 'ON':
+                    self.mhd = True
+                else:
+                    self.mhd = False
 
             tools.LognormalPDF.__init__(self, self.Mach)
             TimingReader.__init__(self, self.basedir, self.problem_id)
