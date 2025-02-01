@@ -437,22 +437,36 @@ def calculate_radial_profile(s, ds, origin, rmax, lvec=None):
         vel_ = ds[f'mom{axis}']/ds.dens
         ds[f'vel{dim}'] = vel_ - vel_.sel(x=origin[0], y=origin[1], z=origin[2])
         gacc[dim] = -ds.phi.differentiate(dim)
+    ds = ds.drop_vars(['mom1', 'mom2', 'mom3'])
+    ds = ds.rename_vars(dict(dens='rho'))
+    if s.mhd:
+        ds = ds.rename_vars(dict(Bcc1='bx', Bcc2='by', Bcc3='bz'))
 
     _, (ds['vel1'], ds['vel2'], ds['vel3'])\
         = transform.to_spherical((ds.velx, ds.vely, ds.velz), origin, lvec)
+    if s.mhd:
+        _, (ds['b1'], ds['b2'], ds['b3'])\
+            = transform.to_spherical((ds.bx, ds.by, ds.bz), origin, lvec)
     _, (ds['gacc1'], _, _)\
         = transform.to_spherical(gacc.values(), origin, lvec)
-    ds = ds.drop_vars(['mom1', 'mom2', 'mom3'])
-    ds = ds.rename_vars(dict(dens='rho'))
 
     # Perform radial binnings
     rprofs = {}
 
     # Volume-weighted averages
-    for k in ['rho']:
-        rprf_c = ds[k].sel(x=origin[0], y=origin[1], z=origin[2]).drop_vars(['x', 'y', 'z'])
-        rprf = transform.fast_groupby_bins(ds[k], 'r', ledge, redge, nbin)
-        rprofs[k] = xr.concat([rprf_c, rprf], 'r')
+    k = 'rho'
+    rprf_c = ds[k].sel(x=origin[0], y=origin[1], z=origin[2]).drop_vars(['x', 'y', 'z'])
+    rprf = transform.fast_groupby_bins(ds[k], 'r', ledge, redge, nbin)
+    rprofs[k] = xr.concat([rprf_c, rprf], 'r')
+    if s.mhd:
+        for k in ['bx', 'by', 'bz', 'b1', 'b2', 'b3']:
+            rprf_c = ds[k].sel(x=origin[0], y=origin[1], z=origin[2]).drop_vars(['x', 'y', 'z'])
+            rprf = transform.fast_groupby_bins(ds[k], 'r', ledge, redge, nbin)
+            rprofs[k] = xr.concat([rprf_c, rprf], 'r')
+            # Squared average
+            rprf_c = ds[k].sel(x=origin[0], y=origin[1], z=origin[2]).drop_vars(['x', 'y', 'z'])**2
+            rprf = transform.fast_groupby_bins(ds[k]**2, 'r', ledge, redge, nbin)
+            rprofs[k+'_sq'] = xr.concat([rprf_c, rprf], 'r')
 
     # Mass-weighted averages
     for k in ['gacc1', 'velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3', 'phi']:
