@@ -608,10 +608,14 @@ def calculate_lagrangian_props(s, cores, rprofs):
         radius = menc_crit = rhoe = rhoavg = np.nan
         vinfall = vcom = sigma_mw = sigma_1d = sigma_1d_trb = sigma_1d_blk = np.nan
         Fthm = Ftrb = Fcen = Fani = Fgrv = np.nan
+        if s.mhd:
+            Fmag = np.nan
     else:
         radius, menc_crit, rhoe, rhoavg = [], [], [], []
         vinfall, vcom, sigma_mw, sigma_1d, sigma_1d_trb, sigma_1d_blk = [], [], [], [], [], []
         Fthm, Ftrb, Fcen, Fani, Fgrv = [], [], [], [], []
+        if s.mhd:
+            Fmag = []
         for num, core in cores.iterrows():
             rprof = rprofs.sel(num=num)
 
@@ -677,10 +681,14 @@ def calculate_lagrangian_props(s, cores, rprofs):
             Fcen.append(rprf.Fcen.data[()])
             Fani.append(rprf.Fani.data[()])
             Fgrv.append(rprf.Fgrv.data[()])
+            if s.mhd:
+                Fmag.append(rprf.Fmag.data[()])
     lprops = pd.DataFrame(data = dict(radius=radius, menc_crit=menc_crit, edge_density=rhoe, mean_density=rhoavg,
                                       vinfall=vinfall, vcom=vcom, sigma_mw=sigma_mw, sigma_1d=sigma_1d, sigma_1d_trb=sigma_1d_trb, sigma_1d_blk=sigma_1d_blk,
                                       Fthm=Fthm, Ftrb=Ftrb, Fcen=Fcen, Fani=Fani, Fgrv=Fgrv),
                           index = cores.index)
+    if s.mhd:
+        lprops['Fmag'] = Fmag
 
     # Attach some attributes
     # Velocity dispersion at t_crit
