@@ -500,7 +500,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                                                  - rprofs[f'vel{axis}_mw']**2)
                 rprofs['menc'] = (4*np.pi*rprofs.r**2*rprofs.rho
                                   ).cumulative_integrate('r')
-                rprofs = rprofs.merge(tools.calculate_accelerations(self.rprofs))
+                rprofs = rprofs.merge(tools.calculate_accelerations(self, rprofs))
                 rprofs = rprofs.set_xindex('num')
 
             # Read projected radial profiles
