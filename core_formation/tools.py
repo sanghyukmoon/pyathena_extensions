@@ -1032,11 +1032,12 @@ def critical_time(s, pid, method='empirical'):
             # Net force at the critical radius is negative after the
             # critical time, throughout the collapse.
             if np.isfinite(core.critical_radius):
+                rprf = rprf.interp(r=core.critical_radius)
                 fnet = (rprf.Fthm + rprf.Ftrb + rprf.Fcen + rprf.Fani
                         - rprf.Fgrv)
                 if s.mhd:
                     fnet += rprf.Fmag
-                fnet = fnet.interp(r=core.critical_radius).data[()]
+                fnet = fnet.data[()]
             else:
                 fnet = np.nan
             # Whatever fnet is, if it is not negative, we should break.
