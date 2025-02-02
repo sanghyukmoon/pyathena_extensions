@@ -609,13 +609,13 @@ def calculate_lagrangian_props(s, cores, rprofs):
         vinfall = vcom = sigma_mw = sigma_1d = sigma_1d_trb = sigma_1d_blk = np.nan
         Fthm = Ftrb = Fcen = Fani = Fgrv = np.nan
         if s.mhd:
-            Fmag = np.nan
+            Fmag = Fmag_ani = np.nan
     else:
         radius, menc_crit, rhoe, rhoavg = [], [], [], []
         vinfall, vcom, sigma_mw, sigma_1d, sigma_1d_trb, sigma_1d_blk = [], [], [], [], [], []
         Fthm, Ftrb, Fcen, Fani, Fgrv = [], [], [], [], []
         if s.mhd:
-            Fmag = []
+            Fmag, Fmag_ani = [], []
         for num, core in cores.iterrows():
             rprof = rprofs.sel(num=num)
 
@@ -683,12 +683,26 @@ def calculate_lagrangian_props(s, cores, rprofs):
             Fgrv.append(rprf.Fgrv.data[()])
             if s.mhd:
                 Fmag.append(rprf.Fmag.data[()])
-    lprops = pd.DataFrame(data = dict(radius=radius, menc_crit=menc_crit, edge_density=rhoe, mean_density=rhoavg,
-                                      vinfall=vinfall, vcom=vcom, sigma_mw=sigma_mw, sigma_1d=sigma_1d, sigma_1d_trb=sigma_1d_trb, sigma_1d_blk=sigma_1d_blk,
-                                      Fthm=Fthm, Ftrb=Ftrb, Fcen=Fcen, Fani=Fani, Fgrv=Fgrv),
+                Fmag_ani.append(rprf.Fmag_ani.data[()])
+    lprops = pd.DataFrame(data = dict(radius=radius,
+                                      menc_crit=menc_crit,
+                                      edge_density=rhoe,
+                                      mean_density=rhoavg,
+                                      vinfall=vinfall,
+                                      vcom=vcom,
+                                      sigma_mw=sigma_mw,
+                                      sigma_1d=sigma_1d,
+                                      sigma_1d_trb=sigma_1d_trb,
+                                      sigma_1d_blk=sigma_1d_blk,
+                                      Fthm=Fthm,
+                                      Ftrb=Ftrb,
+                                      Fcen=Fcen,
+                                      Fani=Fani,
+                                      Fgrv=Fgrv),
                           index = cores.index)
     if s.mhd:
         lprops['Fmag'] = Fmag
+        lprops['Fmag_ani'] = Fmag_ani
 
     # Attach some attributes
     # Velocity dispersion at t_crit
@@ -810,11 +824,15 @@ def calculate_accelerations(s, rprf):
     if s.mhd:
         pmag = 0.5*(rprf.b2**2 + rprf.b3**2 - rprf.b1**2)
         acc['mag'] = -pmag.differentiate('r') / rprf.rho
+        acc['mag_ani'] = ((2*rprf.b1**2 - rprf.b2**2 - rprf.b3**2) / rprf.rho
+                          / rprf.r).where(rprf.r > 0, other=0)
     else:
         acc['mag'] = rprf.rho*0
+        acc['mag_ani'] = rprf.rho*0
 
     acc = xr.Dataset(acc)
-    acc['dvdt_lagrange'] = acc.thm + acc.trb + acc.mag + acc.grv + acc.cen + acc.ani
+    acc['dvdt_lagrange'] = (acc.thm + acc.trb + acc.mag + acc.grv
+                            + acc.cen + acc.ani + acc.mag_ani)
     acc['dvdt_euler'] = acc.dvdt_lagrange - acc.adv
 
     dm = 4*np.pi*rprf.r**2*rprf.rho
@@ -825,6 +843,7 @@ def calculate_accelerations(s, rprf):
     acc['Fcen'] = (dm*acc.cen).cumulative_integrate('r')
     acc['Fgrv'] = (-dm*acc.grv).cumulative_integrate('r')
     acc['Fani'] = (dm*acc.ani).cumulative_integrate('r')
+    acc['Fmag_ani'] = (dm*acc.mag_ani).cumulative_integrate('r')
 
     return acc
 
@@ -1036,7 +1055,7 @@ def critical_time(s, pid, method='empirical'):
                 fnet = (rprf.Fthm + rprf.Ftrb + rprf.Fcen + rprf.Fani
                         - rprf.Fgrv)
                 if s.mhd:
-                    fnet += rprf.Fmag
+                    fnet += (rprf.Fmag + rprf.Fmag_ani)
                 fnet = fnet.data[()]
             else:
                 fnet = np.nan
