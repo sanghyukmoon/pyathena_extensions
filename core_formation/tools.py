@@ -1034,6 +1034,8 @@ def critical_time(s, pid, method='empirical'):
             if np.isfinite(core.critical_radius):
                 fnet = (rprf.Fthm + rprf.Ftrb + rprf.Fcen + rprf.Fani
                         - rprf.Fgrv)
+                if s.mhd:
+                    fnet += rprf.Fmag
                 fnet = fnet.interp(r=core.critical_radius).data[()]
             else:
                 fnet = np.nan
