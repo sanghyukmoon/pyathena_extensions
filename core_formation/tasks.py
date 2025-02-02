@@ -205,7 +205,10 @@ def radial_profile(s, num, pids, overwrite=False, full_radius=False, days_overwr
            f"num = {num}.")
     print(msg)
     # Load the snapshot
-    ds0 = s.load_hdf5(num, quantities=['dens','phi','mom1','mom2','mom3'])
+    fields = ['dens', 'phi', 'mom1', 'mom2', 'mom3']
+    if s.mhd:
+        fields += ['Bcc1', 'Bcc2', 'Bcc3']
+    ds0 = s.load_hdf5(num, quantities=fields)
     ds0 = ds0.transpose('z', 'y', 'x')
 
     # Loop through cores
