@@ -218,6 +218,10 @@ def plot_cum_forces(s, rprf, core, ax=None, lw=1):
     plt.plot(rprf.r, rprf.Fcen/rprf.Fgrv, lw=lw, c='tab:green', label=r'$F_\mathrm{cen}$')
     plt.plot(rprf.r, rprf.Fani/rprf.Fgrv, lw=lw, c='tab:purple', label=r'$F_\mathrm{ani}$')
     fnet = rprf.Fthm + rprf.Ftrb + rprf.Fcen + rprf.Fani - rprf.Fgrv
+    if s.mhd:
+        plt.plot(rprf.r, rprf.Fmag/rprf.Fgrv, lw=lw, c='tab:red', label=r'$F_\mathrm{mag}$')
+        plt.plot(rprf.r, rprf.Fmag_ani/rprf.Fgrv, lw=lw, c='tab:brown', label=r'$F_\mathrm{mag,ani}$')
+        fnet += (rprf.Fmag + rprf.Fmag_ani)
     plt.plot(rprf.r, fnet/rprf.Fgrv, 'k-', lw=1.5*lw, label=r'$F_\mathrm{net}$')
 
 
@@ -236,8 +240,13 @@ def plot_forces(s, rprf, ax=None, xlim=(0, 0.2), ylim=(-2, 3)):
     (rprf.trb/(-rprf.grv)).plot(lw=1, color='tab:orange', label=r'$f_\mathrm{trb}$')
     (rprf.cen/(-rprf.grv)).plot(lw=1, color='tab:green', label=r'$f_\mathrm{cen}$')
     (rprf.ani/(-rprf.grv)).plot(lw=1, color='tab:purple', label=r'$f_\mathrm{ani}$')
-    net = (rprf.thm + rprf.trb + rprf.cen + rprf.ani + rprf.grv)/(-rprf.grv)
-    net.plot(lw=1.5, color='k', label='net')
+    fnet = (rprf.thm + rprf.trb + rprf.cen + rprf.ani + rprf.grv)
+    if s.mhd:
+        (rprf.mag/(-rprf.grv)).plot(lw=1, color='tab:red', label=r'$f_\mathrm{mag}$')
+        (rprf.mag_ani/(-rprf.grv)).plot(lw=1, color='tab:brown', label=r'$f_\mathrm{mag,ani}$')
+        fnet += (rprf.mag + rprf.mag_ani)
+
+    plt.plot(rprf.r, fnet/(-rprf.grv), lw=1.5, color='k', label=r'$f_\mathrm{net}$')
 
 
     plt.axhline(0, linestyle=':')
@@ -496,7 +505,7 @@ def plot_core_evolution(s, pid, num, rmax=None):
     plt.sca(axs['force'][0])
     plt.xlim(s.dx/2, 2*rmax)
     plt.xscale('log')
-    plt.legend()
+    plt.legend(loc='upper right')
     plt.sca(axs['force'][1])
     plt.xlim(0, rmax)
     plt.legend([], [])
