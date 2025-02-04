@@ -822,9 +822,9 @@ def calculate_accelerations(s, rprf):
                ani=((rprf.dvel2_sq_mw + rprf.dvel3_sq_mw - 2*rprf.dvel1_sq_mw)
                     / rprf.r).where(rprf.r > 0, other=0))
     if s.mhd:
-        pmag = 0.5*(rprf.b2**2 + rprf.b3**2 - rprf.b1**2)
+        pmag = 0.5*(rprf.b2_sq + rprf.b3_sq - rprf.b1_sq)
         acc['mag'] = -pmag.differentiate('r') / rprf.rho
-        acc['mag_ani'] = ((2*rprf.b1**2 - rprf.b2**2 - rprf.b3**2) / rprf.rho
+        acc['mag_ani'] = ((2*rprf.b1_sq - rprf.b2_sq - rprf.b3_sq) / rprf.rho
                           / rprf.r).where(rprf.r > 0, other=0)
     else:
         acc['mag'] = rprf.rho*0
