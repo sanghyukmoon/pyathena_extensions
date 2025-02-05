@@ -16,7 +16,6 @@ import xarray as xr
 # Let's disable third party softwares to go conservative.
 # Accuracy is more important than performance.
 xr.set_options(use_bottleneck=False, use_numbagg=False)
-from yt.frontends.athena_pp.data_structures import AthenaPPDataset
 from tesphere import tes
 from grid_dendro import energy
 
@@ -32,7 +31,7 @@ def plot_projection(s, ds, field='dens', axis='z', op='sum',
     ----------
     s : LoadSim
         Object containing simulation metadata.
-    ds : AthenaPPDataset or xarray.Dataset
+    ds : xarray.Dataset
         Object containing fluid variables.
     field : str, optional
         Variable to plot.
@@ -78,27 +77,17 @@ def plot_projection(s, ds, field='dens', axis='z', op='sum',
                                         (zmin, zmax, xmin, xmax),
                                         (xmin, xmax, ymin, ymax))))
     permutations = dict(z=('y', 'x'), y=('x', 'z'), x=('z', 'y'))
-    field_dict_yt = dict(dens=('athena_pp', 'dens'))
     field_dict_pyathena = dict(dens='dens', mask='mask')
 
-    if isinstance(ds, AthenaPPDataset):
-        # create projection using yt
-        fld = field_dict_yt[field]
-        prj = ds.proj(fld, axis)
-        prj = prj.to_frb(width=wh[axis][0], height=wh[axis][1], resolution=800)
-        prj = np.array(prj[fld])
-    elif isinstance(ds, xr.Dataset):
-        fld = field_dict_pyathena[field]
-        if op == 'sum':
-            prj = ds[fld].integrate(axis).transpose(*permutations[axis])
-        elif op == 'max':
-            prj = ds[fld].max(axis).transpose(*permutations[axis])
-        if noplot:
-            return prj
-        else:
-            prj = prj.to_numpy()
+    fld = field_dict_pyathena[field]
+    if op == 'sum':
+        prj = ds[fld].integrate(axis).transpose(*permutations[axis])
+    elif op == 'max':
+        prj = ds[fld].max(axis).transpose(*permutations[axis])
+    if noplot:
+        return prj
     else:
-        TypeError("ds must be either yt or xarray dataset")
+        prj = prj.to_numpy()
 
     if ax is not None:
         plt.sca(ax)

@@ -56,7 +56,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
     """
 
     def __init__(self, basedir_or_Mach=None, method='empirical', savdir=None,
-                 load_method='pyathena', verbose=False, force_override=False):
+                 verbose=False, force_override=False):
         """The constructor for LoadSim class for core formation simulations.
 
         Parameters
@@ -69,8 +69,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         savdir : str
             Name of the directory where pickled data and figures will be saved.
             Default value is basedir.
-        load_method : str
-            Load hdf5 using 'pyathena' or 'yt'. Default value is 'pyathena'.
         verbose : bool or str or int
             Print verbose messages using logger. If True/False, set logger
             level to 'DEBUG'/'WARNING'. If string, it should be one of the
@@ -89,7 +87,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
         if isinstance(basedir_or_Mach, (Path, str)):
             basedir = basedir_or_Mach
-            super().__init__(basedir, savdir=savdir, load_method=load_method,
+            super().__init__(basedir, savdir=savdir, load_method='pyathena',
                              units=Units('code'), verbose=verbose)
             self.Mach = self.par['problem']['Mach']
             if self.basename.replace(".", "") in models.hydro_old:
@@ -567,14 +565,12 @@ class LoadSimAll(object):
                 self.basedirs[mdl] = basedir
 
     def set_model(self, model, method='empirical', savdir=None,
-                  load_method='pyathena', verbose=False,
-                  reset=False, force_override=False):
+                  verbose=False, reset=False, force_override=False):
         self.model = model
         if reset or force_override:
             self.sim = LoadSim(self.basedirs[model],
                                method=method,
                                savdir=savdir,
-                               load_method=load_method,
                                verbose=verbose,
                                force_override=force_override)
             self.simdict[model] = self.sim
@@ -585,7 +581,6 @@ class LoadSimAll(object):
                 self.sim = LoadSim(self.basedirs[model],
                                    method=method,
                                    savdir=savdir,
-                                   load_method=load_method,
                                    verbose=verbose,
                                    force_override=force_override)
                 self.simdict[model] = self.sim
