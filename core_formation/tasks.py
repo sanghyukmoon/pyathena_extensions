@@ -776,28 +776,3 @@ def plot_pdfs(s, num, overwrite=False):
     fig.tight_layout()
     fig.savefig(fname, bbox_inches='tight')
     plt.close(fig)
-
-
-def compare_projection(s1, s2, odir=Path("/tigress/sm69/public_html/files")):
-    """Creates two panel plot comparing density projections
-
-    Save projections in {basedir}/figures for all snapshots.
-
-    Args:
-        s1: pyathena.LoadSim instance
-        s2: pyathena.LoadSim instance
-    """
-    fig, axs = plt.subplots(1, 2, figsize=(14, 7))
-    nums = list(set(s1.nums) & set(s2.nums))
-    odir = odir / "{}_{}".format(s1.basename, s2.basename)
-    odir.mkdir(exist_ok=True)
-    for num in nums:
-        for ax, s in zip(axs, [s1, s2]):
-            ds = s.load_hdf5(num, load_method='yt')
-            plots.plot_projection(s, ds, ax=ax, add_colorbar=False)
-            ax.set_title(r'$t={:.3f}$'.format(ds.current_time.value),
-                         fontsize=16)
-        fname = odir / "Projection_z_dens.{:05d}.png".format(num)
-        fig.savefig(fname, bbox_inches='tight', dpi=200)
-        for ax in axs:
-            ax.cla()
