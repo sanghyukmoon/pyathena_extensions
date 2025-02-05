@@ -4,6 +4,11 @@ import datetime
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
+# Bottleneck does not use stable sum.
+# See xarray #1346, #7344 and bottleneck #193, #462 and more.
+# Let's disable third party softwares to go conservative.
+# Accuracy is more important than performance.
+xr.set_options(use_bottleneck=False, use_numbagg=False)
 import subprocess
 import pickle
 import glob

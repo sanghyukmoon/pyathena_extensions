@@ -11,6 +11,11 @@ from matplotlib.colors import LogNorm
 from matplotlib.markers import MarkerStyle
 import numpy as np
 import xarray as xr
+# Bottleneck does not use stable sum.
+# See xarray #1346, #7344 and bottleneck #193, #462 and more.
+# Let's disable third party softwares to go conservative.
+# Accuracy is more important than performance.
+xr.set_options(use_bottleneck=False, use_numbagg=False)
 from yt.frontends.athena_pp.data_structures import AthenaPPDataset
 from tesphere import tes
 from grid_dendro import energy
