@@ -402,7 +402,7 @@ def calculate_radial_profile(s, ds, origin, rmax, lvec=None):
         Object containing simulation metadata.
     ds : xarray.Dataset
         Object containing simulation data.
-    origin : tuple-like
+    origin : tuple, list, or numpy.ndarray
         Coordinate origin (x0, y0, z0).
     rmax : float
         Maximum radius of radial bins.
@@ -496,9 +496,12 @@ def calculate_prj_radial_profile(s, num, origin):
     Parameters
     ----------
     s : LoadSim
-        LoadSim instance.
-    core : pandas.Series
-        Object containing core informations
+        Object containing simulation metadata.
+    num : int
+        Snapshot number.
+    origin : tuple, list, or numpy.ndarray
+        Coordinate origin (x0, y0, z0).
+
 
     Returns
     -------
