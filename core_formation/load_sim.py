@@ -87,7 +87,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
         if isinstance(basedir_or_Mach, (Path, str)):
             basedir = basedir_or_Mach
-            super().__init__(basedir, savdir=savdir, load_method='pyathena',
+            super().__init__(basedir, savdir=savdir, load_method='xarray',
                              units=Units('code'), verbose=verbose)
             self.Mach = self.par['problem']['Mach']
             if self.basename.replace(".", "") in models.hydro_old:

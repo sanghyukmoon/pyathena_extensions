@@ -358,7 +358,7 @@ def plot_core_evolution(s, pid, num, rmax=None):
     hw = 1.1*rmax
 
     # Load data
-    ds = s.load_hdf5(num, quantities=['dens'], load_method='pyathena')
+    ds = s.load_hdf5(num, quantities=['dens'], load_method='xarray')
     gd = s.load_dendro(num)
     core = s.cores[pid].loc[num]
     core_tcrit_pred = s.cores_dict['predicted'][pid].loc[num]
@@ -798,7 +798,7 @@ def plot_sinkhistory(s, ds, pds):
 
 
 def plot_Pspec(s, ds, ax=None, ax_twin=None):
-    """Requires load_method='pyathena'"""
+    """Requires load_method='xarray'"""
     # prepare frequencies
     from scipy.fft import fftn, fftfreq, fftshift
     from pyathena.util.transform import groupby_bins
@@ -880,7 +880,7 @@ def plot_central_density_evolution(s, ax=None):
 
 
 def plot_PDF(s, ds, ax=None):
-    """Requires load_method='pyathena'"""
+    """Requires load_method='xarray'"""
     def gaussian(x, mu, sig):
         return np.exp(-(x - mu)**2 / (2*sig**2))/np.sqrt(2*np.pi*sig**2)
 

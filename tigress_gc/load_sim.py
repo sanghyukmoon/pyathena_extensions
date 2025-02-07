@@ -14,7 +14,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj):
     """LoadSim class for analyzing TIGRESS-GC simulations.
     """
 
-    def __init__(self, basedir, savdir=None, load_method='pyathena',
+    def __init__(self, basedir, savdir=None, load_method='xarray',
                  verbose=False, force_override=False):
         """The constructor for LoadSim class for TIGRESS-GC simulations.
 
@@ -26,7 +26,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj):
             Name of the directory where pickled data and figures will be saved.
             Default value is basedir.
         load_method : str
-            Load vtk using 'pyathena' or 'yt'. Default value is 'pyathena'.
+            Load vtk using 'xarray' or 'yt'. Default value is 'xarray'.
             If None, savdir=basedir. Default value is None.
         verbose : bool or str or int
             Print verbose messages using logger. If True/False, set logger
@@ -133,7 +133,7 @@ class LoadSimAll(object):
                 self.basedirs[mdl] = basedir
 
 
-    def set_model(self, model, savdir=None, load_method='pyathena',
+    def set_model(self, model, savdir=None, load_method='xarray',
                   verbose=False, reset=False, force_override=False):
         self.model = model
         if reset or force_override:
