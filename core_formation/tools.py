@@ -490,6 +490,8 @@ def calculate_radial_profile(s, ds, origin, rmax=None, newz=None):
     # Mass-weighted averages
     for k in ['gacc1', 'velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3', 'phi']:
         rprofs[k+'_mw'] = rprf_incl_center(ds[k], mass_weighted=True)
+    # Mass-weighted squared averages
+    for k in ['velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3']:
         rprofs[k+'_sq_mw'] = rprf_incl_center(ds[k]**2, mass_weighted=True)
     if s.mhd:
         for k in ['bx', 'by', 'bz', 'b1', 'b2', 'b3']:
