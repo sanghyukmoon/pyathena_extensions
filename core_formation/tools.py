@@ -393,7 +393,7 @@ def calculate_critical_tes(s, rprf, core):
     return res
 
 
-def calculate_radial_profile(s, ds, origin, rmax, lvec=None):
+def calculate_radial_profile(s, ds, origin, rmax=None, newz=None):
     """Calculates radial profiles of various properties at selected position
 
     Parameters
@@ -402,12 +402,13 @@ def calculate_radial_profile(s, ds, origin, rmax, lvec=None):
         Object containing simulation metadata.
     ds : xarray.Dataset
         Object containing simulation data.
-    origin : tuple, list, or numpy.ndarray
+    origin : tuple or list
         Coordinate origin (x0, y0, z0).
-    rmax : float
-        Maximum radius of radial bins.
-    lvec : array, optional
-        Angular momentum vector to align the polar axis.
+    rmax : float, optional
+        Maximum radius of radial bins. If None, use s.Lbox/2
+    newz : array, optional
+        (x, y, z) vector components of the new z axis. If None, z axis is
+        assumed to be the native z axis.
 
     Returns
     -------
@@ -425,9 +426,12 @@ def calculate_radial_profile(s, ds, origin, rmax, lvec=None):
     # Cannot be computed. In this case, fall back to default behavior.
     # (to_spherical will assume z axis as the polar axis).
     # 2025-02-14: This does not happen anymore. Let's comment this out
-    # to avoid eager evaluation of lvec.
-#    if lvec is not None and (np.array(lvec)**2).sum() == 0:
-#        lvec = None
+    # to avoid eager evaluation of newz.
+#    if newz is not None and (np.array(newz)**2).sum() == 0:
+#        newz = None
+
+    if rmax is None:
+        rmax = s.Lbox/2
 
     # Slice data
     nbin = int(np.ceil(rmax/s.dx))
@@ -450,12 +454,12 @@ def calculate_radial_profile(s, ds, origin, rmax, lvec=None):
         ds = ds.rename_vars(dict(Bcc1='bx', Bcc2='by', Bcc3='bz'))
 
     _, (ds['vel1'], ds['vel2'], ds['vel3'])\
-        = transform.to_spherical((ds.velx, ds.vely, ds.velz), origin, lvec)
+        = transform.to_spherical((ds.velx, ds.vely, ds.velz), origin, newz)
     if s.mhd:
         _, (ds['b1'], ds['b2'], ds['b3'])\
-            = transform.to_spherical((ds.bx, ds.by, ds.bz), origin, lvec)
+            = transform.to_spherical((ds.bx, ds.by, ds.bz), origin, newz)
     _, (ds['gacc1'], _, _)\
-        = transform.to_spherical(gacc.values(), origin, lvec)
+        = transform.to_spherical(gacc.values(), origin, newz)
 
     # Perform radial binnings
     rprofs = {}
