@@ -424,8 +424,10 @@ def calculate_radial_profile(s, ds, origin, rmax, lvec=None):
     # Sometimes, tidal radius is so small that the angular momentum vector
     # Cannot be computed. In this case, fall back to default behavior.
     # (to_spherical will assume z axis as the polar axis).
-    if lvec is not None and (np.array(lvec)**2).sum() == 0:
-        lvec = None
+    # 2025-02-14: This does not happen anymore. Let's comment this out
+    # to avoid eager evaluation of lvec.
+#    if lvec is not None and (np.array(lvec)**2).sum() == 0:
+#        lvec = None
 
     # Slice data
     nbin = int(np.ceil(rmax/s.dx))
@@ -465,9 +467,9 @@ def calculate_radial_profile(s, ds, origin, rmax, lvec=None):
         """
         rprf_c = qty.sel(x=origin[0], y=origin[1], z=origin[2]).drop_vars(['x', 'y', 'z'])
         if mass_weighted:
-            rprf = transform.fast_groupby_bins(ds.rho*qty, 'r', ledge, redge, nbin) / rprofs['rho']
+            rprf = transform.groupby_bins(ds.rho*qty, 'r', nbin, (ledge, redge)) / rprofs['rho']
         else:
-            rprf = transform.fast_groupby_bins(qty, 'r', ledge, redge, nbin)
+            rprf = transform.groupby_bins(qty, 'r', nbin, (ledge, redge))
         return xr.concat([rprf_c, rprf], 'r')
 
     # Volume-weighted averages
