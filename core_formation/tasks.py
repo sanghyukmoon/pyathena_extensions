@@ -163,19 +163,24 @@ def core_tracking(s, pid, protostellar=False, overwrite=False):
     cores.to_pickle(ofname, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def radial_profile(s, num, pids, overwrite=False, full_radius=False, days_overwrite=30):
+def radial_profile(s, num, pids, overwrite=False, full_radius=False,
+                   chunksize=dict(x=256, y=256, z=256), days_overwrite=30):
     """Calculates and pickles radial profiles of all cores.
 
     Parameters
     ----------
     s : LoadSim
         LoadSim instance.
-    pid : int
-        Particle id.
     num : int
         Snapshot number
+    pids : list of int
+        Particle ids to process.
     overwrite : str, optional
         If true, overwrites the existing pickle file.
+    full_radius : bool, optional
+        If true, use the full domain size as the outer radius.
+    chunksize : dict, optional
+        Chunk size for dask-backed xarray dataset.
     """
 
     pids_skip = []
@@ -209,12 +214,10 @@ def radial_profile(s, num, pids, overwrite=False, full_radius=False, days_overwr
     msg = ("[radial_profile] Start reading snapshot at "
            f"num = {num}.")
     print(msg)
+
     # Load the snapshot
-    fields = ['dens', 'phi', 'mom1', 'mom2', 'mom3']
-    if s.mhd:
-        fields += ['Bcc1', 'Bcc2', 'Bcc3']
-    ds0 = s.load_hdf5(num, quantities=fields)
-    ds0 = ds0.transpose('z', 'y', 'x')
+    # ds0 should not be modified in the following loop.
+    ds0 = s.load_hdf5(num, chunks=chunksize)
 
     # Loop through cores
     for pid in pids_to_process:
@@ -252,15 +255,21 @@ def radial_profile(s, num, pids, overwrite=False, full_radius=False, days_overwr
         # Roll the data such that the core is at the center of the domain
         ds, center = tools.recenter_dataset(ds0, center)
 
+        # Workaround for xarray being unable to chunk IndexVariable
+        # see https://github.com/pydata/xarray/issues/6204
+        # The workaround is provided by _chunk_like helper function introduced in
+        # xclim. See https://github.com/Ouranosinc/xclim/pull/1542
+        x, y, z = transform._chunk_like(ds.x, ds.y, ds.z, chunks=ds.chunksizes)
+
         # Calculate the angular momentum vector within the tidal radius.
-        x = ds.x - center['x']
-        y = ds.y - center['y']
-        z = ds.z - center['z']
+        x = x - center['x']
+        y = y - center['y']
+        z = z - center['z']
         r = np.sqrt(z**2 + y**2 + x**2)
-        lx = (y*ds.mom3 - z*ds.mom2).where(r < core.tidal_radius, drop=True).sum().data[()]*s.dV
-        ly = (z*ds.mom1 - x*ds.mom3).where(r < core.tidal_radius, drop=True).sum().data[()]*s.dV
-        lz = (x*ds.mom2 - y*ds.mom1).where(r < core.tidal_radius, drop=True).sum().data[()]*s.dV
-        lvec = np.array([lx, ly, lz])
+        lx = (y*ds.mom3 - z*ds.mom2).where(r < core.tidal_radius).sum().data[()]*s.dV
+        ly = (z*ds.mom1 - x*ds.mom3).where(r < core.tidal_radius).sum().data[()]*s.dV
+        lz = (x*ds.mom2 - y*ds.mom1).where(r < core.tidal_radius).sum().data[()]*s.dV
+        lvec = (lx, ly, lz)
 
         # Calculate radial profile
         rprf = tools.calculate_radial_profile(s, ds, list(center.values()), rmax, lvec)
