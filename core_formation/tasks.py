@@ -274,9 +274,9 @@ def radial_profile(s, num, pids, overwrite=False, full_radius=False,
         # Calculate radial profile
         rprf = tools.calculate_radial_profile(s, ds, list(center.values()), rmax, lvec)
         rprf = rprf.expand_dims(dict(t=[ds.Time,]))
-        rprf['lx'] = xr.DataArray([lx,], dims='t')
-        rprf['ly'] = xr.DataArray([ly,], dims='t')
-        rprf['lz'] = xr.DataArray([lz,], dims='t')
+        rprf['lx'] = xr.DataArray(np.atleast_1d(lx), dims='t')
+        rprf['ly'] = xr.DataArray(np.atleast_1d(ly), dims='t')
+        rprf['lz'] = xr.DataArray(np.atleast_1d(lz), dims='t')
 
         # write to file
         if ofname.exists():
