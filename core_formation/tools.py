@@ -6,6 +6,7 @@ import xarray as xr
 # Accuracy is more important than performance.
 xr.set_options(use_bottleneck=False, use_numbagg=False)
 import pandas as pd
+import dask
 import dask.array as da
 from scipy.special import erfcinv, erfc
 from scipy.stats import linregress
@@ -475,14 +476,17 @@ def calculate_radial_profile(s, ds, origin, rmax=None, newz=None):
             rprf = transform.groupby_bins(ds.rho*qty, 'r', nbin, (ledge, redge)) / rprofs['rho']
         else:
             rprf = transform.groupby_bins(qty, 'r', nbin, (ledge, redge))
-        rprf = xr.DataArray(
-            data=da.concatenate([np.atleast_1d(rprf_c.data), rprf.data]
-                                ).rechunk(rprf.chunksizes['r'][0] + 1),
-            coords=dict(r=np.insert(rprf.r.data, 0, 0)),
-            dims='r',
-            name=rprf.name,
-            attrs=rprf.attrs
-        )
+        if dask.is_dask_collection(rprf):
+            rprf = xr.DataArray(
+                data=da.concatenate([np.atleast_1d(rprf_c.data), rprf.data]
+                                    ).rechunk(rprf.chunksizes['r'][0] + 1),
+                coords=dict(r=np.insert(rprf.r.data, 0, 0)),
+                dims='r',
+                name=rprf.name,
+                attrs=rprf.attrs
+            )
+        else:
+            rprf = xr.concat([rprf_c, rprf], dim='r')
         return rprf
 
     # Volume-weighted averages
