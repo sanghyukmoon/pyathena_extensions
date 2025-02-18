@@ -253,7 +253,7 @@ def radial_profile(s, num, pids, overwrite=False, full_radius=False,
         center = dict(zip(['x', 'y', 'z'], center))
 
         # Roll the data such that the core is at the center of the domain
-        ds, center = tools.recenter_dataset(ds0, center)
+        ds, center, _ = tools.recenter_dataset(ds0, center)
 
         # Workaround for xarray being unable to chunk IndexVariable
         # see https://github.com/pydata/xarray/issues/6204
@@ -693,7 +693,7 @@ def calculate_linewidth_size(s, num, seed=None, pid=None, overwrite=False, ds=No
     else:
         raise ValueError("Provide either seed or pid")
 
-    ds, origin = tools.recenter_dataset(ds, dict(x=origin[0], y=origin[1], z=origin[2]))
+    ds, origin, _ = tools.recenter_dataset(ds, dict(x=origin[0], y=origin[1], z=origin[2]))
     ds.coords['r'] = np.sqrt((ds.z - origin['z'])**2 + (ds.y - origin['y'])**2 + (ds.x - origin['x'])**2)
 
     rmax = s.Lbox/2

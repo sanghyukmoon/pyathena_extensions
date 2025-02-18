@@ -556,7 +556,7 @@ def calculate_prj_radial_profile(s, num, origin):
         # Volume-weighted averages
         for qty in [k for k in prj[ax].keys() if k.startswith('Sigma_gas')]:
             ds = prj[ax][qty].copy(deep=True)
-            ds, new_center = recenter_dataset(ds, {x1:x1c, x2:x2c})
+            ds, new_center, _ = recenter_dataset(ds, {x1:x1c, x2:x2c})
             ds.coords['R'] = np.sqrt((ds.coords[x1]- new_center[x1])**2
                                      + (ds.coords[x2] - new_center[x2])**2)
             rprf_c = xr.DataArray(ds.sel({x1:new_center[x1], x2:new_center[x2]}).data[()],
@@ -568,12 +568,12 @@ def calculate_prj_radial_profile(s, num, origin):
         # Mass-weighted averages
         for qty in [k for k in prj[ax].keys() if k.startswith('vel_nc')]:
             ds = prj[ax][qty].copy(deep=True)
-            ds, new_center = recenter_dataset(ds, {x1:x1c, x2:x2c})
+            ds, new_center, _ = recenter_dataset(ds, {x1:x1c, x2:x2c})
             ds.coords['R'] = np.sqrt((ds.coords[x1]- new_center[x1])**2
                                      + (ds.coords[x2] - new_center[x2])**2)
             nth = qty.split('vel_nc')[1]  # read threshold density string
             w = prj[ax][f'Sigma_gas_nc{nth}'].copy(deep=True)
-            w, _ = recenter_dataset(w, {x1:x1c, x2:x2c})
+            w, _, _ = recenter_dataset(w, {x1:x1c, x2:x2c})
             w.coords['R'] = np.sqrt((w.coords[x1]- new_center[x1])**2
                                     + (w.coords[x2] - new_center[x2])**2)
             rprf_c = xr.DataArray(ds.sel({x1:new_center[x1], x2:new_center[x2]}).data[()],
@@ -587,12 +587,12 @@ def calculate_prj_radial_profile(s, num, origin):
         # RMS averages
         for qty in [k for k in prj[ax].keys() if k.startswith('veldisp_nc')]:
             ds = prj[ax][qty].copy(deep=True)
-            ds, new_center = recenter_dataset(ds, {x1:x1c, x2:x2c})
+            ds, new_center, _ = recenter_dataset(ds, {x1:x1c, x2:x2c})
             ds.coords['R'] = np.sqrt((ds.coords[x1]- new_center[x1])**2
                                      + (ds.coords[x2] - new_center[x2])**2)
             nth = qty.split('veldisp_nc')[1]  # read threshold density string
             w = prj[ax][f'Sigma_gas_nc{nth}'].copy(deep=True)
-            w, _ = recenter_dataset(w, {x1:x1c, x2:x2c})
+            w, _, _ = recenter_dataset(w, {x1:x1c, x2:x2c})
             w.coords['R'] = np.sqrt((w.coords[x1]- new_center[x1])**2
                                     + (w.coords[x2] - new_center[x2])**2)
             rprf_c = xr.DataArray(ds.sel({x1:new_center[x1], x2:new_center[x2]}).data[()],
@@ -894,7 +894,7 @@ def calculate_observables(s, core, rprf):
 
     # Read 3d data cube
     dens_3d = s.load_hdf5(num, quantities=['dens']).dens
-    dens_3d, new_center_3d = recenter_dataset(dens_3d, dict(x=xc, y=yc, z=zc))
+    dens_3d, new_center_3d, _ = recenter_dataset(dens_3d, dict(x=xc, y=yc, z=zc))
     for i, ax in enumerate(['x', 'y', 'z']):
         x1, x2 = xycoordnames[ax]
         x1c, x2c = xycenters[ax]
@@ -950,8 +950,8 @@ def calculate_observables(s, core, rprf):
             # POS radius using background thresholding
             dcol_map = prj[ax][f'Sigma_gas_nc{nthr}'].copy(deep=True)
             dv_map = prj[ax][f'veldisp_nc{nthr}'].copy(deep=True)
-            dcol_map, _ = recenter_dataset(dcol_map, {x1: x1c, x2: x2c})
-            dv_map, new_center = recenter_dataset(dv_map, {x1: x1c, x2: x2c})
+            dcol_map, _, _ = recenter_dataset(dcol_map, {x1: x1c, x2: x2c})
+            dv_map, new_center, _ = recenter_dataset(dv_map, {x1: x1c, x2: x2c})
             rpos = np.sqrt((dv_map.coords[x1] - new_center[x1])**2
                            + (dv_map.coords[x2] - new_center[x2])**2)
 
@@ -1232,7 +1232,7 @@ def recenter_dataset(ds, center):
         shift[dim] = hNx - np.where(np.isclose(coords, pos, atol=0.1*dx))[0][0]
         new_center[dim] = ds.coords[dim].isel({dim: hNx}).data[()]
 
-    return ds.roll(shift), new_center
+    return ds.roll(shift), new_center, shift
 
 
 def get_rhocrit_KM05(lmb_sonic):

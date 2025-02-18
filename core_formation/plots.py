@@ -175,7 +175,7 @@ def plot_grid_dendro_contours(s, gd, nodes, coords, axis='z', color='k',
                                     dtype=bool), coords=coords)
         mask = gd.filter_data(mask, nd, fill_value=0)
         if recenter is not None:
-            mask, _ = tools.recenter_dataset(mask, recenter)
+            mask, _, _ = tools.recenter_dataset(mask, recenter)
         if select is not None:
             mask = mask.sel(select)
 
@@ -412,7 +412,7 @@ def plot_core_evolution(s, pid, num, rmax=None):
 
     # Zoom-in dataset
     sel = dict(x=slice(-hw, hw), y=slice(-hw, hw), z=slice(-hw, hw))
-    d, _ = tools.recenter_dataset(ds, dict(x=xc, y=yc, z=zc))
+    d, _, _ = tools.recenter_dataset(ds, dict(x=xc, y=yc, z=zc))
     d = d.sel(sel)
 
     for i, prj_axis in enumerate(['z', 'x', 'y']):
