@@ -104,7 +104,7 @@ def find_tcoll_core(s, pid):
     # find closeast leaf node to this particle
     pos_particle = s.tcoll_cores.loc[pid][['x1', 'x2', 'x3']]
     pos_particle = pos_particle.to_numpy()
-    dst = [get_periodic_distance(get_coords_node(s, lid), pos_particle, s.Lbox)
+    dst = [periodic_distance(s.flatindex_to_cartesian(lid), pos_particle, s.Lbox)
            for lid in gd.leaves]
     lid = gd.leaves[np.argmin(dst)]
 
@@ -181,7 +181,7 @@ def track_cores(s, pid):
             pds = s.load_par(num)
 
             # find closeast leaf to the previous preimage
-            dst = [get_node_distance(s, leaf, leaf_id[-1]) for leaf in gd.leaves]
+            dst = [s.distance_between(leaf, leaf_id[-1]) for leaf in gd.leaves]
             lid = gd.leaves[np.argmin(dst)]
             _rleaf = reff_sph(gd.len(lid)*s.dV)
 
@@ -201,7 +201,7 @@ def track_cores(s, pid):
             _rtidal = tidal_radius(s, gd, lid, lid)
 
             # If the center moved more than the tidal radius, stop tracking.
-            if get_node_distance(s, lid, leaf_id[-1]) > rtidal[-1]:
+            if s.distance_between(lid, leaf_id[-1]) > rtidal[-1]:
                 break
 
             nums_track.append(num)
@@ -275,7 +275,7 @@ def track_protostellar_cores(s, pid):
 
         # Find closet leaf to the sink particle
         sink_pos = pds.loc[pid][['x1', 'x2', 'x3']].to_numpy()
-        dst = [get_periodic_distance(get_coords_node(s, lid), sink_pos, s.Lbox)
+        dst = [periodic_distance(s.flatindex_to_cartesian(lid), sink_pos, s.Lbox)
                for lid in gd.leaves]
         lid = gd.leaves[np.argmin(dst)]
         _rleaf = reff_sph(gd.len(lid)*s.dV)
@@ -328,7 +328,7 @@ def tidal_radius(s, gd, node, leaf=None):
     if leaf is None:
         leaf = gd.find_minimum(node)
     nodes = set(gd.nodes.keys()) - set(gd.descendants[node]) - {node}
-    dst = [get_node_distance(s, nd, leaf) for nd in nodes]
+    dst = [s.distance_between(nd, leaf) for nd in nodes]
     rtidal = np.min(dst)
     return rtidal
 
@@ -884,7 +884,7 @@ def observable(s, core, rprf):
     obsprops = dict()
     obsprops['num'] = num
     prj = s.read_prj(num)
-    xc, yc, zc = get_coords_node(s, core.leaf_id)
+    xc, yc, zc = s.flatindex_to_cartesian(core.leaf_id)
     xycoordnames = dict(z=['x', 'y'],
                         x=['y', 'z'],
                         y=['z', 'x'])
@@ -1143,27 +1143,21 @@ def get_coords_minimum(dat):
     return x0, y0, z0
 
 
-def get_coords_node(s, nd):
-    """Get coordinates of the generating point of this node
+def periodic_distance(pos1, pos2, Lbox, return_axis_distance=False):
+    """Returns periodic distance between two coordinates.
 
     Parameters
     ----------
-    s : LoadSim
-        Simulation metadata.
-    nd : int
-        GRID-dendro node ID.
-
-    Returns
-    -------
-    coordinates: tuple representing physical coordinates (x, y, z)
+    pos1 : array_like
+        Position of the first point.
+    pos2 : array_like
+        Position of the second point.
+    Lbox : float
+        Box size.
+    return_axis_distance : bool, optional
+        If True, return the distance along each axis.
     """
-    k, j, i = np.unravel_index(nd, s.domain['Nx'].T, order='C')
-    coordinates = (s.domain['le']
-                   + np.array([i+0.5, j+0.5, k+0.5])*s.domain['dx'])
-    return coordinates
 
-
-def get_periodic_distance(pos1, pos2, Lbox, return_axis_distance=False):
     hLbox = 0.5*Lbox
     axis_distance = []
     for x1, x2 in zip(pos1, pos2):
@@ -1176,25 +1170,6 @@ def get_periodic_distance(pos1, pos2, Lbox, return_axis_distance=False):
         return axis_distance
     else:
         return dst
-
-
-def get_node_distance(s, nd1, nd2):
-    """Calculate periodic distance between two nodes
-
-    Parameters
-    ----------
-    s : LoadSim
-        Simulation metadata.
-    nd1 : int
-        GRID-dendro node ID
-    nd2 : int
-        GRID-dendro node ID
-    """
-    pos1 = get_coords_node(s, nd1)
-    pos2 = get_coords_node(s, nd2)
-    # TODO generalize this
-    dst = get_periodic_distance(pos1, pos2, s.Lbox)
-    return dst
 
 
 def get_sonic(Mach_outer, l_outer, p=0.5):
@@ -1312,7 +1287,7 @@ def test_isolated_core(s, cores):
     core = cores.loc[ncrit]
 
     nd = core.leaf_id
-    pcore = get_coords_node(s, nd)
+    pcore = s.flatindex_to_cartesian(nd)
 
     dst = np.sqrt(((pstar - pcore)**2).sum(axis=1))
 

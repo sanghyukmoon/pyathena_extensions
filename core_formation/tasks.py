@@ -249,7 +249,7 @@ def radial_profile(s, num, pids, overwrite=False, full_radius=False,
             rmax = min(0.5*s.Lbox, 3*cores.loc[:cores.attrs['numcoll']].tidal_radius.max())
 
         # Find the location of the core
-        center = tools.get_coords_node(s, core.leaf_id)
+        center = s.flatindex_to_cartesian(core.leaf_id)
         center = dict(zip(['x', 'y', 'z'], center))
 
         # Roll the data such that the core is at the center of the domain
@@ -333,7 +333,7 @@ def prj_radial_profile(s, num, pids, overwrite=False):
         core = cores.loc[num]
 
         # Find the location of the core
-        center = tools.get_coords_node(s, core.leaf_id)
+        center = s.flatindex_to_cartesian(core.leaf_id)
 
         # Calculate radial profile
         rprf = tools.radial_profile_projected(s, num, center)
@@ -683,7 +683,7 @@ def calculate_linewidth_size(s, num, seed=None, pid=None, overwrite=False, ds=No
         print(msg.format(s.basename, num, pid))
 
         lid = s.cores[pid].loc[num].leaf_id
-        origin = tools.get_coords_node(s, lid)
+        origin = s.flatindex_to_cartesian(lid)
 
         if ds is None:
             ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3'])

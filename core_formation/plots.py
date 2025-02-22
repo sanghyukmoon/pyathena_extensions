@@ -369,7 +369,7 @@ def plot_core_evolution(s, pid, num, rmax=None):
     rtidal = 0.5*(core.tidal_radius + core.leaf_radius)
 
     # Find the location of the core
-    xc, yc, zc = tools.get_coords_node(s, core.leaf_id)
+    xc, yc, zc = s.flatindex_to_cartesian(core.leaf_id)
 
     # Load sink particles
     pds = s.load_par(num)

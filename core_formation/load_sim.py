@@ -366,6 +366,34 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
         return core_dict
 
+    def flatindex_to_cartesian(self, flatindex):
+        """Cartesian coordinates corresponding to flattened index
+
+        Parameters
+        ----------
+        flatindex : int
+            Flattened index assuming C-ordering (i.e., k, j, i)
+
+        Returns
+        -------
+        x, y, z : float
+        """
+        k, j, i = np.unravel_index(flatindex, self.domain['Nx'].T, order='C')
+        x, y, z = (self.domain['le'] + np.array([i+0.5, j+0.5, k+0.5])*self.domain['dx'])
+        return x, y, z
+
+    def distance_between(self, idx1, idx2):
+        """Calculates periodic distance between two flattened indices
+
+        Parameters
+        ----------
+        idx1, idx2 : int
+            Flattened indices
+        """
+        pos1 = self.flatindex_to_cartesian(idx1)
+        pos2 = self.flatindex_to_cartesian(idx2)
+        return tools.periodic_distance(pos1, pos2, self.Lbox)
+
     @LoadSimBase.Decorators.check_pickle
     def _load_tcoll_cores(self, prefix='tcoll_cores', savdir=None, force_override=False):
         """Read .csv output and find their collapse time and snapshot number.
