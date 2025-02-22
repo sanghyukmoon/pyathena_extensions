@@ -333,6 +333,55 @@ def tidal_radius(s, gd, node, leaf=None):
     return rtidal
 
 
+def local_dendrogram(arr, center_pos, domain_left_edge, domain_cell_size,
+                     hw=0.5, ncells_min=27, max_levels=3):
+    """Construct a local dendrogram
+
+    Parameters
+    ----------
+    arr : xarray.DataArray
+        Input array to construct dendrogram. Usually, gravitational potential.
+    center_pos : tuple
+        Center position of the local dendrogram.
+    domain_left_edge : tuple
+        Left edge of the domain. (xmin, ymin, zmin)
+    domain_cell_size : tuple
+        Cell size of the domain. (dx, dy, dz)
+    hw : float, optional
+        Half width of the local domain. Default to 0.5.
+    ncells_min : int, optional
+        Minimum number of cells in a leaf. Default to 27.
+    max_levels : int, optional
+        Maximum level at which dendrogram construction stops. Default to 3.
+
+    Returns
+    -------
+    gd : grid_dendro.Dendrogram
+    """
+    from grid_dendro import dendrogram
+    x0, y0, z0 = center_pos
+    xl, yl, zl = domain_left_edge
+    dx, dy, dz = domain_cell_size
+    arr, center, shift = recenter_dataset(arr, dict(x=x0, y=y0, z=z0))
+    shape = arr.shape
+    arr = arr.sel(dict(x=slice(-hw, hw), y=slice(-hw, hw), z=slice(-hw, hw)))
+
+    il = ((arr.x[0].data - xl) // dx).astype(np.int32)
+    jl = ((arr.y[0].data - yl) // dy).astype(np.int32)
+    kl = ((arr.z[0].data - zl) // dz).astype(np.int32)
+    start_indices = np.array([kl, jl, il]) - np.array([shift['z'], shift['y'], shift['x']])
+
+    if isinstance(arr.data, da.Array):
+        arr = arr.data.compute()
+    else:
+        arr = arr.data
+    gd = dendrogram.Dendrogram(arr, boundary_flag='outflow')
+    gd.construct(early_termination=max_levels)
+    gd.prune(ncells_min)
+    gd.reindex(start_indices, shape, direction='backward')
+    return gd
+
+
 def critical_tes_property(s, rprf, core):
     """Calculates critical tes given the radial profile.
 
