@@ -105,7 +105,7 @@ def plot_energies(s, ds, rprf, core, gd, node, ax=None):
     if ax is not None:
         plt.sca(ax)
 
-    rprf = tools.calculate_cumulative_energies(s, rprf, core)
+    rprf = tools.cumulative_energy(s, rprf, core)
     plt.plot(rprf.r, rprf.ethm, ls='-', c='tab:blue', label='thermal')
     plt.plot(rprf.r, rprf.ekin, ls='-', c='tab:orange', label='kinetic')
     plt.plot(rprf.r, rprf.egrv, ls='-', c='tab:green', label='gravitational')

@@ -152,26 +152,26 @@ def track_cores(s, pid):
         nums_track = [num,]
         time = [ds['Time'],]
         leaf_id = [np.nan,]
-        leaf_radius = [np.nan,]
-        tidal_radius = [np.nan,]
+        rleaf = [np.nan,]
+        rtidal = [np.nan,]
         tcoll_resolved = False
     else:
         tcoll_resolved = True
         gd = s.load_dendro(num)
 
         # Calculate effective radius of this leaf
-        rleaf = reff_sph(gd.len(lid)*s.dV)
+        _rleaf = reff_sph(gd.len(lid)*s.dV)
 
         # Do the tidal correction to neglect attached substructures.
 
         # Calculate tidal radius
-        rtidal = calculate_tidal_radius(s, gd, lid, lid)
+        _rtidal = tidal_radius(s, gd, lid, lid)
 
         nums_track = [num,]
         time = [ds['Time'],]
         leaf_id = [lid,]
-        leaf_radius = [rleaf,]
-        tidal_radius = [rtidal,]
+        rleaf = [_rleaf,]
+        rtidal = [_rtidal,]
 
         for num in nums[1:]:
             msg = '[track_cores] processing model {} pid {} num {}'
@@ -183,7 +183,7 @@ def track_cores(s, pid):
             # find closeast leaf to the previous preimage
             dst = [get_node_distance(s, leaf, leaf_id[-1]) for leaf in gd.leaves]
             lid = gd.leaves[np.argmin(dst)]
-            rleaf = reff_sph(gd.len(lid)*s.dV)
+            _rleaf = reff_sph(gd.len(lid)*s.dV)
 
             # If there is sink particle in the leaf, stop tracking.
             idx = np.floor((pds[['x1', 'x2', 'x3']] - s.domain['le']) / s.dx).astype('int')
@@ -198,24 +198,24 @@ def track_cores(s, pid):
                 break
 
             # Calculate tidal radius
-            rtidal = calculate_tidal_radius(s, gd, lid, lid)
+            _rtidal = tidal_radius(s, gd, lid, lid)
 
             # If the center moved more than the tidal radius, stop tracking.
-            if get_node_distance(s, lid, leaf_id[-1]) > tidal_radius[-1]:
+            if get_node_distance(s, lid, leaf_id[-1]) > rtidal[-1]:
                 break
 
             nums_track.append(num)
             time.append(ds['Time'])
             leaf_id.append(lid)
-            leaf_radius.append(rleaf)
-            tidal_radius.append(rtidal)
+            rleaf.append(_rleaf)
+            rtidal.append(_rtidal)
 
     # SMOON: Using dtype=object is to prevent automatic upcasting from int to float
     # when indexing a single row. Maybe there is a better approach.
     cores = pd.DataFrame(dict(time=time,
                               leaf_id=leaf_id,
-                              leaf_radius=leaf_radius,
-                              tidal_radius=tidal_radius),
+                              leaf_radius=rleaf,
+                              tidal_radius=rtidal),
                          index=nums_track, dtype=object).sort_index()
 
     # Set attributes
@@ -259,8 +259,8 @@ def track_protostellar_cores(s, pid):
     nums_track = []
     time = []
     leaf_id = []
-    leaf_radius = []
-    tidal_radius  = []
+    rleaf = []
+    rtidal  = []
 
     for num in nums:
         msg = '[track_protostellar_cores] processing model {} pid {} num {}'
@@ -278,21 +278,21 @@ def track_protostellar_cores(s, pid):
         dst = [get_periodic_distance(get_coords_node(s, lid), sink_pos, s.Lbox)
                for lid in gd.leaves]
         lid = gd.leaves[np.argmin(dst)]
-        rleaf = reff_sph(gd.len(lid)*s.dV)
+        _rleaf = reff_sph(gd.len(lid)*s.dV)
 
         # Calculate tidal radius
-        rtidal = calculate_tidal_radius(s, gd, lid, lid)
+        _rtidal = tidal_radius(s, gd, lid, lid)
 
         nums_track.append(num)
         time.append(ds['Time'])
         leaf_id.append(lid)
-        leaf_radius.append(rleaf)
-        tidal_radius.append(rtidal)
+        rleaf.append(_rleaf)
+        rtidal.append(_rtidal)
 
     tmp = pd.DataFrame(dict(time=time,
                             leaf_id=leaf_id,
-                            leaf_radius=leaf_radius,
-                            tidal_radius=tidal_radius),
+                            leaf_radius=rleaf,
+                            tidal_radius=rtidal),
                        index=nums_track, dtype=object).sort_index()
     tmp.attrs = cores.attrs
 
@@ -301,7 +301,7 @@ def track_protostellar_cores(s, pid):
     return cores
 
 
-def calculate_tidal_radius(s, gd, node, leaf=None):
+def tidal_radius(s, gd, node, leaf=None):
     """Calculate tidal radius of this node
 
     Tidal radius is defined as the distance to the closest node, excluding
@@ -333,7 +333,7 @@ def calculate_tidal_radius(s, gd, node, leaf=None):
     return rtidal
 
 
-def calculate_critical_tes(s, rprf, core):
+def critical_tes_property(s, rprf, core):
     """Calculates critical tes given the radial profile.
 
     Given the radial profile, find the critical tes at the same central
@@ -395,7 +395,7 @@ def calculate_critical_tes(s, rprf, core):
     return res
 
 
-def calculate_radial_profile(s, ds, origin, rmax=None, newz=None):
+def radial_profile(s, ds, origin, rmax=None, newz=None):
     """Calculates radial profiles of various properties at selected position
 
     Parameters
@@ -511,7 +511,7 @@ def calculate_radial_profile(s, ds, origin, rmax=None, newz=None):
     return rprofs
 
 
-def calculate_prj_radial_profile(s, num, origin):
+def radial_profile_projected(s, num, origin):
     """Calculate projected radial profile of column density and velocities
 
     Parameters
@@ -608,7 +608,7 @@ def calculate_prj_radial_profile(s, num, origin):
     return rprofs
 
 
-def calculate_lagrangian_props(s, cores, rprofs):
+def lagrangian_property(s, cores, rprofs):
     """Calculate Lagrangian properties of cores
 
     Parameters
@@ -756,7 +756,7 @@ def calculate_lagrangian_props(s, cores, rprofs):
     return lprops
 
 
-def calculate_cumulative_energies(s, rprf, core):
+def cumulative_energy(s, rprf, core):
     """Calculate cumulative energies based on radial profiles
 
     Use the mass-weighted mean gravitational potential at the tidal radius
@@ -807,7 +807,7 @@ def calculate_cumulative_energies(s, rprf, core):
     return rprf
 
 
-def calculate_infall_rate(rprofs, cores):
+def infall_rate(rprofs, cores):
     time, vr, mdot = [], [], []
     for num, rtidal in cores.tidal_radius.items():
         rprf = rprofs.sel(num=num).interp(r=rtidal)
@@ -823,7 +823,7 @@ def calculate_infall_rate(rprofs, cores):
     return rprofs
 
 
-def calculate_accelerations(s, rprf):
+def radial_acceleration(s, rprf):
     """Calculate RHS of the Lagrangian EOM (force per unit mass)
 
     Parameters
@@ -877,7 +877,7 @@ def calculate_accelerations(s, rprf):
     return acc
 
 
-def calculate_observables(s, core, rprf):
+def observable(s, core, rprf):
     """Calculate observable properties of a core"""
     nthr_list = [10, 30, 100]
     num = core.name

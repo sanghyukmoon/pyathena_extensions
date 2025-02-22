@@ -119,7 +119,7 @@ def critical_tes(s, pid, num, overwrite=False):
     core = s.cores[pid].loc[num]
 
     # Calculate critical TES
-    critical_tes = tools.calculate_critical_tes(s, rprf, core)
+    critical_tes = tools.critical_tes_property(s, rprf, core)
     critical_tes['num'] = num
 
     # write to file
@@ -272,7 +272,7 @@ def radial_profile(s, num, pids, overwrite=False, full_radius=False,
         lvec = (lx, ly, lz)
 
         # Calculate radial profile
-        rprf = tools.calculate_radial_profile(s, ds, list(center.values()), rmax, lvec)
+        rprf = tools.radial_profile(s, ds, list(center.values()), rmax, lvec)
         rprf = rprf.expand_dims(dict(t=[ds.Time,]))
         rprf['lx'] = xr.DataArray(np.atleast_1d(lx), dims='t')
         rprf['ly'] = xr.DataArray(np.atleast_1d(ly), dims='t')
@@ -336,7 +336,7 @@ def prj_radial_profile(s, num, pids, overwrite=False):
         center = tools.get_coords_node(s, core.leaf_id)
 
         # Calculate radial profile
-        rprf = tools.calculate_prj_radial_profile(s, num, center)
+        rprf = tools.radial_profile_projected(s, num, center)
         rprf = rprf.expand_dims(dict(t=[core.time,]))
 
         # write to file
@@ -357,7 +357,7 @@ def lagrangian_props(s, pid, method='empirical', overwrite=False):
     cores = s.cores[pid]
     rprofs = s.rprofs[pid]
     print(f'[lagrangian_props] Calculate Lagrangian props for core {pid} with version {method}')
-    lprops = tools.calculate_lagrangian_props(s, cores, rprofs)
+    lprops = tools.lagrangian_property(s, cores, rprofs)
     lprops.to_pickle(ofname, protocol=pickle.HIGHEST_PROTOCOL)
 
 
@@ -390,7 +390,7 @@ def observables(s, pid, num, overwrite=False):
     core = s.cores[pid].loc[num]
 
     # Calculate observables
-    observables = tools.calculate_observables(s, core, rprf)
+    observables = tools.observable(s, core, rprf)
 
     # write to file
     if ofname.exists():
