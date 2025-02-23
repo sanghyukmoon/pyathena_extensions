@@ -23,18 +23,18 @@ def calculate_ring_averages(s, num, Rmax, mf_crit=0.9, warmcold=False):
     ds = s.load_vtk(num, id0=False)
     field_list = [f for f in ds.field_list if 'scalar' not in f]
     dat = ds.get_field(field_list)
-    dat = add_derived_fields(dat, ['R', 'gz_sg'])
+    add_derived_fields(s, dat, ['R', 'gz_self'])
     dat = dat.drop_vars(['velocity1', 'velocity2', 'gravitational_potential'])
     dx, dy, dz = s.domain['dx']
     if warmcold:
-        dat = add_derived_fields(dat, 'T')
+        add_derived_fields(s, dat, 'temperature')
         # Set switch for warm-cold medium (Theta = 1 for T<2e4; 0 for T>2e4)
-        is_wc = xr.where(dat.T.sel(z=0, method='nearest') < config.Twarm, 1, 0)
+        is_wc = xr.where(dat.temperature.sel(z=0, method='nearest') < config.Twarm, 1, 0)
         # Apply switch
-        dat = dat.where(dat.T < config.Twarm, other=0)
+        dat = dat.where(dat.temperature < config.Twarm, other=0)
         # Save switch
         dat['is_wc'] = is_wc
-        dat = dat.drop_vars('T')
+        dat = dat.drop_vars('temperature')
 
     # midplane thermal pressure
     dat['pressure'] = dat.pressure.sel(z=0, method='nearest')
@@ -58,14 +58,14 @@ def calculate_ring_averages(s, num, Rmax, mf_crit=0.9, warmcold=False):
     bh = pot.Plummer(Mc=s.par['problem']['M_c'], Rc=s.par['problem']['R_c'])
     dat['gz_ext'] = bul.gz(dat.x, dat.y, dat.z) + bh.gz(dat.x, dat.y, dat.z)
     dat['gz_ext'] = dat.gz_ext.transpose('z','y','x')
-    dat['Wself'] = -(dat.density*dat.gz_sg*dz).sel(z=slice(0, s.domain['re'][2])).sum(dim='z')
+    dat['Wself'] = -(dat.density*dat.gz_self*dz).sel(z=slice(0, s.domain['re'][2])).sum(dim='z')
     dat['Wext'] = -(dat.density*dat.gz_ext*dz).sel(z=slice(0, s.domain['re'][2])).sum(dim='z')
-    dat = dat.drop_vars(['density', 'gz_sg', 'gz_ext'])
+    dat = dat.drop_vars(['density', 'gz_self', 'gz_ext'])
 
 
     fname = Path(s.basedir, "time_averages", "prims.nc")
     dat_tavg = xr.open_dataset(fname)
-    dat_tavg = add_derived_fields(dat_tavg, 'surf')
+    add_derived_fields(s, dat_tavg, 'surf')
     surf_th, mask = mask_ring_by_mass(s, dat_tavg, Rmax, mf_crit)
     dat = dat.where(mask).mean()
     for f in ['pressure', 'turbulent_pressure']:
@@ -121,17 +121,17 @@ def calculate_azimuthal_averages(s, num, warmcold=False):
                   ['heat_rate', 'cool_rate', 'specific_scalar[0]',
                    'specific_scalar[1]', 'specific_scalar[2]']]
     dat = ds.get_field(field_list)
-    dat = add_derived_fields(dat, ['R', 'gz_sg'])
+    add_derived_fields(s, dat, ['R', 'gz_self'])
     dx, dy, dz = s.domain['dx']
     if warmcold:
-        dat = add_derived_fields(dat, 'T')
+        add_derived_fields(s, dat, 'temperature')
         # Set switch for warm-cold medium (Theta = 1 for T<2e4; 0 for T>2e4)
-        is_wc = xr.where(dat.T < config.Twarm, 1, 0)
+        is_wc = xr.where(dat.temperature < config.Twarm, 1, 0)
         # Apply switch
-        dat = dat.where(dat.T < config.Twarm, other=0)
+        dat = dat.where(dat.temperature < config.Twarm, other=0)
         # Save switch
         dat['is_wc'] = is_wc
-        dat = dat.drop('T')
+        dat = dat.drop('temperature')
 
     # helicity
     vx, vy, vz = dat.velocity1, dat.velocity2, dat.velocity3
@@ -189,7 +189,7 @@ def calculate_azimuthal_averages(s, num, warmcold=False):
     bh = pot.Plummer(Mc=s.par['problem']['M_c'], Rc=s.par['problem']['R_c'])
     dat['gz_ext'] = bul.gz(dat.x, dat.y, dat.z) + bh.gz(dat.x, dat.y, dat.z)
     dat['gz_ext'] = dat.gz_ext.transpose('z','y','x')
-    dat['Wself'] = -(dat.density*dat.gz_sg*dz).sel(z=slice(0, s.domain['re'][2])).sum(dim='z')
+    dat['Wself'] = -(dat.density*dat.gz_self*dz).sel(z=slice(0, s.domain['re'][2])).sum(dim='z')
     dat['Wext'] = -(dat.density*dat.gz_ext*dz).sel(z=slice(0, s.domain['re'][2])).sum(dim='z')
 
     # Radial binning
@@ -258,7 +258,7 @@ def mask_ring_by_mass(s, dat, Rmax, mf_crit=0.9):
         return M.values[()]
 
     if not 'R' in dat.coords:
-        dat = add_derived_fields(dat, 'R')
+        add_derived_fields(s, dat, 'R')
     R_mask = dat.R < Rmax
 
     dat = dat.where(R_mask, other=0)
