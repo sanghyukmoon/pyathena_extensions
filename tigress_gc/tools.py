@@ -1,5 +1,4 @@
 from pathlib import Path
-from pygc.pot import MHubble, Plummer
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -7,10 +6,9 @@ from scipy import optimize
 from pyathena.util import transform, units
 from pyathena.classic import cooling
 
-from . import config
+from . import config, pot
 
 u = units.Units(muH=config.muH)
-
 
 def calculate_ring_averages(s, num, Rmax, mf_crit=0.9, warmcold=False):
     """Calculate ring masked averages
@@ -56,8 +54,8 @@ def calculate_ring_averages(s, num, Rmax, mf_crit=0.9, warmcold=False):
         dat = dat.drop_vars(['cell_centered_B1', 'cell_centered_B2', 'cell_centered_B3'])
 
     # weights
-    bul = MHubble(rb=s.par['problem']['R_b'], rhob=s.par['problem']['rho_b'])
-    bh = Plummer(Mc=s.par['problem']['M_c'], Rc=s.par['problem']['R_c'])
+    bul = pot.MHubble(rb=s.par['problem']['R_b'], rhob=s.par['problem']['rho_b'])
+    bh = pot.Plummer(Mc=s.par['problem']['M_c'], Rc=s.par['problem']['R_c'])
     dat['gz_ext'] = bul.gz(dat.x, dat.y, dat.z) + bh.gz(dat.x, dat.y, dat.z)
     dat['gz_ext'] = dat.gz_ext.transpose('z','y','x')
     dat['Wself'] = -(dat.density*dat.gz_sg*dz).sel(z=slice(0, s.domain['re'][2])).sum(dim='z')
@@ -187,8 +185,8 @@ def calculate_azimuthal_averages(s, num, warmcold=False):
         dat['B_squared3'] = dat.B3**2
 
     # weights
-    bul = MHubble(rb=s.par['problem']['R_b'], rhob=s.par['problem']['rho_b'])
-    bh = Plummer(Mc=s.par['problem']['M_c'], Rc=s.par['problem']['R_c'])
+    bul = pot.MHubble(rb=s.par['problem']['R_b'], rhob=s.par['problem']['rho_b'])
+    bh = pot.Plummer(Mc=s.par['problem']['M_c'], Rc=s.par['problem']['R_c'])
     dat['gz_ext'] = bul.gz(dat.x, dat.y, dat.z) + bh.gz(dat.x, dat.y, dat.z)
     dat['gz_ext'] = dat.gz_ext.transpose('z','y','x')
     dat['Wself'] = -(dat.density*dat.gz_sg*dz).sel(z=slice(0, s.domain['re'][2])).sum(dim='z')
@@ -220,8 +218,8 @@ def calculate_azimuthal_averages(s, num, warmcold=False):
 
 
 def get_circular_velocity(s, x, y=0, z=0):
-    bul = MHubble(rb=s.par['problem']['R_b'], rhob=s.par['problem']['rho_b'])
-    bh = Plummer(Mc=s.par['problem']['M_c'], Rc=s.par['problem']['R_c'])
+    bul = pot.MHubble(rb=s.par['problem']['R_b'], rhob=s.par['problem']['rho_b'])
+    bh = pot.Plummer(Mc=s.par['problem']['M_c'], Rc=s.par['problem']['R_c'])
     if 'Omega_p' in s.par['problem']:
         Omega_p = s.par['problem']['Omega_p']
     elif 'Omega_0' in s.par['problem']:
@@ -341,8 +339,8 @@ def add_derived_fields(s, dat, fields=[]):
         return gz
 
     def _gz_ext():
-        bul = MHubble(rb=s.par['problem']['R_b'], rhob=s.par['problem']['rho_b'])
-        bh = Plummer(Mc=s.par['problem']['M_c'], Rc=s.par['problem']['R_c'])
+        bul = pot.MHubble(rb=s.par['problem']['R_b'], rhob=s.par['problem']['rho_b'])
+        bh = pot.Plummer(Mc=s.par['problem']['M_c'], Rc=s.par['problem']['R_c'])
         gz = (bul.gz(dat.x, dat.y, dat.z)
               + bh.gz(dat.x, dat.y, dat.z)).transpose()
         return gz
