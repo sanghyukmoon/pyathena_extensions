@@ -1242,11 +1242,13 @@ def recenter_dataset(ds, center):
 
     Returns
     -------
-    xarray.Dataset or xarray.DataArray
+    ds_recentered : xarray.Dataset or xarray.DataArray
         Recentered dataset.
-    tuple
+    new_center : tuple
         Position of the new center. This must be the grid coordinates
         closest, but not exactly the same, to (0, 0, 0).
+    shift : dict
+        Shifts in each dimension.
     """
     shift, new_center = {}, {}
     for dim, pos in center.items():
@@ -1255,8 +1257,9 @@ def recenter_dataset(ds, center):
         dx = coords[1] - coords[0]
         shift[dim] = hNx - np.where(np.isclose(coords, pos, atol=0.1*dx))[0][0]
         new_center[dim] = ds.coords[dim].isel({dim: hNx}).data[()]
+    ds_recentered = ds.roll(shift)
 
-    return ds.roll(shift), new_center, shift
+    return ds_recentered, new_center, shift
 
 
 def get_rhocrit_KM05(lmb_sonic):
