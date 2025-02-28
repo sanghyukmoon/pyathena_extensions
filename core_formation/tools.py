@@ -344,9 +344,9 @@ def local_dendrogram(arr, center_pos, domain_left_edge, domain_cell_size,
     center_pos : tuple
         Center position of the local dendrogram.
     domain_left_edge : tuple
-        Left edge of the domain. (xmin, ymin, zmin)
+        Left edge of the global domain. (xmin, ymin, zmin)
     domain_cell_size : tuple
-        Cell size of the domain. (dx, dy, dz)
+        Cell size of the global domain. (dx, dy, dz)
     hw : float, optional
         Half width of the local domain. Default to 0.5.
     ncells_min : int, optional
@@ -1238,7 +1238,10 @@ def recenter_dataset(ds, center):
     ds : xarray.Dataset or xarray.DataArray
         Dataset to be recentered.
     center : dict
+        New center position. Must be given in grid coordinates.
         {x:xc, y:yc} or {x:xc, y:yc, z:zc}, etc.
+        Or, alternatively, can be given in index coordinates.
+        {i:ic, j:jc} or {i:ic, j:jc, k:kc}, etc.
 
     Returns
     -------
@@ -1255,7 +1258,12 @@ def recenter_dataset(ds, center):
         hNx = ds.sizes[dim] // 2
         coords = ds.coords[dim].data
         dx = coords[1] - coords[0]
-        shift[dim] = hNx - np.where(np.isclose(coords, pos, atol=0.1*dx))[0][0]
+        if set(center.keys()) == {'x', 'y', 'z'}:
+            shift[dim] = hNx - np.where(np.isclose(coords, pos, atol=0.1*dx))[0][0]
+        elif set(center.keys()) == {'i', 'j', 'k'}:
+            shift[dim] = hNx - pos
+        else:
+            raise ValueError("center must be given in either grid or index coordinates.")
         new_center[dim] = ds.coords[dim].isel({dim: hNx}).data[()]
     ds_recentered = ds.roll(shift)
 
