@@ -366,7 +366,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
         return core_dict
 
-    def flatindex_to_cartesian(self, flatindex):
+    def flatindex_to_cartesian(self, flatindex, return_index=False):
         """Cartesian coordinates corresponding to flattened index
 
         Parameters
@@ -379,8 +379,11 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         x, y, z : float
         """
         k, j, i = np.unravel_index(flatindex, self.domain['Nx'].T, order='C')
-        x, y, z = (self.domain['le'] + np.array([i+0.5, j+0.5, k+0.5])*self.domain['dx'])
-        return x, y, z
+        if return_index:
+            return i, j, k
+        else:
+            x, y, z = (self.domain['le'] + np.array([i+0.5, j+0.5, k+0.5])*self.domain['dx'])
+            return x, y, z
 
     def distance_between(self, idx1, idx2):
         """Calculates periodic distance between two flattened indices
