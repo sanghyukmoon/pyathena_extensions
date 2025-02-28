@@ -334,7 +334,7 @@ def tidal_radius(s, gd, node, leaf=None):
 
 
 def local_dendrogram(arr, center_pos, domain_left_edge, domain_cell_size,
-                     hw=0.5, ncells_min=27, max_levels=3):
+                     hw=0.5, ncells_min=27, max_level=3):
     """Construct a local dendrogram
 
     Parameters
@@ -351,7 +351,7 @@ def local_dendrogram(arr, center_pos, domain_left_edge, domain_cell_size,
         Half width of the local domain. Default to 0.5.
     ncells_min : int, optional
         Minimum number of cells in a leaf. Default to 27.
-    max_levels : int, optional
+    max_level : int, optional
         Maximum level at which dendrogram construction stops. Default to 3.
 
     Returns
@@ -376,7 +376,7 @@ def local_dendrogram(arr, center_pos, domain_left_edge, domain_cell_size,
     else:
         arr = arr.data
     gd = dendrogram.Dendrogram(arr, boundary_flag='outflow')
-    gd.construct(early_termination=max_levels)
+    gd.construct(max_level=max_level)
     gd.prune(ncells_min)
     gd.reindex(start_indices, shape, direction='backward')
     return gd
