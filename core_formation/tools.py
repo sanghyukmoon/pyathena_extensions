@@ -144,7 +144,6 @@ def track_cores(s, pid):
     print(msg)
 
     lid = find_tcoll_core(s, pid)
-    ds = s.load_hdf5(num, header_only=True)
 
     if lid is None:
         msg = (
@@ -153,7 +152,7 @@ def track_cores(s, pid):
         )
         print(msg)
         nums_track = [num,]
-        time = [ds['Time'],]
+        time = [s.num_to_time(num),]
         leaf_id = [np.nan,]
         rleaf = [np.nan,]
         rtidal = [np.nan,]
@@ -171,7 +170,7 @@ def track_cores(s, pid):
         _rtidal = tidal_radius(s, gd, lid, lid)
 
         nums_track = [num,]
-        time = [ds['Time'],]
+        time = [s.num_to_time(num),]
         leaf_id = [lid,]
         rleaf = [_rleaf,]
         rtidal = [_rtidal,]
@@ -180,7 +179,6 @@ def track_cores(s, pid):
             msg = '[track_cores] processing model {} pid {} num {}'
             print(msg.format(s.basename, pid, num))
             gd = s.load_dendro(num)
-            ds = s.load_hdf5(num, header_only=True)
             pds = s.load_par(num)
 
             # find closeast leaf to the previous preimage
@@ -208,7 +206,7 @@ def track_cores(s, pid):
                 break
 
             nums_track.append(num)
-            time.append(ds['Time'])
+            time.append(s.num_to_time(num))
             leaf_id.append(lid)
             rleaf.append(_rleaf)
             rtidal.append(_rtidal)
@@ -269,7 +267,6 @@ def track_protostellar_cores(s, pid):
         msg = '[track_protostellar_cores] processing model {} pid {} num {}'
         print(msg.format(s.basename, pid, num))
         gd = s.load_dendro(num)
-        ds = s.load_hdf5(num, header_only=True)
         pds = s.load_par(num)
 
         if pid not in pds.index:
@@ -287,7 +284,7 @@ def track_protostellar_cores(s, pid):
         _rtidal = tidal_radius(s, gd, lid, lid)
 
         nums_track.append(num)
-        time.append(ds['Time'])
+        time.append(s.num_to_time(num))
         leaf_id.append(lid)
         rleaf.append(_rleaf)
         rtidal.append(_rtidal)
