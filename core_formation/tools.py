@@ -366,7 +366,6 @@ def local_dendrogram(arr, center_idx, domain_left_edge, domain_cell_size,
     shape = arr.shape
     arr = arr.sel(dict(x=slice(-hw, hw), y=slice(-hw, hw), z=slice(-hw, hw)))
 
-    # Measure the distance from the domain boundary faces.
     il = ((arr.x[0].data - xl) // dx).astype(np.int32)
     jl = ((arr.y[0].data - yl) // dy).astype(np.int32)
     kl = ((arr.z[0].data - zl) // dz).astype(np.int32)
@@ -377,12 +376,7 @@ def local_dendrogram(arr, center_idx, domain_left_edge, domain_cell_size,
     else:
         arr = arr.data
     gd = dendrogram.Dendrogram(arr, boundary_flag='outflow')
-
-    local_center_idx = np.array([k0, j0, i0]) - start_indices
-    local_center_idx = np.ravel_multi_index(local_center_idx, gd._arr_shape,
-                                            mode='raise', order='C')
-
-    gd.construct(start_from=local_center_idx, max_level=max_level)
+    gd.construct(max_level=max_level)
     gd.prune(ncells_min)
     gd.reindex(start_indices, shape, direction='backward')
     return gd
