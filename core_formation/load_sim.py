@@ -221,6 +221,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         with open(fname, 'rb') as handle:
             return pickle.load(handle)
 
+    def num_to_time(self, num):
+        ds = self.load_hdf5(num, header_only=True)
+        return ds['Time']
+
     def select_cores(self, method):
         method_list = {'empirical', 'predicted', 'pred_xis'}
         if method not in method_list:
