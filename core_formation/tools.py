@@ -94,21 +94,24 @@ def find_tcoll_core(s, pid):
 
     Returns
     -------
-    lid : int or None
-        ID of the leaf corresponding to t_coll core. If unresolved, return None.
+    lid : int
+        Flat index of the center of the t_coll core.
     """
-    # load dendrogram at t = t_coll
+    # Snapshot number right before the collapse
     num = s.tcoll_cores.loc[pid].num
-    gd = s.load_dendro(num)
 
-    # find closeast leaf node to this particle
+    # Load the flat indices at minima
+    idx_at_minima = s.minima[num]
+
+    # find closeast minimum to this particle
     pos_particle = s.tcoll_cores.loc[pid][['x1', 'x2', 'x3']]
     pos_particle = pos_particle.to_numpy()
-    dst = [periodic_distance(s.flatindex_to_cartesian(lid), pos_particle, s.Lbox)
-           for lid in gd.leaves]
-    lid = gd.leaves[np.argmin(dst)]
+    dst = [periodic_distance(s.flatindex_to_cartesian(lid),
+                             pos_particle, s.Lbox)
+           for lid in idx_at_minima]
+    lid = idx_at_minima[np.argmin(dst)]
 
-    # return the grid-dendro ID of the t_coll core
+    # return the flat index of the center of the t_coll core.
     return lid
 
 
