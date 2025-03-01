@@ -123,6 +123,13 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             self.tcoll_cores = self._load_tcoll_cores(force_override=force_override)
 
             try:
+                fname = Path(self.savdir, 'GRID', 'minima.p')
+                with open(fname, 'rb') as handle:
+                    self.minima = pickle.load(handle)
+            except FileNotFoundError:
+                pass
+
+            try:
                 # Load cores
                 savdir = Path(self.savdir, 'cores')
                 self.cores = self._load_cores(savdir=savdir, force_override=force_override)
