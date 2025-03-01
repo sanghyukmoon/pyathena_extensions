@@ -40,7 +40,7 @@ if __name__ == "__main__":
                         tasks.radial_profile(s, num, s.pids, overwrite=args.overwrite,
                                              full_radius=True, days_overwrite=0)
 
-                if args.find_minima:
+                if args.save_minima:
                     msg = ("Find minimas and save to pickle for "
                            f"model {mdl}")
                     print(msg)
