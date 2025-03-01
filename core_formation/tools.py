@@ -333,7 +333,7 @@ def tidal_radius(s, gd, node, leaf=None):
     return rtidal
 
 
-def local_dendrogram(arr, center_idx, domain_left_edge, domain_cell_size,
+def local_dendrogram(arr, center_pos, domain_left_edge, domain_cell_size,
                      hw=0.5, ncells_min=27, max_level=3):
     """Construct a local dendrogram
 
@@ -341,7 +341,7 @@ def local_dendrogram(arr, center_idx, domain_left_edge, domain_cell_size,
     ----------
     arr : xarray.DataArray
         Input array to construct dendrogram. Usually, gravitational potential.
-    center_idx : tuple
+    center_pos : tuple
         Center position of the local dendrogram.
     domain_left_edge : tuple
         Left edge of the global domain. (xmin, ymin, zmin)
@@ -359,10 +359,10 @@ def local_dendrogram(arr, center_idx, domain_left_edge, domain_cell_size,
     gd : grid_dendro.Dendrogram
     """
     from grid_dendro import dendrogram
-    i0, j0, k0 = center_idx
+    x0, y0, z0 = center_pos
     xl, yl, zl = domain_left_edge
     dx, dy, dz = domain_cell_size
-    arr, center, shift = recenter_dataset(arr, dict(x=i0, y=j0, z=k0), by_index=True)
+    arr, center, shift = recenter_dataset(arr, dict(x=x0, y=y0, z=z0))
     shape = arr.shape
     arr = arr.sel(dict(x=slice(-hw, hw), y=slice(-hw, hw), z=slice(-hw, hw)))
 
