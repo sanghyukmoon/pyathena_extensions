@@ -14,6 +14,8 @@ if __name__ == "__main__":
                         help="Overwrite everything")
     parser.add_argument("--radial-profile", action="store_true",
                         help="Calculate radial profiles of each cores")
+    parser.add_argument("--save-minima", action="store_true",
+                        help="Find minima and save to pickle")
     args = parser.parse_args()
 
     sa = load_sim.LoadSimAll(models.models)
@@ -27,14 +29,19 @@ if __name__ == "__main__":
             client.wait_for_workers(runner.n_workers)
             print(f"Number of workers = {runner.n_workers}")
 
-
             for mdl in args.models:
                 s = sa.set_model(mdl, force_override=True)
 
-            if args.radial_profile:
-                msg = ("calculate and save radial profiles for "
-                       f"model {mdl}")
-                print(msg)
-                for num in s.nums:
-                    tasks.radial_profile(s, num, s.pids, overwrite=args.overwrite,
-                                         full_radius=True, days_overwrite=0)
+                if args.radial_profile:
+                    msg = ("calculate and save radial profiles for "
+                           f"model {mdl}")
+                    print(msg)
+                    for num in s.nums:
+                        tasks.radial_profile(s, num, s.pids, overwrite=args.overwrite,
+                                             full_radius=True, days_overwrite=0)
+
+                if args.find_minima:
+                    msg = ("Find minimas and save to pickle for "
+                           f"model {mdl}")
+                    print(msg)
+                    tasks.save_minima(s, overwrite=args.overwrite)

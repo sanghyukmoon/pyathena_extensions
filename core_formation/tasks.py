@@ -3,6 +3,7 @@ from pathlib import Path
 import datetime
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.ndimage import minimum_filter
 import xarray as xr
 # Bottleneck does not use stable sum.
 # See xarray #1346, #7344 and bottleneck #193, #462 and more.
@@ -127,6 +128,7 @@ def critical_tes(s, pid, num, overwrite=False):
         ofname.unlink()
     with open(ofname, 'wb') as handle:
         pickle.dump(critical_tes, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
 
 
 def core_tracking(s, pid, protostellar=False, overwrite=False):
@@ -398,6 +400,38 @@ def observables(s, pid, num, overwrite=False):
     with open(ofname, 'wb') as handle:
         pickle.dump(observables, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
+
+def save_minima(s, overwrite=False):
+    """Run GRID-dendro
+
+    Parameters
+    ----------
+    s : LoadSim
+        Simulation metadata.
+    num : int
+        Snapshot number.
+    """
+    # Check if file exists
+    ofname = Path(s.savdir, 'GRID', 'minima.p')
+    ofname.parent.mkdir(exist_ok=True)
+    if ofname.exists() and not overwrite:
+        print('[save_minima] file already exists. Skipping...')
+        return
+
+    minima = dict()
+    for num in s.nums:
+        # Load data and construct dendrogram
+        print('[save_minima] processing model {} num {}'.format(s.basename, num))
+        ds = s.load_hdf5(num, chunks=dict(x=128, y=128, z=128))
+        arr = ds.phi.data
+        arr_min_filtered = arr.map_overlap(
+            minimum_filter, depth=1, boundary='periodic', size=3, mode='wrap'
+        ).flatten()
+        arr = arr.flatten()
+        minima[num] = ((arr == arr_min_filtered).nonzero()[0]).compute()
+
+    with open (ofname, 'wb') as handle:
+        pickle.dump(minima, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 def run_grid(s, num, overwrite=False):
     """Run GRID-dendro
