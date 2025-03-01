@@ -420,21 +420,21 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         x1, x2, x3, v1, v2, v3 = {}, {}, {}, {}, {}, {}
         time, num = {}, {}
         for pid in self.pids:
-            phst = self.load_parhst(pid)
-            phst0 = phst.iloc[0]
-            x1[pid] = phst0.x1
-            x2[pid] = phst0.x2
-            x3[pid] = phst0.x3
-            v1[pid] = phst0.v1
-            v2[pid] = phst0.v2
-            v3[pid] = phst0.v3
-            time[pid] = phst0.time
-            num[pid] = np.floor(phst0.time / dt_output['hdf5']
-                                ).astype('int')
-        tcoll_cores = pd.DataFrame(dict(x1=x1, x2=x2, x3=x3,
-                                             v1=v1, v2=v2, v3=v3,
-                                             time=time, num=num),
-                                        dtype=object)
+            phst = self.load_parhst(pid).iloc[0]
+            x1[pid] = phst.x1
+            x2[pid] = phst.x2
+            x3[pid] = phst.x3
+            v1[pid] = phst.v1
+            v2[pid] = phst.v2
+            v3[pid] = phst.v3
+            time[pid] = phst.time
+            num[pid] = np.floor(phst.time / dt_output['hdf5']).astype('int')
+        tcoll_cores = pd.DataFrame(
+            dict(x1=x1, x2=x2, x3=x3,
+                 v1=v1, v2=v2, v3=v3,
+                 time=time, num=num),
+            dtype=object
+        )
         tcoll_cores.index.name = 'pid'
         return tcoll_cores
 

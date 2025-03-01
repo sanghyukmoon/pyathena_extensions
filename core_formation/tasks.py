@@ -130,7 +130,6 @@ def critical_tes(s, pid, num, overwrite=False):
         pickle.dump(critical_tes, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-
 def core_tracking(s, pid, protostellar=False, overwrite=False):
     """Loops over all sink particles and find their progenitor cores
 
@@ -432,6 +431,7 @@ def save_minima(s, overwrite=False):
 
     with open (ofname, 'wb') as handle:
         pickle.dump(minima, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
 
 def run_grid(s, num, overwrite=False):
     """Run GRID-dendro
