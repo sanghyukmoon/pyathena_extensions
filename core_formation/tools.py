@@ -120,7 +120,7 @@ def find_tcoll_core(s, pid):
 # TODO Stopping condition due to leaf distance is just arbitrary, because in principle if the
 # leaf disappears by a merger, it would keep tracking. We need more physically motivated stopping
 # condition
-def track_cores(s, pid):
+def track_cores(s, pid, ncells_min=27):
     """Perform reverse core tracking
 
     Parameters
@@ -145,30 +145,21 @@ def track_cores(s, pid):
 
     lid = find_tcoll_core(s, pid)
 
-    if lid is None:
-        msg = (
-            f'[track_cores] t_coll core for pid {pid} is unresolved. '
-            ' do not perform core tracking for this core.'
-        )
-        print(msg)
-        nums_track = [num,]
-        time = [s.num_to_time(num),]
-        leaf_id = [np.nan,]
-        rleaf = [np.nan,]
-        rtidal = [np.nan,]
-        tcoll_resolved = False
-    else:
-        tcoll_resolved = True
-        gd = s.load_dendro(num)
+    # Load data and construct local dendrogram
+    ds = s.load_hdf5(num, chunks=dict(x=128, y=128, z=128))
+    center_pos = s.flatindex_to_cartesian(lid)
+    # Note we do not prune the dendrogram here because we want to examine whether
+    # the t_coll core is resolved.
+    gd = local_dendrogram(ds.phi, center_pos, s.domain['le'], s.domain['dx'], prune=False)
+    # Calculate effective radius of this leaf
+    _rleaf = reff_sph(gd.len(lid)*s.dV)
+    # Calculate tidal radius
+    # TODO This needs updated condition if using local dendrogram
+    _rtidal = tidal_radius(s, gd, lid, lid)
 
-        # Calculate effective radius of this leaf
-        _rleaf = reff_sph(gd.len(lid)*s.dV)
+    tcoll_resolved = True if gd.len(lid) >= ncells_min else False
 
-        # Do the tidal correction to neglect attached substructures.
-
-        # Calculate tidal radius
-        _rtidal = tidal_radius(s, gd, lid, lid)
-
+    if tcoll_resolved:
         nums_track = [num,]
         time = [s.num_to_time(num),]
         leaf_id = [lid,]
@@ -178,7 +169,10 @@ def track_cores(s, pid):
         for num in nums[1:]:
             msg = '[track_cores] processing model {} pid {} num {}'
             print(msg.format(s.basename, pid, num))
-            gd = s.load_dendro(num)
+
+            ds = s.load_hdf5(num, chunks=dict(x=128, y=128, z=128))
+            center_pos = s.flatindex_to_cartesian(lid)  # This uses the previous leaf position.
+            gd = local_dendrogram(ds.phi, center_pos, s.domain['le'], s.domain['dx'])
             pds = s.load_par(num)
 
             # find closeast leaf to the previous preimage
@@ -187,7 +181,10 @@ def track_cores(s, pid):
             _rleaf = reff_sph(gd.len(lid)*s.dV)
 
             # If there is sink particle in the leaf, stop tracking.
-            idx = np.floor((pds[['x1', 'x2', 'x3']] - s.domain['le']) / s.dx).astype('int')
+            idx0 = np.floor((pds[['x1', 'x2', 'x3']] - s.domain['le']) / s.dx).astype('int')
+            idx = ((pds[['x1', 'x2', 'x3']] - s.domain['le']) // s.dx).astype('int')
+            assert idx0.equals(idx)
+
             idx = idx[['x3', 'x2', 'x1']]
             idx = idx.values
             idx = idx[:, 0]*s.domain['Nx'][1]*s.domain['Nx'][0] + idx[:,1]*s.domain['Nx'][0] + idx[:, 2]
@@ -210,6 +207,18 @@ def track_cores(s, pid):
             leaf_id.append(lid)
             rleaf.append(_rleaf)
             rtidal.append(_rtidal)
+    else:
+        msg = (
+            f'[track_cores] t_coll core for pid {pid} is unresolved. '
+            ' do not perform core tracking for this core.'
+        )
+        print(msg)
+        nums_track = [num,]
+        time = [s.num_to_time(num),]
+        leaf_id = [lid,]
+        rleaf = [_rleaf,]
+        rtidal = [_rtidal,]
+        tcoll_resolved = False
 
     # SMOON: Using dtype=object is to prevent automatic upcasting from int to float
     # when indexing a single row. Maybe there is a better approach.
@@ -321,6 +330,7 @@ def tidal_radius(s, gd, node, leaf=None):
     rtidal : float
         Tidal radius.
     """
+    # TODO This needs updated condition if using local dendrogram
     if node == gd.trunk:
         # If this node is a trunk, tidal radius is the half the box size,
         # assuming periodic boundary condition.
@@ -334,7 +344,7 @@ def tidal_radius(s, gd, node, leaf=None):
 
 
 def local_dendrogram(arr, center_pos, domain_left_edge, domain_cell_size,
-                     hw=0.5, ncells_min=27, max_level=3):
+                     hw=0.5, prune=True, ncells_min=27):
     """Construct a local dendrogram
 
     Parameters
@@ -342,7 +352,7 @@ def local_dendrogram(arr, center_pos, domain_left_edge, domain_cell_size,
     arr : xarray.DataArray
         Input array to construct dendrogram. Usually, gravitational potential.
     center_pos : tuple
-        Center position of the local dendrogram.
+        Center position of the local dendrogram (x, y, z).
     domain_left_edge : tuple
         Left edge of the global domain. (xmin, ymin, zmin)
     domain_cell_size : tuple
@@ -351,8 +361,6 @@ def local_dendrogram(arr, center_pos, domain_left_edge, domain_cell_size,
         Half width of the local domain. Default to 0.5.
     ncells_min : int, optional
         Minimum number of cells in a leaf. Default to 27.
-    max_level : int, optional
-        Maximum level at which dendrogram construction stops. Default to 3.
 
     Returns
     -------
@@ -376,8 +384,9 @@ def local_dendrogram(arr, center_pos, domain_left_edge, domain_cell_size,
     else:
         arr = arr.data
     gd = dendrogram.Dendrogram(arr, boundary_flag='outflow')
-    gd.construct(max_level=max_level)
-    gd.prune(ncells_min)
+    gd.construct()
+    if prune:
+        gd.prune(ncells_min)
     gd.reindex(start_indices, shape, direction='backward')
     return gd
 
