@@ -429,7 +429,7 @@ def save_minima(s, overwrite=False):
         arr = arr.flatten()
         minima[num] = ((arr == arr_min_filtered).nonzero()[0]).compute()
 
-    with open (ofname, 'wb') as handle:
+    with open(ofname, 'wb') as handle:
         pickle.dump(minima, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
