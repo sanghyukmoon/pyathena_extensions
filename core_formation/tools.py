@@ -120,13 +120,17 @@ def find_tcoll_core(s, pid):
 # TODO Stopping condition due to leaf distance is just arbitrary, because in principle if the
 # leaf disappears by a merger, it would keep tracking. We need more physically motivated stopping
 # condition
-def track_cores(s, pid, ncells_min=27):
+def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
     """Perform reverse core tracking
 
     Parameters
     ----------
     s : LoadSim
     pid : int
+    ncells_min : int, optional
+        Minimum number of cells in a leaf. Default to 27.
+    local_dendro_hw : float, optional
+        Half width of the local dendrogram domain. Default to 0.5.
 
     Returns
     -------
@@ -150,11 +154,11 @@ def track_cores(s, pid, ncells_min=27):
     center_pos = s.flatindex_to_cartesian(lid)
     # Note we do not prune the dendrogram here because we want to examine whether
     # the t_coll core is resolved.
-    gd = local_dendrogram(ds.phi, center_pos, s.domain['le'], s.domain['dx'], prune=False)
+    gd = local_dendrogram(ds.phi, center_pos, s.domain['le'], s.domain['dx'],
+                          prune=False, hw=local_dendro_hw)
     # Calculate effective radius of this leaf
     _rleaf = reff_sph(gd.len(lid)*s.dV)
     # Calculate tidal radius
-    # TODO This needs updated condition if using local dendrogram
     _rtidal = tidal_radius(s, gd, lid, lid)
 
     tcoll_resolved = True if gd.len(lid) >= ncells_min else False
@@ -172,19 +176,27 @@ def track_cores(s, pid, ncells_min=27):
 
             ds = s.load_hdf5(num, chunks=dict(x=128, y=128, z=128))
             center_pos = s.flatindex_to_cartesian(lid)  # This uses the previous leaf position.
-            gd = local_dendrogram(ds.phi, center_pos, s.domain['le'], s.domain['dx'])
+            gd = local_dendrogram(ds.phi, center_pos, s.domain['le'], s.domain['dx'],
+                                  hw=local_dendro_hw)
             pds = s.load_par(num)
 
             # find closeast leaf to the previous preimage
             dst = [s.distance_between(leaf, leaf_id[-1]) for leaf in gd.leaves]
             lid = gd.leaves[np.argmin(dst)]
             _rleaf = reff_sph(gd.len(lid)*s.dV)
+            if set(gd.nodes.keys()) == {lid}:
+                # If there is no other nodes, set tidal radius to
+                # half of the local box size.
+                _rtidal = local_dendro_hw
+            else:
+                _rtidal = tidal_radius(s, gd, lid, lid)
 
+            # TODO
             # If there is sink particle in the leaf, stop tracking.
-            idx0 = np.floor((pds[['x1', 'x2', 'x3']] - s.domain['le']) / s.dx).astype('int')
-            idx = ((pds[['x1', 'x2', 'x3']] - s.domain['le']) // s.dx).astype('int')
-            assert idx0.equals(idx)
-
+            # Is this valid? Sink may be simply passing by.
+            # What was the original motivation for this?
+            # Sink forming in a disk?
+            idx = np.floor((pds[['x1', 'x2', 'x3']] - s.domain['le']) / s.dx).astype('int')
             idx = idx[['x3', 'x2', 'x1']]
             idx = idx.values
             idx = idx[:, 0]*s.domain['Nx'][1]*s.domain['Nx'][0] + idx[:,1]*s.domain['Nx'][0] + idx[:, 2]
@@ -195,8 +207,6 @@ def track_cores(s, pid, ncells_min=27):
             if flag > 0:
                 break
 
-            # Calculate tidal radius
-            _rtidal = tidal_radius(s, gd, lid, lid)
 
             # If the center moved more than the tidal radius, stop tracking.
             if s.distance_between(lid, leaf_id[-1]) > rtidal[-1]:
