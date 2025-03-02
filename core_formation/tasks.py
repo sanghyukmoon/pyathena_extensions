@@ -164,8 +164,7 @@ def core_tracking(s, pid, protostellar=False, overwrite=False):
     cores.to_pickle(ofname, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def radial_profile(s, num, pids, overwrite=False, full_radius=False,
-                   chunksize=dict(x=256, y=256, z=256), days_overwrite=30):
+def radial_profile(s, num, pids, overwrite=False, full_radius=False, days_overwrite=30):
     """Calculates and pickles radial profiles of all cores.
 
     Parameters
@@ -180,8 +179,6 @@ def radial_profile(s, num, pids, overwrite=False, full_radius=False,
         If true, overwrites the existing pickle file.
     full_radius : bool, optional
         If true, use the full domain size as the outer radius.
-    chunksize : dict, optional
-        Chunk size for dask-backed xarray dataset.
     """
 
     pids_skip = []
@@ -218,7 +215,7 @@ def radial_profile(s, num, pids, overwrite=False, full_radius=False,
 
     # Load the snapshot
     # ds0 should not be modified in the following loop.
-    ds0 = s.load_hdf5(num, chunks=chunksize)
+    ds0 = s.load_hdf5(num, chunks=config.CHUNKSIZE)
 
     # Loop through cores
     for pid in pids_to_process:
@@ -421,7 +418,7 @@ def save_minima(s, overwrite=False):
     for num in s.nums:
         # Load data and construct dendrogram
         print('[save_minima] processing model {} num {}'.format(s.basename, num))
-        ds = s.load_hdf5(num, chunks=dict(x=128, y=128, z=128))
+        ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
         arr = ds.phi.data
         arr_min_filtered = arr.map_overlap(
             minimum_filter, depth=1, boundary='periodic', size=3, mode='wrap'

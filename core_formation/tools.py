@@ -150,7 +150,7 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
     lid = find_tcoll_core(s, pid)
 
     # Load data and construct local dendrogram
-    ds = s.load_hdf5(num, chunks=dict(x=128, y=128, z=128))
+    ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
     center_pos = s.flatindex_to_cartesian(lid)
     # Note we do not prune the dendrogram here because we want to examine whether
     # the t_coll core is resolved.
@@ -174,7 +174,7 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
             msg = '[track_cores] processing model {} pid {} num {}'
             print(msg.format(s.basename, pid, num))
 
-            ds = s.load_hdf5(num, chunks=dict(x=128, y=128, z=128))
+            ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
             center_pos = s.flatindex_to_cartesian(lid)  # This uses the previous leaf position.
             gd = local_dendrogram(ds.phi, center_pos, s.domain['le'], s.domain['dx'],
                                   hw=local_dendro_hw)
