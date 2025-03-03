@@ -203,7 +203,7 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
                               s.domain['le'], s.domain['dx'], hw=local_dendro_hw)
 
         # find closeast leaf to the previous preimage
-        lid = find_closeast_leaf(s, gd, lid_old)
+        lid = find_closest_leaf(s, gd, lid_old)
         _rleaf = reff_sph(gd.len(lid)*s.dV)
         if set(gd.nodes.keys()) == {lid}:
             # If there is no other nodes, set tidal radius to
@@ -1458,7 +1458,7 @@ def dask_init(ncores=96, memory='740 GiB', nprocs=32, wtime='00:30:00'):
     return client
 
 
-def find_closeast_leaf(s, gd, flatidx):
+def find_closest_leaf(s, gd, flatidx):
     """Find the closest leaf to the given position
 
     Parameters
