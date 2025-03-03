@@ -195,22 +195,6 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
         else:
             _rtidal = tidal_radius(s, gd, lid, lid)
 
-        # TODO
-        # If there is sink particle in the leaf, stop tracking.
-        # Is this valid? Sink may be simply passing by.
-        # What was the original motivation for this?
-        # Sink forming in a disk?
-        idx = np.floor((pds[['x1', 'x2', 'x3']] - s.domain['le']) / s.dx).astype('int')
-        idx = idx[['x3', 'x2', 'x1']]
-        idx = idx.values
-        idx = idx[:, 0]*s.domain['Nx'][1]*s.domain['Nx'][0] + idx[:,1]*s.domain['Nx'][0] + idx[:, 2]
-        flag = 0
-        for idx_ in idx:
-            if idx_ in gd.get_all_descendant_cells(lid):
-                flag += 1
-        if flag > 0:
-            break
-
         # If the center has moved more than the future tidal radius, stop tracking.
         # Note that the current tidal radius can become suddenly very large, and
         # thus using max(rtidal, rtidal[-1]) will keep track core which is undesirable.
@@ -239,8 +223,6 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
         sink_pos = pds.loc[pid][['x1', 'x2', 'x3']].to_numpy()
         lid = find_closeast_leaf(s, gd, sink_pos)
         _rleaf = reff_sph(gd.len(lid)*s.dV)
-
-        # Calculate tidal radius
         _rtidal = tidal_radius(s, gd, lid, lid)
 
         nums_track.append(num)
