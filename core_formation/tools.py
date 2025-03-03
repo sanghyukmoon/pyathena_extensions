@@ -152,13 +152,20 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
     # Load data and construct local dendrogram
     ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
     center_pos = s.flatindex_to_cartesian(lid)
-    # Note we do not prune the dendrogram here because we want to examine whether
-    # the t_coll core is resolved.
+
+    # Here, the dendrogram is intentionally not pruned. If the core collapse
+    # is well resolved, the progenitor core snapshot at t_coll should not be
+    # a bud node.
     gd = local_dendrogram(ds.phi, center_pos, s.domain['le'], s.domain['dx'],
                           prune=False, hw=local_dendro_hw)
+
     # Calculate effective radius of this leaf
     _rleaf = reff_sph(gd.len(lid)*s.dV)
+
     # Calculate tidal radius
+    # Note that even if the progenitor core is resolved, there could exist
+    # neighboring bud nodes which have not been pruned, and these will affect
+    # the tidal radius here.
     _rtidal = tidal_radius(s, gd, lid, lid)
 
     tcoll_resolved = True if gd.len(lid) >= ncells_min else False
