@@ -12,6 +12,8 @@ if __name__ == "__main__":
                         help="List of models to process")
     parser.add_argument("-o", "--overwrite", action="store_true",
                         help="Overwrite everything")
+    parser.add_argument("--track-cores", action="store_true",
+                        help="Perform reverse core tracking (prestellar phase)")
     parser.add_argument("--radial-profile", action="store_true",
                         help="Calculate radial profiles of each cores")
     parser.add_argument("--save-minima", action="store_true",
@@ -33,15 +35,16 @@ if __name__ == "__main__":
                 s = sa.set_model(mdl, force_override=True)
 
                 if args.radial_profile:
-                    msg = ("calculate and save radial profiles for "
-                           f"model {mdl}")
-                    print(msg)
+                    print(f"calculate and save radial profiles for model {mdl}")
                     for num in s.nums:
                         tasks.radial_profile(s, num, s.pids, overwrite=args.overwrite,
                                              full_radius=True, days_overwrite=0)
 
                 if args.save_minima:
-                    msg = ("Find minimas and save to pickle for "
-                           f"model {mdl}")
-                    print(msg)
+                    print(f"Find minimas and save to pickle for model {mdl}")
                     tasks.save_minima(s, overwrite=args.overwrite)
+
+                if args.track_cores:
+                    print(f"Perform core tracking for model {mdl}")
+                    for pid in s.pids:
+                        tasks.core_tracking(s, pid, overwrite=args.overwrite)
