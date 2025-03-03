@@ -178,8 +178,7 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
     rtidal = [_rtidal,]
 
     for num in nums[1:]:
-        msg = '[track_cores] processing model {} pid {} num {}'
-        print(msg.format(s.basename, pid, num))
+        print(f'[track_cores] processing model {s.basename} pid {pid} num {num}')
 
         ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
         center_pos = s.flatindex_to_cartesian(lid)  # This uses the previous leaf position.
@@ -188,8 +187,7 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
         pds = s.load_par(num)
 
         # find closeast leaf to the previous preimage
-        dst = [s.distance_between(leaf, leaf_id[-1]) for leaf in gd.leaves]
-        lid = gd.leaves[np.argmin(dst)]
+        lid = find_closeast_leaf(s, gd, leaf_id[-1])
         _rleaf = reff_sph(gd.len(lid)*s.dV)
         if set(gd.nodes.keys()) == {lid}:
             # If there is no other nodes, set tidal radius to
@@ -214,8 +212,9 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
         if flag > 0:
             break
 
-
-        # If the center moved more than the tidal radius, stop tracking.
+        # If the center has moved more than the future tidal radius, stop tracking.
+        # Note that the current tidal radius can become suddenly very large, and
+        # thus using max(rtidal, rtidal[-1]) will keep track core which is undesirable.
         if s.distance_between(lid, leaf_id[-1]) > rtidal[-1]:
             break
 
@@ -1532,3 +1531,24 @@ def dask_init(ncores=96, memory='740 GiB', nprocs=32, wtime='00:30:00'):
     cluster.scale(1)
     client = Client(cluster)
     return client
+
+def find_closeast_leaf(s, gd, leaf_id):
+    """Find the closest leaf to the given leaf node
+
+    Parameters
+    ----------
+    s : LoadSim
+        LoadSim instance.
+    gd : grid_dendro.Dendrogram
+        Dendrogram object.
+    leaf_id : int
+        Flat index of the leaf node.
+
+    Returns
+    -------
+    lid : int
+        Flat index of the closest leaf node.
+    """
+    dst = [s.distance_between(leaf, leaf_id) for leaf in gd.leaves]
+    lid = gd.leaves[np.argmin(dst)]
+    return lid
