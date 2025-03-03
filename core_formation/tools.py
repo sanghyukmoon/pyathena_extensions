@@ -142,7 +142,8 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
                                the protostellar stage.
     """
     # start from t = t_coll and track backward
-    nums = np.arange(s.tcoll_cores.loc[pid].num, config.GRID_NUM_START-1, -1)
+    numcoll = s.tcoll_cores.loc[pid].num
+    nums = np.arange(numcoll, config.GRID_NUM_START-1, -1)
     num = nums[0]
     msg = f'[track_cores] processing model {s.basename} pid {pid} num {num}'
     print(msg)
@@ -170,72 +171,59 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
 
     tcoll_resolved = True if gd.len(lid) >= ncells_min else False
 
-    if tcoll_resolved:
-        nums_track = [num,]
-        time = [s.num_to_time(num),]
-        leaf_id = [lid,]
-        rleaf = [_rleaf,]
-        rtidal = [_rtidal,]
+    nums_track = [num,]
+    time = [s.num_to_time(num),]
+    leaf_id = [lid,]
+    rleaf = [_rleaf,]
+    rtidal = [_rtidal,]
 
-        for num in nums[1:]:
-            msg = '[track_cores] processing model {} pid {} num {}'
-            print(msg.format(s.basename, pid, num))
+    for num in nums[1:]:
+        msg = '[track_cores] processing model {} pid {} num {}'
+        print(msg.format(s.basename, pid, num))
 
-            ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
-            center_pos = s.flatindex_to_cartesian(lid)  # This uses the previous leaf position.
-            gd = local_dendrogram(ds.phi, center_pos, s.domain['le'], s.domain['dx'],
-                                  hw=local_dendro_hw)
-            pds = s.load_par(num)
+        ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
+        center_pos = s.flatindex_to_cartesian(lid)  # This uses the previous leaf position.
+        gd = local_dendrogram(ds.phi, center_pos, s.domain['le'], s.domain['dx'],
+                              hw=local_dendro_hw)
+        pds = s.load_par(num)
 
-            # find closeast leaf to the previous preimage
-            dst = [s.distance_between(leaf, leaf_id[-1]) for leaf in gd.leaves]
-            lid = gd.leaves[np.argmin(dst)]
-            _rleaf = reff_sph(gd.len(lid)*s.dV)
-            if set(gd.nodes.keys()) == {lid}:
-                # If there is no other nodes, set tidal radius to
-                # half of the local box size.
-                _rtidal = local_dendro_hw
-            else:
-                _rtidal = tidal_radius(s, gd, lid, lid)
+        # find closeast leaf to the previous preimage
+        dst = [s.distance_between(leaf, leaf_id[-1]) for leaf in gd.leaves]
+        lid = gd.leaves[np.argmin(dst)]
+        _rleaf = reff_sph(gd.len(lid)*s.dV)
+        if set(gd.nodes.keys()) == {lid}:
+            # If there is no other nodes, set tidal radius to
+            # half of the local box size.
+            _rtidal = local_dendro_hw
+        else:
+            _rtidal = tidal_radius(s, gd, lid, lid)
 
-            # TODO
-            # If there is sink particle in the leaf, stop tracking.
-            # Is this valid? Sink may be simply passing by.
-            # What was the original motivation for this?
-            # Sink forming in a disk?
-            idx = np.floor((pds[['x1', 'x2', 'x3']] - s.domain['le']) / s.dx).astype('int')
-            idx = idx[['x3', 'x2', 'x1']]
-            idx = idx.values
-            idx = idx[:, 0]*s.domain['Nx'][1]*s.domain['Nx'][0] + idx[:,1]*s.domain['Nx'][0] + idx[:, 2]
-            flag = 0
-            for idx_ in idx:
-                if idx_ in gd.get_all_descendant_cells(lid):
-                    flag += 1
-            if flag > 0:
-                break
+        # TODO
+        # If there is sink particle in the leaf, stop tracking.
+        # Is this valid? Sink may be simply passing by.
+        # What was the original motivation for this?
+        # Sink forming in a disk?
+        idx = np.floor((pds[['x1', 'x2', 'x3']] - s.domain['le']) / s.dx).astype('int')
+        idx = idx[['x3', 'x2', 'x1']]
+        idx = idx.values
+        idx = idx[:, 0]*s.domain['Nx'][1]*s.domain['Nx'][0] + idx[:,1]*s.domain['Nx'][0] + idx[:, 2]
+        flag = 0
+        for idx_ in idx:
+            if idx_ in gd.get_all_descendant_cells(lid):
+                flag += 1
+        if flag > 0:
+            break
 
 
-            # If the center moved more than the tidal radius, stop tracking.
-            if s.distance_between(lid, leaf_id[-1]) > rtidal[-1]:
-                break
+        # If the center moved more than the tidal radius, stop tracking.
+        if s.distance_between(lid, leaf_id[-1]) > rtidal[-1]:
+            break
 
-            nums_track.append(num)
-            time.append(s.num_to_time(num))
-            leaf_id.append(lid)
-            rleaf.append(_rleaf)
-            rtidal.append(_rtidal)
-    else:
-        msg = (
-            f'[track_cores] t_coll core for pid {pid} is unresolved. '
-            ' do not perform core tracking for this core.'
-        )
-        print(msg)
-        nums_track = [num,]
-        time = [s.num_to_time(num),]
-        leaf_id = [lid,]
-        rleaf = [_rleaf,]
-        rtidal = [_rtidal,]
-        tcoll_resolved = False
+        nums_track.append(num)
+        time.append(s.num_to_time(num))
+        leaf_id.append(lid)
+        rleaf.append(_rleaf)
+        rtidal.append(_rtidal)
 
     # SMOON: Using dtype=object is to prevent automatic upcasting from int to float
     # when indexing a single row. Maybe there is a better approach.
@@ -247,7 +235,7 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
 
     # Set attributes
     cores.attrs['pid'] = pid
-    cores.attrs['numcoll'] = cores.index[-1]
+    cores.attrs['numcoll'] = numcoll
     cores.attrs['tcoll_resolved'] = tcoll_resolved
 
     return cores
