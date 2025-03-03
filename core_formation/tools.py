@@ -19,6 +19,7 @@ from tesphere import utils, tes
 
 from . import config
 
+
 class LognormalPDF:
     """Lognormal probability distribution function"""
 
@@ -117,9 +118,6 @@ def find_tcoll_core(s, pid):
 
 # TODO Can we predict the new sink position using the mean velocity inside the core?
 # But that would require loading the hdf5 snapshot, making the core tracking more expensive.
-# TODO Stopping condition due to leaf distance is just arbitrary, because in principle if the
-# leaf disappears by a merger, it would keep tracking. We need more physically motivated stopping
-# condition
 def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
     """Perform reverse core tracking
 
@@ -197,7 +195,10 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
         # If the center has moved more than the future tidal radius, stop tracking.
         # Note that the current tidal radius can become suddenly very large, and
         # thus using max(rtidal, rtidal[-1]) will keep track core which is undesirable.
-        if s.distance_between(lid, leaf_id[-1]) > rtidal[-1]:
+        # Zeroth order prediction; simply use the previous (future) position.
+        pos_predicted = leaf_id[-1]
+        distance_threshold = rtidal[-1]
+        if s.distance_between(lid, pos_predicted) > distance_threshold:
             break
 
         nums_track.append(num)
