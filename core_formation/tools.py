@@ -169,25 +169,37 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
 
     tcoll_resolved = True if gd.len(lid) >= ncells_min else False
 
+    assert s.par['output2']['file_type'] == 'hdf5' and s.par['output2']['variable'] == 'cons'
+    dt_hdf5 = s.par['output2']['dt']
+
     nums_track = [num,]
     time = [s.num_to_time(num),]
     leaf_id = [lid,]
     rleaf = [_rleaf,]
     rtidal = [_rtidal,]
     for num in nums[1:]:
+        print(f'[track_cores] processing model {s.basename} pid {pid} num {num}')
+        ds_old = ds
         lid_old = lid
         rtidal_old = _rtidal
 
-
-        print(f'[track_cores] processing model {s.basename} pid {pid} num {num}')
-        ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
-
         # Set the tracking info from previous (future) snapshot
-        # Zeroth order prediction; simply use the previous (future) position.
-        pos_predicted = lid_old
+        # First order prediction; x(t-dt) = x(t) - v(t)dt
+        x0, y0, z0 = s.flatindex_to_cartesian(lid_old)
+        vx, vy, vz = (ds_old.mom1/ds_old.dens,
+                      ds_old.mom2/ds_old.dens,
+                      ds_old.mom3/ds_old.dens)
+        sel = dict(x=x0, y=y0, z=z0)
+        vx, vy, vz = vx.sel(sel), vy.sel(sel), vz.sel(sel)
+        dx, dy, dz = dask.compute(-vx*dt_hdf5, -vy*dt_hdf5, -vz*dt_hdf5)
+        dx, dy, dz = dx.data[()], dy.data[()], dz.data[()]
+        x0, y0, z0 = s.flatindex_to_cartesian(lid_old) + np.array([dx, dy, dz])
+        x0, y0, z0 = s.apply_periodic_bc(x0, y0, z0)
+        lid_predicted = s.cartesian_to_flatindex(x0, y0, z0)
         distance_threshold = rtidal_old
 
-        gd = local_dendrogram(ds.phi, s.flatindex_to_cartesian(pos_predicted),
+        ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
+        gd = local_dendrogram(ds.phi, s.flatindex_to_cartesian(lid_predicted),
                               s.domain['le'], s.domain['dx'], hw=local_dendro_hw)
 
         # find closeast leaf to the previous preimage
@@ -203,7 +215,7 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
         # If the center has moved more than the future tidal radius, stop tracking.
         # Note that the current tidal radius can become suddenly very large, and
         # thus using max(rtidal, rtidal[-1]) will keep track core which is undesirable.
-        if s.distance_between(lid, pos_predicted) > distance_threshold:
+        if s.distance_between(lid, lid_predicted) > distance_threshold:
             break
 
         nums_track.append(num)
