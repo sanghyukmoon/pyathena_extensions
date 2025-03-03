@@ -150,12 +150,12 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
 
     # Load data and construct local dendrogram
     ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
-    center_pos = s.flatindex_to_cartesian(lid)
 
     # Here, the dendrogram is intentionally not pruned. If the core collapse
     # is well resolved, the progenitor core snapshot at t_coll should not be
     # a bud node.
-    gd = local_dendrogram(ds.phi, center_pos, s.domain['le'], s.domain['dx'],
+    gd = local_dendrogram(ds.phi, s.flatindex_to_cartesian(lid),
+                          s.domain['le'], s.domain['dx'],
                           prune=False, hw=local_dendro_hw)
 
     # Calculate effective radius of this leaf
@@ -175,15 +175,22 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
     rleaf = [_rleaf,]
     rtidal = [_rtidal,]
     for num in nums[1:]:
+        lid_old = lid
+        rtidal_old = _rtidal
         print(f'[track_cores] processing model {s.basename} pid {pid} num {num}')
         pds = s.load_par(num)
         ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
-        center_pos = s.flatindex_to_cartesian(lid)  # This uses the previous leaf position.
-        gd = local_dendrogram(ds.phi, center_pos, s.domain['le'], s.domain['dx'],
-                              hw=local_dendro_hw)
+
+        # Set the tracking info from previous (future) snapshot
+        # Zeroth order prediction; simply use the previous (future) position.
+        pos_predicted = lid_old
+        distance_threshold = rtidal_old
+
+        gd = local_dendrogram(ds.phi, s.flatindex_to_cartesian(pos_predicted),
+                              s.domain['le'], s.domain['dx'], hw=local_dendro_hw)
 
         # find closeast leaf to the previous preimage
-        lid = find_closeast_leaf(s, gd, leaf_id[-1])
+        lid = find_closeast_leaf(s, gd, lid_old)
         _rleaf = reff_sph(gd.len(lid)*s.dV)
         if set(gd.nodes.keys()) == {lid}:
             # If there is no other nodes, set tidal radius to
@@ -195,9 +202,6 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
         # If the center has moved more than the future tidal radius, stop tracking.
         # Note that the current tidal radius can become suddenly very large, and
         # thus using max(rtidal, rtidal[-1]) will keep track core which is undesirable.
-        # Zeroth order prediction; simply use the previous (future) position.
-        pos_predicted = leaf_id[-1]
-        distance_threshold = rtidal[-1]
         if s.distance_between(lid, pos_predicted) > distance_threshold:
             break
 
