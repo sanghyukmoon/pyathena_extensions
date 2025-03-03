@@ -177,8 +177,9 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
     for num in nums[1:]:
         lid_old = lid
         rtidal_old = _rtidal
+
+
         print(f'[track_cores] processing model {s.basename} pid {pid} num {num}')
-        pds = s.load_par(num)
         ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
 
         # Set the tracking info from previous (future) snapshot
