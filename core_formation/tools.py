@@ -205,33 +205,6 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
         leaf_id.append(lid)
         rleaf.append(_rleaf)
         rtidal.append(_rtidal)
-
-    # nums after t_coll
-    nums = [num for num in s.nums if num > numcoll]
-    for num in nums:
-        print('[track_cores] Start tracking protostellar phase')
-        print(f'[track_cores] processing model {s.basename} pid {pid} num {num}')
-        pds = s.load_par(num)
-        ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
-        sink_pos = pds.loc[pid][['x1', 'x2', 'x3']].to_numpy()
-        gd = local_dendrogram(ds.phi, sink_pos, s.domain['le'], s.domain['dx'],
-                              hw=local_dendro_hw)
-
-        if pid not in pds.index:
-            # This sink particle has merged to other sink. Stop tracking
-            break
-
-        # Find closet leaf to the sink particle
-        lid = find_closeast_leaf(s, gd, sink_pos)
-        _rleaf = reff_sph(gd.len(lid)*s.dV)
-        _rtidal = tidal_radius(s, gd, lid, lid)
-
-        nums_track.append(num)
-        time.append(s.num_to_time(num))
-        leaf_id.append(lid)
-        rleaf.append(_rleaf)
-        rtidal.append(_rtidal)
-
     # SMOON: Using dtype=object is to prevent automatic upcasting from int to float
     # when indexing a single row. Maybe there is a better approach.
     cores = pd.DataFrame(dict(time=time,
