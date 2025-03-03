@@ -176,7 +176,6 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
     leaf_id = [lid,]
     rleaf = [_rleaf,]
     rtidal = [_rtidal,]
-
     for num in nums[1:]:
         print(f'[track_cores] processing model {s.basename} pid {pid} num {num}')
 
@@ -224,61 +223,11 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
         rleaf.append(_rleaf)
         rtidal.append(_rtidal)
 
-    # SMOON: Using dtype=object is to prevent automatic upcasting from int to float
-    # when indexing a single row. Maybe there is a better approach.
-    cores = pd.DataFrame(dict(time=time,
-                              leaf_id=leaf_id,
-                              leaf_radius=rleaf,
-                              tidal_radius=rtidal),
-                         index=nums_track, dtype=object).sort_index()
-
-    # Set attributes
-    cores.attrs['pid'] = pid
-    cores.attrs['numcoll'] = numcoll
-    cores.attrs['tcoll_resolved'] = tcoll_resolved
-
-    return cores
-
-
-def track_protostellar_cores(s, pid):
-    """Perform forward core tracking
-
-    Parameters
-    ----------
-    s : LoadSim
-    pid : int
-
-    Returns
-    -------
-    cores : pandas.DataFrame
-
-    See also
-    --------
-    track_cores : Reverse core tracking from t_coll back into
-                  the prestellar stage.
-    """
-    # Load prestellar core list
-    # Do not load from self.cores, which might already contain the derived core properties.
-    # We do not want to write derived properties into cores.par{}.p.
-    fname = Path(s.savdir, 'cores', 'cores.par{}.p'.format(pid))
-    cores = pd.read_pickle(fname).sort_index()
-    ncoll = cores.attrs['numcoll']
-
-    # Select prestellar part
-    cores = cores.loc[:ncoll]
-
     # nums after t_coll
-    nums = [num for num in s.nums if num > ncoll]
-
-    nums_track = []
-    time = []
-    leaf_id = []
-    rleaf = []
-    rtidal  = []
-
+    nums = [num for num in s.nums if num > numcoll]
     for num in nums:
-        msg = '[track_protostellar_cores] processing model {} pid {} num {}'
-        print(msg.format(s.basename, pid, num))
+        print('[track_cores] Start tracking protostellar phase')
+        print(f'[track_cores] processing model {s.basename} pid {pid} num {num}')
         gd = s.load_dendro(num)
         pds = s.load_par(num)
 
@@ -302,14 +251,18 @@ def track_protostellar_cores(s, pid):
         rleaf.append(_rleaf)
         rtidal.append(_rtidal)
 
-    tmp = pd.DataFrame(dict(time=time,
-                            leaf_id=leaf_id,
-                            leaf_radius=rleaf,
-                            tidal_radius=rtidal),
-                       index=nums_track, dtype=object).sort_index()
-    tmp.attrs = cores.attrs
+    # SMOON: Using dtype=object is to prevent automatic upcasting from int to float
+    # when indexing a single row. Maybe there is a better approach.
+    cores = pd.DataFrame(dict(time=time,
+                              leaf_id=leaf_id,
+                              leaf_radius=rleaf,
+                              tidal_radius=rtidal),
+                         index=nums_track, dtype=object).sort_index()
 
-    cores = pd.concat([cores, tmp])
+    # Set attributes
+    cores.attrs['pid'] = pid
+    cores.attrs['numcoll'] = numcoll
+    cores.attrs['tcoll_resolved'] = tcoll_resolved
 
     return cores
 
