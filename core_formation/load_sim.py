@@ -396,6 +396,27 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             x, y, z = (self.domain['le'] + np.array([i+0.5, j+0.5, k+0.5])*self.domain['dx'])
             return x, y, z
 
+    def cartesian_to_flatindex(self, x, y, z):
+        """Flattened index corresponding to Cartesian coordinates
+
+        If x, y, z do not correspond to cell center, find closest cell center.
+
+        Parameters
+        ----------
+        x, y, z : float
+
+        Returns
+        -------
+        flatindex : int
+            Flattened index assuming C-ordering (i.e., k, j, i)
+        """
+        i, j, k = ((np.array([x, y, z]) - self.domain['le'])
+                   // self.domain['dx']).astype(int)
+        flatidx = np.ravel_multi_index(
+            (k, j, i), self.domain['Nx'].T, mode='raise', order='C'
+        )
+        return flatidx
+
     def distance_between(self, idx1, idx2):
         """Calculates periodic distance between two flattened indices
 
