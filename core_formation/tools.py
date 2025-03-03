@@ -178,12 +178,11 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
     rtidal = [_rtidal,]
     for num in nums[1:]:
         print(f'[track_cores] processing model {s.basename} pid {pid} num {num}')
-
+        pds = s.load_par(num)
         ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
         center_pos = s.flatindex_to_cartesian(lid)  # This uses the previous leaf position.
         gd = local_dendrogram(ds.phi, center_pos, s.domain['le'], s.domain['dx'],
                               hw=local_dendro_hw)
-        pds = s.load_par(num)
 
         # find closeast leaf to the previous preimage
         lid = find_closeast_leaf(s, gd, leaf_id[-1])
@@ -212,15 +211,17 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
     for num in nums:
         print('[track_cores] Start tracking protostellar phase')
         print(f'[track_cores] processing model {s.basename} pid {pid} num {num}')
-        gd = s.load_dendro(num)
         pds = s.load_par(num)
+        ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
+        sink_pos = pds.loc[pid][['x1', 'x2', 'x3']].to_numpy()
+        gd = local_dendrogram(ds.phi, sink_pos, s.domain['le'], s.domain['dx'],
+                              hw=local_dendro_hw)
 
         if pid not in pds.index:
             # This sink particle has merged to other sink. Stop tracking
             break
 
         # Find closet leaf to the sink particle
-        sink_pos = pds.loc[pid][['x1', 'x2', 'x3']].to_numpy()
         lid = find_closeast_leaf(s, gd, sink_pos)
         _rleaf = reff_sph(gd.len(lid)*s.dV)
         _rtidal = tidal_radius(s, gd, lid, lid)
