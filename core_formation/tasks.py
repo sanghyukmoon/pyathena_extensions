@@ -130,7 +130,7 @@ def critical_tes(s, pid, num, overwrite=False):
         pickle.dump(critical_tes, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def core_tracking(s, pid, protostellar=False, overwrite=False):
+def core_tracking(s, pid, overwrite=False):
     """Loops over all sink particles and find their progenitor cores
 
     Finds a unique grid-dendro leaf at each snapshot that is going to collapse.
@@ -143,8 +143,6 @@ def core_tracking(s, pid, protostellar=False, overwrite=False):
         LoadSim instance.
     pid : int
         Particle ID
-    protostellar : bool
-        If True, track cores including the protostellar phase.
     overwrite : str, optional
         If true, overwrites the existing pickle file.
     """
@@ -155,12 +153,7 @@ def core_tracking(s, pid, protostellar=False, overwrite=False):
         print('[core_tracking] file already exists. Skipping...')
         return
 
-    # Perform protostellar core tracking only for resolved cores
-    # to save resources.
-    if protostellar:
-        cores = tools.track_protostellar_cores(s, pid)
-    else:
-        cores = tools.track_cores(s, pid)
+    cores = tools.track_cores(s, pid)
     cores.to_pickle(ofname, protocol=pickle.HIGHEST_PROTOCOL)
 
 
