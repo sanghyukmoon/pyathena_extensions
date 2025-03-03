@@ -120,8 +120,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             self.sonic_length = tools.get_sonic(self.Mach, self.Lbox)
 
             # Find the collapse time and corresponding snapshot numbers
-            self.tcoll_cores = self._load_tcoll_cores(force_override=force_override)
-
+            self.tcoll_cores = self._load_tcoll_cores(
+                savdir=Path(self.savdir, config.CORE_DIR),
+                force_override=force_override
+            )
             try:
                 fname = Path(self.savdir, 'GRID', 'minima.p')
                 with open(fname, 'rb') as handle:
