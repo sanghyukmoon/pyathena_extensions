@@ -237,9 +237,7 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
 
         # Find closet leaf to the sink particle
         sink_pos = pds.loc[pid][['x1', 'x2', 'x3']].to_numpy()
-        dst = [periodic_distance(s.flatindex_to_cartesian(lid), sink_pos, s.Lbox)
-               for lid in gd.leaves]
-        lid = gd.leaves[np.argmin(dst)]
+        lid = find_closeast_leaf(s, gd, sink_pos)
         _rleaf = reff_sph(gd.len(lid)*s.dV)
 
         # Calculate tidal radius
@@ -1485,8 +1483,9 @@ def dask_init(ncores=96, memory='740 GiB', nprocs=32, wtime='00:30:00'):
     client = Client(cluster)
     return client
 
-def find_closeast_leaf(s, gd, leaf_id):
-    """Find the closest leaf to the given leaf node
+
+def find_closeast_leaf(s, gd, pos):
+    """Find the closest leaf to the given position
 
     Parameters
     ----------
@@ -1494,14 +1493,20 @@ def find_closeast_leaf(s, gd, leaf_id):
         LoadSim instance.
     gd : grid_dendro.Dendrogram
         Dendrogram object.
-    leaf_id : int
-        Flat index of the leaf node.
+    pos : int or numpy.ndarray of type float (x1, x2, x3)
+        Flat index of the cell.
 
     Returns
     -------
     lid : int
         Flat index of the closest leaf node.
     """
-    dst = [s.distance_between(leaf, leaf_id) for leaf in gd.leaves]
+    if isinstance(pos, int):
+        dst = [s.distance_between(lid, pos) for lid in gd.leaves]
+    elif isinstance(pos, np.ndarray) and pos.dtype==float:
+        dst = [tools.periodic_distance(s.flatindex_to_cartesian(lid), pos, s.Lbox)
+               for lid in gd.leaves]
+    else:
+        raise ValueError("pos must be either int or numpy.ndarray of type float")
     lid = gd.leaves[np.argmin(dst)]
     return lid
