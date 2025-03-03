@@ -408,6 +408,16 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         pos2 = self.flatindex_to_cartesian(idx2)
         return tools.periodic_distance(pos1, pos2, self.Lbox)
 
+    def apply_periodic_bc(self, x, y, z):
+        """Apply periodic boundary conditions"""
+        x = tools.sawtooth(x, self.domain['le'][0], self.domain['re'][0],
+                           self.domain['le'][0], self.domain['re'][0])
+        y = tools.sawtooth(y, self.domain['le'][1], self.domain['re'][1],
+                           self.domain['le'][1], self.domain['re'][1])
+        z = tools.sawtooth(z, self.domain['le'][2], self.domain['re'][2],
+                           self.domain['le'][2], self.domain['re'][2])
+        return x, y, z
+
     @LoadSimBase.Decorators.check_pickle
     def _load_tcoll_cores(self, prefix='tcoll_cores', savdir=None, force_override=False):
         """Read .csv output and find their collapse time and snapshot number.
