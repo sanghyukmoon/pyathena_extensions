@@ -99,7 +99,7 @@ def critical_tes(s, pid, num, overwrite=False):
         If true, overwrites the existing pickle file.
     """
     # Check if file exists
-    ofname = Path(s.savdir, 'critical_tes',
+    ofname = Path(s.savdir, config.CORE_DIR,
                   'critical_tes.par{}.{:05d}.p'.format(pid, num))
     ofname.parent.mkdir(exist_ok=True)
     if ofname.exists() and not overwrite:
@@ -147,7 +147,7 @@ def core_tracking(s, pid, overwrite=False):
         If true, overwrites the existing pickle file.
     """
     # Check if file exists
-    ofname = Path(s.savdir, 'cores', 'cores.par{}.p'.format(pid))
+    ofname = Path(s.savdir, config.CORE_DIR, 'cores.par{}.p'.format(pid))
     ofname.parent.mkdir(exist_ok=True)
     if ofname.exists() and not overwrite:
         print('[core_tracking] file already exists. Skipping...')

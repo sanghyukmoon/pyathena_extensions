@@ -16,7 +16,7 @@ from pyathena.load_sim import LoadSim as LoadSimBase
 from pyathena.util.units import Units
 from pyathena.io.timing_reader import TimingReader
 
-from . import models, tools, hst, slc_prj
+from . import models, tools, config, hst, slc_prj
 
 
 class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
@@ -131,7 +131,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             try:
                 # Load cores
-                savdir = Path(self.savdir, 'cores')
+                savdir = Path(self.savdir, config.CORE_DIR)
                 self.cores = self._load_cores(savdir=savdir, force_override=force_override)
                 # Remove bud nodes TODO(SMOON) Is this really necessary?
                 if len(self.cores) > 0:
@@ -156,7 +156,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             for mtd in ['empirical', 'predicted']:  # retire experimental pred_xis
                 try:
                     # Calculate derived core properties using the predicted critical time
-                    savdir = Path(self.savdir, 'cores')
+                    savdir = Path(self.savdir, config.CORE_DIR)
                     self.cores_dict[mtd] = self.update_core_props(method=mtd, prefix=f'cores_tcrit_{mtd}',
                                                                   savdir=savdir, force_override=force_override)
                 except (AttributeError, KeyError):
@@ -353,7 +353,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 prestellar_cores = cores.loc[:cores.attrs['numcoll']]
                 oprops = []
                 for num, core in prestellar_cores.iterrows():
-                    fname = Path(self.savdir, 'cores',
+                    fname = Path(self.savdir, config.CORE_DIR,
                                  'observables.par{}.{:05d}.p'
                                  .format(pid, num))
                     if fname.exists():
@@ -501,7 +501,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 tes_crit = []
                 for num in cores.index:
                     try:
-                        fname = Path(self.savdir, 'critical_tes',
+                        fname = Path(self.savdir, config.CORE_DIR,
                                      f'critical_tes.par{pid}.{num:05d}.p')
                         tes_crit.append(pd.read_pickle(fname))
                     except FileNotFoundError:
