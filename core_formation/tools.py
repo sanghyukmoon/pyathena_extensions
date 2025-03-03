@@ -1445,7 +1445,7 @@ def dask_init(ncores=96, memory='740 GiB', nprocs=32, wtime='00:30:00'):
     return client
 
 
-def find_closeast_leaf(s, gd, pos):
+def find_closeast_leaf(s, gd, flatidx):
     """Find the closest leaf to the given position
 
     Parameters
@@ -1454,7 +1454,7 @@ def find_closeast_leaf(s, gd, pos):
         LoadSim instance.
     gd : grid_dendro.Dendrogram
         Dendrogram object.
-    pos : int or numpy.ndarray of type float (x1, x2, x3)
+    flatidx : int
         Flat index of the cell.
 
     Returns
@@ -1462,12 +1462,6 @@ def find_closeast_leaf(s, gd, pos):
     lid : int
         Flat index of the closest leaf node.
     """
-    if isinstance(pos, int):
-        dst = [s.distance_between(lid, pos) for lid in gd.leaves]
-    elif isinstance(pos, np.ndarray) and pos.dtype==float:
-        dst = [tools.periodic_distance(s.flatindex_to_cartesian(lid), pos, s.Lbox)
-               for lid in gd.leaves]
-    else:
-        raise ValueError("pos must be either int or numpy.ndarray of type float")
+    dst = [s.distance_between(lid, flatidx) for lid in gd.leaves]
     lid = gd.leaves[np.argmin(dst)]
     return lid
