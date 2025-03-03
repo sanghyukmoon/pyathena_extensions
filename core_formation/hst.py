@@ -11,31 +11,23 @@ class Hst:
         """
 
         hst = read_hst(self.files['hst'], force_override=force_override)
-        h = pd.DataFrame()
 
-        # Time in code unit
-        h['time'] = hst['time']
         # Time in unit of free-fall time
-        h['time_in_tff'] = h['time']/self.tff0
+        hst['time_in_tff'] = hst['time']/self.tff0
         # Timestep
-        h['dt'] = hst['dt']
-        h['dt_in_tff'] = h['dt']/self.tff0
-
-        # Total gas mass
-        h['mass'] = hst['mass']
+        hst['dt_in_tff'] = hst['dt']/self.tff0
 
         # Kinetic and gravitational energies
-        h['KE'] = (hst['1KE'] + hst['2KE'] + hst['3KE'])
-        h['gravE'] = hst['gravE']
+        hst['KE'] = (hst['1KE'] + hst['2KE'] + hst['3KE'])
 
         # Mass weighted velocity dispersions
         for name, ax in zip(('x', 'y', 'z'), ('1', '2', '3')):
             KE = hst['{}KE'.format(ax)]
-            h['v{}'.format(name)] = np.sqrt(2*KE/hst['mass'])
+            hst['v{}'.format(name)] = np.sqrt(2*KE/hst['mass'])
 
         # 3D Mach number
-        h['Mach'] = np.sqrt(h['vx']**2 + h['vy']**2 + h['vz']**2) / self.cs
+        hst['Mach'] = np.sqrt(hst['vx']**2 + hst['vy']**2 + hst['vz']**2) / self.cs
 
-        h.set_index('time', inplace=True)
-        self.hst = h
-        return h
+        hst.set_index('time', inplace=True)
+        self.hst = hst
+        return hst
