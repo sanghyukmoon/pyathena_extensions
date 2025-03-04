@@ -147,7 +147,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             try:
                 # Load radial profiles
-                savdir = Path(self.savdir, 'radial_profile')
+                savdir = Path(self.savdir, config.RPROF_DIR)
                 self.rprofs = self._load_radial_profiles(savdir=savdir, force_override=force_override)
             except (AttributeError, FileNotFoundError, KeyError):
                 self.logger.warning("Failed to load radial profiles")

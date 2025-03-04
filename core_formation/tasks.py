@@ -180,7 +180,7 @@ def radial_profile(s, num, pids, overwrite=False, full_radius=False, days_overwr
         if num not in cores.index:
             pids_skip.append(pid)
             continue
-        ofname = Path(s.savdir, 'radial_profile',
+        ofname = Path(s.savdir, config.RPROF_DIR,
                       'radial_profile.par{}.{:05d}.nc'.format(pid, num))
         if ofname.exists():
             if overwrite:
@@ -219,7 +219,7 @@ def radial_profile(s, num, pids, overwrite=False, full_radius=False, days_overwr
             continue
 
         # Create directory and check if a file already exists
-        ofname = Path(s.savdir, 'radial_profile',
+        ofname = Path(s.savdir, config.RPROF_DIR,
                       f'radial_profile.par{pid}.{num:05d}.nc')
         ofname.parent.mkdir(exist_ok=True)
         if ofname.exists() and not overwrite:
@@ -282,7 +282,7 @@ def prj_radial_profile(s, num, pids, overwrite=False):
         if num not in cores.index:
             pids_skip.append(pid)
             continue
-        ofname = Path(s.savdir, 'radial_profile',
+        ofname = Path(s.savdir, config.RPROF_DIR,
                       'prj_radial_profile.par{}.{:05d}.nc'.format(pid, num))
         if ofname.exists() and not overwrite:
             pids_skip.append(pid)
@@ -308,7 +308,7 @@ def prj_radial_profile(s, num, pids, overwrite=False):
             continue
 
         # Create directory and check if a file already exists
-        ofname = Path(s.savdir, 'radial_profile',
+        ofname = Path(s.savdir, config.RPROF_DIR,
                       f'prj_radial_profile.par{pid}.{num:05d}.nc')
         ofname.parent.mkdir(exist_ok=True)
         if ofname.exists() and not overwrite:
