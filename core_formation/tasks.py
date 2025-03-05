@@ -338,7 +338,7 @@ def prj_radial_profile(s, num, pids, overwrite=False):
 
 def lagrangian_props(s, pid, method='empirical', overwrite=False):
     # Check if file exists
-    ofname = Path(s.savdir, 'cores', f'lprops_tcrit_{method}.par{pid}.p')
+    ofname = Path(s.savdir, config.CORE_DIR, f'lprops_tcrit_{method}.par{pid}.p')
     ofname.parent.mkdir(exist_ok=True)
     if ofname.exists() and not overwrite:
         print('[lagrangian_props] file already exists. Skipping...')
@@ -360,7 +360,7 @@ def projections(s, num, overwrite=True):
 
 def observables(s, pid, num, overwrite=False):
     # Check if file exists
-    ofname = Path(s.savdir, 'cores',
+    ofname = Path(s.savdir, config.CORE_DIR,
                   'observables.par{}.{:05d}.p'.format(pid, num))
     ofname.parent.mkdir(exist_ok=True)
     if ofname.exists() and not overwrite:

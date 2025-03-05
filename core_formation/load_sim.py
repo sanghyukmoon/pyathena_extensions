@@ -300,7 +300,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 cores.attrs['isolated'] = False
 
             # Load Lagrangian props
-            fname = Path(self.savdir, 'cores', f'lprops_tcrit_{method}.par{pid}.p')
+            fname = Path(self.savdir, config.CORE_DIR, f'lprops_tcrit_{method}.par{pid}.p')
             if fname.exists():
                 lprops = pd.read_pickle(fname).sort_index()
                 if set(lprops.columns).issubset(cores.columns):
