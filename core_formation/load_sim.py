@@ -241,7 +241,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         """Update core properties
 
         Calculate lagrangian core properties using the radial profiles
-        Set isolated flag
         Add normalized times
 
         Parameters
@@ -286,12 +285,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 cores.attrs['mcore'] = mcore
                 cores.attrs['mean_density'] = mean_density
                 cores.attrs['tff_crit'] = tff_crit
-
-            # Test isolatedness
-            if tools.test_isolated_core(self, cores):
-                cores.attrs['isolated'] = True
-            else:
-                cores.attrs['isolated'] = False
 
             # Load Lagrangian props
             fname = Path(self.savdir, config.CORE_DIR, f'lprops_tcrit_{method}.par{pid}.p')

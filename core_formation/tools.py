@@ -169,6 +169,12 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
 
     tcoll_resolved = True if gd.len(lid) >= ncells_min else False
 
+    # Test if any star particle is contained inside t_coll core.
+    pds = s.load_par(num)
+    cells_in_core = gd.nodes[lid]
+    isolated = not np.any([s.cartesian_to_flatindex(x, y, z) in cells_in_core
+                           for (x, y, z) in zip(pds.x1, pds.x2, pds.x3)])
+
     assert s.par['output2']['file_type'] == 'hdf5' and s.par['output2']['variable'] == 'cons'
     dt_hdf5 = s.par['output2']['dt']
 
@@ -235,6 +241,7 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
     cores.attrs['pid'] = pid
     cores.attrs['numcoll'] = numcoll
     cores.attrs['tcoll_resolved'] = tcoll_resolved
+    cores.attrs['isolated'] = isolated
 
     return cores
 
@@ -1252,39 +1259,6 @@ def test_resolved_core(s, cores, nres):
         return True
     else:
         return False
-
-
-def test_isolated_core(s, cores):
-    """Test if the given core is isolated.
-
-    Criterion for an isolated core is that the core must not contain
-    any particle at the time of collapse.
-
-    Parameters
-    ----------
-    s : LoadSim
-        Object containing simulation metadata.
-    pid : int
-        Particle ID.
-
-    Returns
-    -------
-    bool
-        True if a core is isolated, false otherwise.
-    """
-    ncrit = cores.attrs['numcrit']
-    if np.isnan(ncrit):
-        return False
-    pds = s.load_par(ncrit)
-    pstar = pds[['x1', 'x2', 'x3']]
-    core = cores.loc[ncrit]
-
-    nd = core.leaf_id
-    pcore = s.flatindex_to_cartesian(nd)
-
-    dst = np.sqrt(((pstar - pcore)**2).sum(axis=1))
-
-    return (dst > core.tidal_radius).all()
 
 
 def lpdensity(r, cs, gconst):
