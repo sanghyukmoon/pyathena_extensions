@@ -135,12 +135,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 # Load cores
                 savdir = Path(self.savdir, config.CORE_DIR)
                 self.cores = self._load_cores(savdir=savdir, force_override=force_override)
-                # Remove bud nodes TODO(SMOON) Is this really necessary?
-                if len(self.cores) > 0:
-                    pids = self.pids.copy()
-                    for pid in pids:
-                        if not self.cores[pid].attrs['tcoll_resolved']:
-                            self.pids.remove(pid)
             except FileNotFoundError:
                 self.logger.warning("Failed to load core information")
                 pass
