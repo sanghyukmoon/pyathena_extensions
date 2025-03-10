@@ -10,8 +10,10 @@ import xarray as xr
 # Let's disable third party softwares to go conservative.
 # Accuracy is more important than performance.
 xr.set_options(use_bottleneck=False, use_numbagg=False)
+import dask.array as da
 import subprocess
 import pickle
+import h5py
 import glob
 import logging
 from pyathena.util import uniform, transform
@@ -82,6 +84,62 @@ def combine_partab(s, ns=None, ne=None, partag="par0", remove=False,
                 Path(f).unlink()
         else:
             print("Not all files are joined", flush=True)
+
+
+def select_and_save_meshblocks(s, gids, num):
+    """Read Athena++ hdf5 file and remove all the MeshBlocks
+    except the selected ones.
+
+    Parameters
+    ----------
+    s : LoadSim
+        LoadSim instance.
+    gids : list of int
+        List of global ids of the selected MeshBlocks.
+    num : int
+        Snapshot number.
+    """
+    filename = s.files['hdf5']['cons'][num]
+    fsrc = h5py.File(filename, 'r')
+    # Read Mesh information
+    block_size = fsrc.attrs['MeshBlockSize']
+    mesh_size = fsrc.attrs['RootGridSize']
+    num_blocks = mesh_size // block_size  # Assuming uniform grid
+
+    if num_blocks.prod() != fsrc.attrs['NumMeshBlocks']:
+        raise ValueError("Number of blocks does not match the attribute")
+    # Array of logical locations, arranged by Z-ordering
+    # (lx1, lx2, lx3)
+    # (  0,   0,   0)
+    # (  1,   0,   0)
+    # (  0,   1,   0)
+    # ...
+    logical_loc = fsrc['LogicalLocations']
+
+    # lazy load from HDF5
+    ds = dict()
+    for dsetname in fsrc.attrs['DatasetNames']:
+        darr = da.from_array(fsrc[dsetname], chunks=(1, 1, *block_size))
+        if len(darr.shape) != 5:
+            # Expected shape: (nvar, nblock, z, y, x)
+            raise ValueError("Invalid shape of the dataset")
+        ds[dsetname] = darr
+
+    for k, v in ds.items():
+        ds[k] = v[:, gids, ...]
+    ofname = Path(filename.replace('athdf', 'hdf5'))
+    if ofname.exists():
+        ofname.unlink()
+    da.to_hdf5(ofname, ds)
+    fdst = h5py.File(ofname, 'a')
+    fdst.attrs.update(fsrc.attrs)
+
+    dataset_names = set(name.decode() for name in fsrc.attrs['DatasetNames'])
+    for k in set(fsrc.keys()) - dataset_names:
+        fsrc.copy(k, fdst)
+    fdst.create_dataset("gids", data=gids)
+    fsrc.close()
+    fdst.close()
 
 
 def critical_tes(s, pid, num, overwrite=False):
