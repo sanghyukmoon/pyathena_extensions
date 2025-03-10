@@ -99,7 +99,9 @@ def output_sparse_hdf5(s, gids, num):
     num : int
         Snapshot number.
     """
-    filename = s.files['hdf5']['cons'][num]
+    outid = s._hdf5_outid_def
+    outvar = s._hdf5_outvar_def
+    filename = s._get_fhdf5(outid, outvar, num, None)
     fsrc = h5py.File(filename, 'r')
     # Read Mesh information
     block_size = fsrc.attrs['MeshBlockSize']
@@ -127,7 +129,10 @@ def output_sparse_hdf5(s, gids, num):
 
     for k, v in ds.items():
         ds[k] = v[:, gids, ...]
-    ofname = Path(filename.replace('athdf', 'hdf5'))
+    ofname = Path(
+        s.basedir, "sparse", f"{s.problem_id}.{num:05d}.athdf"
+    )
+    ofname.parent.mkdir(exist_ok=True)
     if ofname.exists():
         ofname.unlink()
     da.to_hdf5(ofname, ds)
