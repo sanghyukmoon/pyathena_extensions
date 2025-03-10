@@ -202,7 +202,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             outid = self._hdf5_outid_def
             outvar = self._hdf5_outvar_def
             fname = Path(
-                self.basename, "sparse", f"{self.problem_id}.{num:05d}.athdf"
+                self.basedir, "sparse", f"{self.problem_id}.{num:05d}.athdf"
             )
             if not fname.exists():
                 raise FileNotFoundError('sparse hdf5 file does not exist.')
