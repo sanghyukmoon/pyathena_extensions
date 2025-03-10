@@ -86,7 +86,7 @@ def combine_partab(s, ns=None, ne=None, partag="par0", remove=False,
             print("Not all files are joined", flush=True)
 
 
-def select_and_save_meshblocks(s, gids, num):
+def output_sparse_hdf5(s, gids, num):
     """Read Athena++ hdf5 file and remove all the MeshBlocks
     except the selected ones.
 
