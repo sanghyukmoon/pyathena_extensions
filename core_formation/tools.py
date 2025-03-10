@@ -392,6 +392,8 @@ def critical_tes_property(s, rprf, core):
 def radial_profile(s, ds, origin, rmax=None, newz=None):
     """Calculates radial profiles of various properties at selected position
 
+    This function returns lazy Dataset if the inputs are dask array.
+
     Parameters
     ----------
     s : LoadSim
