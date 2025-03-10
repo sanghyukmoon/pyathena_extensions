@@ -483,31 +483,29 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             prestellar_cores = cores.loc[:cores.attrs['numcoll']]
 
-            if cores.attrs['tcoll_resolved']:
-                # Read critical TES info and concatenate to self.cores
+            # Read critical TES info and concatenate to self.cores
+            # Try reading critical TES pickles
+            tes_crit = []
+            for num in cores.index:
+                try:
+                    fname = Path(self.savdir, config.CORE_DIR,
+                                 f'critical_tes.par{pid}.{num:05d}.p')
+                    tes_crit.append(pd.read_pickle(fname))
+                except FileNotFoundError:
+                    pids_not_found.append(pid)
+                    break
+            if len(tes_crit) > 0:
+                tes_crit = pd.DataFrame(tes_crit).set_index('num').sort_index()
 
-                # Try reading critical TES pickles
-                tes_crit = []
-                for num in cores.index:
-                    try:
-                        fname = Path(self.savdir, config.CORE_DIR,
-                                     f'critical_tes.par{pid}.{num:05d}.p')
-                        tes_crit.append(pd.read_pickle(fname))
-                    except FileNotFoundError:
-                        pids_not_found.append(pid)
-                        break
-                if len(tes_crit) > 0:
-                    tes_crit = pd.DataFrame(tes_crit).set_index('num').sort_index()
+                # Save attributes before performing join, which will drop them.
+                attrs = cores.attrs.copy()
+                attrs.update(tes_crit.attrs)
+                cores = cores.join(tes_crit)
 
-                    # Save attributes before performing join, which will drop them.
-                    attrs = cores.attrs.copy()
-                    attrs.update(tes_crit.attrs)
-                    cores = cores.join(tes_crit)
-
-                    # Reattach attributes
-                    cores.attrs = attrs
-                if mcore_go15_found:
-                    cores.attrs['mcore_go15'] = mcore_go15[pid]
+                # Reattach attributes
+                cores.attrs = attrs
+            if mcore_go15_found:
+                cores.attrs['mcore_go15'] = mcore_go15[pid]
 
             # Find collapse time
             cores.attrs['tcoll'] = self.tcoll_cores.loc[pid].time
