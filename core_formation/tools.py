@@ -1060,7 +1060,7 @@ def critical_time(s, pid, method='empirical'):
         # To find this "empirical critical time", we start from t_coll
         # and march backward in time.
         num_buffer = 2
-        if np.all(cores.iloc[-num_buffer+1:].pindex < 0):
+        if np.all(cores.iloc[-(num_buffer+1):].pindex < 0):
             s.logger.warning("pindex in the last three snapshots is negative."
                              f" for pid = {pid}."
                              " Skipping the critical time calculation."
