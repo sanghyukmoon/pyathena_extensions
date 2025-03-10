@@ -206,7 +206,13 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             )
             if not fname.exists():
                 raise FileNotFoundError('sparse hdf5 file does not exist.')
-            return myio.read_sparse_hdf5(fname, **kwargs)
+            if 'chunks' in kwargs:
+                chunks = (kwargs['chunks']['x'],
+                          kwargs['chunks']['y'],
+                          kwargs['chunks']['z'])
+            else:
+                raise ValueError("chunks must be specified for sparse hdf5")
+            return myio.read_sparse_hdf5(fname, chunks)
         else:
             return LoadSimBase.load_hdf5(self, num, **kwargs)
 
