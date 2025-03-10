@@ -1057,38 +1057,46 @@ def critical_time(s, pid, method='empirical'):
         # remains negative until the end of the collapse.
         # To find this "empirical critical time", we start from t_coll
         # and march backward in time.
-        for num, core in cores.sort_index(ascending=False).iterrows():
-            # Exclude t_coll snapshot at which the turbulence has amplified
-            # to produce nagative linewidth-size slope.
-            if num in cores.index[-2:]:
-                if np.isnan(core.critical_radius):
-                    n2coll = cores.attrs['numcoll'] - num
-                    msg = (f"Critical radius at t_coll - {n2coll}"
-                           f" is NaN for par {pid}, method {method}."
-                           " This may have been caused by negative pindex."
-                           " Continuing...")
-                    s.logger.warning(msg)
-                    continue
-            rprf = rprofs.sel(num=num)
+        num_buffer = 2
+        if np.all(cores.iloc[-num_buffer+1:].pindex < 0):
+            s.logger.warning("pindex in the last three snapshots is negative."
+                             f" for pid = {pid}."
+                             " Skipping the critical time calculation."
+                             f" Isolated = {cores.attrs['isolated']}")
+            pass
+        else:
+            for num, core in cores.sort_index(ascending=False).iterrows():
+                # Exclude t_coll snapshot at which the turbulence has amplified
+                # to produce nagative linewidth-size slope.
+                if num in cores.index[-num_buffer:]:
+                    if np.isnan(core.critical_radius):
+                        n2coll = cores.attrs['numcoll'] - num
+                        msg = (f"Critical radius at t_coll - {n2coll}"
+                               f" is NaN for par {pid}, method {method}."
+                               " This may have been caused by negative pindex."
+                               " Continuing...")
+                        s.logger.warning(msg)
+                        continue
+                rprf = rprofs.sel(num=num)
 
-            # Net force at the critical radius is negative after the
-            # critical time, throughout the collapse.
-            if np.isfinite(core.critical_radius):
-                rprf = rprf.interp(r=core.critical_radius)
-                fnet = (rprf.Fthm + rprf.Ftrb + rprf.Fcen + rprf.Fani
-                        - rprf.Fgrv)
-                if s.mhd:
-                    fnet += (rprf.Fmag + rprf.Fmag_ani)
-                fnet = fnet.data[()]
-            else:
-                fnet = np.nan
-            # Whatever fnet is, if it is not negative, we should break.
-            # That is, when rcrit = NaN or inf, we should break.
-            # However, NaN can be artificial, we can probably impose
-            # the upper limit on p.
-            if not fnet < 0:
-                ncrit = num + 1
-                break
+                # Net force at the critical radius is negative after the
+                # critical time, throughout the collapse.
+                if np.isfinite(core.critical_radius):
+                    rprf = rprf.interp(r=core.critical_radius)
+                    fnet = (rprf.Fthm + rprf.Ftrb + rprf.Fcen + rprf.Fani
+                            - rprf.Fgrv)
+                    if s.mhd:
+                        fnet += (rprf.Fmag + rprf.Fmag_ani)
+                    fnet = fnet.data[()]
+                else:
+                    fnet = np.nan
+                # Whatever fnet is, if it is not negative, we should break.
+                # That is, when rcrit = NaN or inf, we should break.
+                # However, NaN can be artificial, we can probably impose
+                # the upper limit on p.
+                if not fnet < 0:
+                    ncrit = num + 1
+                    break
     elif method in ['predicted', 'pred_xis']:
         for num, core in cores.sort_index(ascending=True).iterrows():
             if method == 'predicted':
