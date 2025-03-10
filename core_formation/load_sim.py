@@ -16,7 +16,7 @@ from pyathena.load_sim import LoadSim as LoadSimBase
 from pyathena.util.units import Units
 from pyathena.io.timing_reader import TimingReader
 
-from . import models, tools, config, hst, slc_prj
+from . import models, tools, config, hst, slc_prj, myio
 
 
 class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
@@ -187,6 +187,28 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                       'time_cgs': tJ0.cgs.value,
                       'mean_mass_per_hydrogen': (muH*mH).cgs.value}
         self.u = Units('custom', units_dict=units_dict)
+
+    def load_hdf5(self, num, sparse=False, **kwargs):
+        """Load hdf5 file
+
+        Parameters
+        ----------
+        num : int
+            Snapshot number.
+        sparse : bool
+            If True, load only the header information.
+        """
+        if sparse:
+            outid = self._hdf5_outid_def
+            outvar = self._hdf5_outvar_def
+            fname = Path(
+                self.basename, "sparse", f"{self.problem_id}.{num:05d}.athdf"
+            )
+            if not fname.exists():
+                raise FileNotFoundError('sparse hdf5 file does not exist.')
+            return myio.read_sparse_hdf5(fname, **kwargs)
+        else:
+            return LoadSimBase.load_hdf5(self, num, **kwargs)
 
     def load_par(self, num, **kwargs):
         """Load partab or parbin"""
