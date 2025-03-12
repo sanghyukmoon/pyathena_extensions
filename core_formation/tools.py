@@ -1432,12 +1432,12 @@ def sawtooth(x, xmin, xmax, ymin, ymax):
     return y
 
 
-def dask_init(ncores=96, memory='740 GiB', nprocs=32, wtime='00:30:00'):
+def dask_init(ncores=96, memory='740 GiB', nprocs=32, scale=1, wtime='00:30:00'):
     from dask_jobqueue import SLURMCluster
     from dask.distributed import Client
     cluster = SLURMCluster(cores=ncores, memory=memory, processes=nprocs,
                            interface="ib0", walltime=wtime)
-    cluster.scale(1)
+    cluster.scale(scale)
     client = Client(cluster)
     return client
 
