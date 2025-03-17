@@ -98,6 +98,10 @@ def output_sparse_hdf5(s, gids, num):
         List of global ids of the selected MeshBlocks.
     num : int
         Snapshot number.
+
+    TODO
+    ----
+    Refactor to use load_hdf5(raw=True)
     """
     outid = s._hdf5_outid_def
     outvar = s._hdf5_outvar_def
