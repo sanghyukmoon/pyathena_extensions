@@ -139,7 +139,10 @@ def output_sparse_hdf5(s, gids, num):
     ofname.parent.mkdir(exist_ok=True)
     if ofname.exists():
         ofname.unlink()
+    # Dump the raw dask array into HDF5 file
     da.to_hdf5(ofname, ds)
+
+    # Read in the fresh HDF5 file and copy back the other properties and attributes
     fdst = h5py.File(ofname, 'a')
     fdst.attrs.update(fsrc.attrs)
 
