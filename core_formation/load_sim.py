@@ -297,6 +297,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 core = cores.loc[ncrit]
                 rprf = rprofs.sel(num=ncrit)
                 rcore = core.critical_radius
+                if np.isnan(rcore) and cores.attrs['isolated']:
+                    raise ValueError("Critical radius at t_crit is NaN even though core is isolated")
                 if rcore > rprf.r.max()[()]:
                     msg = (
                         f"Core radius exceeds the maximum rprof radius for "
