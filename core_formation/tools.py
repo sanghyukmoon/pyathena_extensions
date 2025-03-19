@@ -629,7 +629,7 @@ def lagrangian_property(s, cores, rprofs):
     rcore = cores.attrs['rcore']
     mcore = cores.attrs['mcore']
 
-    if np.isnan(ncrit):
+    if np.isnan(ncrit) or np.isnan(rcore):
         radius = menc_crit = rhoe = rhoavg = np.nan
         vinfall = vcom = sigma_mw = sigma_1d = sigma_1d_trb = sigma_1d_blk = np.nan
         Fthm = Ftrb = Fcen = Fani = Fgrv = np.nan
