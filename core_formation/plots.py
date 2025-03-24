@@ -359,7 +359,7 @@ def plot_core_evolution(s, pid, num, rmax=None):
 
     # Load data
     ds = s.load_hdf5(num, quantities=['dens'], load_method='xarray')
-    gd = s.load_dendro(num)
+#    gd = s.load_dendro(num)
     core = s.cores[pid].loc[num]
     core_tcrit_pred = s.cores_dict['predicted'][pid].loc[num]
     core_tcrit_emp = s.cores_dict['empirical'][pid].loc[num]
@@ -428,17 +428,17 @@ def plot_core_evolution(s, pid, num, rmax=None):
         # 2. Zoom-in projections
         plt.sca(axs['zoom'][i])
         plot_projection(s, d, axis=prj_axis, add_colorbar=False)
-        if core.leaf_id not in gd.leaves:
-            # Due to path-dependent nature of dendrogram pruning, some ids
-            # may not match in global dendrogram and local dendrogram.
-            # For now, let's simply pass this edge case.
-            pass
-        else:
-            if core.leaf_id != gd.trunk:
-                plot_grid_dendro_contours(s, gd, gd.sibling(core.leaf_id), ds.coords, axis=prj_axis,
-                                          recenter=dict(x=xc, y=yc, z=zc), select=sel, color='k')
-            plot_grid_dendro_contours(s, gd, core.leaf_id, ds.coords, axis=prj_axis,
-                                      recenter=dict(x=xc, y=yc, z=zc), select=sel, color='g')
+#        if core.leaf_id not in gd.leaves:
+#            # Due to path-dependent nature of dendrogram pruning, some ids
+#            # may not match in global dendrogram and local dendrogram.
+#            # For now, let's simply pass this edge case.
+#            pass
+#        else:
+#            if core.leaf_id != gd.trunk:
+#                plot_grid_dendro_contours(s, gd, gd.sibling(core.leaf_id), ds.coords, axis=prj_axis,
+#                                          recenter=dict(x=xc, y=yc, z=zc), select=sel, color='k')
+#            plot_grid_dendro_contours(s, gd, core.leaf_id, ds.coords, axis=prj_axis,
+#                                      recenter=dict(x=xc, y=yc, z=zc), select=sel, color='g')
         if rtidal <= np.sqrt(2)*hw:
             c0 = plt.Circle((0, 0), rtidal, fill=False, color='g', lw=1, ls='--')
             plt.gca().add_artist(c0)
