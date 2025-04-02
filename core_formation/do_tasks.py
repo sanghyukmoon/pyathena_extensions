@@ -32,19 +32,21 @@ if __name__ == "__main__":
             print(f"Number of workers = {runner.n_workers}")
 
             for mdl in args.models:
-                s = sa.set_model(mdl, force_override=True)
-
-                if args.radial_profile:
-                    print(f"calculate and save radial profiles for model {mdl}")
-                    for num in s.nums:
-                        tasks.radial_profile(s, num, s.pids, overwrite=args.overwrite,
-                                             full_radius=True, days_overwrite=0)
-
                 if args.save_minima:
+                    s = sa.set_model(mdl, force_override=True)
+                    print(f"calculate and save radial profiles for model {mdl}")
                     print(f"Find minimas and save to pickle for model {mdl}")
                     tasks.save_minima(s, overwrite=args.overwrite)
 
                 if args.track_cores:
+                    s = sa.set_model(mdl, force_override=True)
                     print(f"Perform core tracking for model {mdl}")
                     for pid in s.pids:
                         tasks.core_tracking(s, pid, overwrite=args.overwrite)
+
+                if args.radial_profile:
+                    s = sa.set_model(mdl, force_override=True)
+                    print(f"calculate and save radial profiles for model {mdl}")
+                    for num in s.nums:
+                        tasks.radial_profile(s, num, s.pids, overwrite=args.overwrite,
+                                             full_radius=True, days_overwrite=0)
