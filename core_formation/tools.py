@@ -1146,35 +1146,62 @@ def get_coords_minimum(dat):
                   for dim in ['x', 'y', 'z']]
     return x0, y0, z0
 
-
-def periodic_distance(pos1, pos2, Lbox, return_axis_distance=False):
+def periodic_distance(x1, x2, w, return_axis_distance=False):
     """Returns periodic distance between two coordinates.
 
     Parameters
     ----------
-    pos1 : array_like
+    x1 : array_like
         Position of the first point.
-    pos2 : array_like
+    x2 : array_like
         Position of the second point.
-    Lbox : float
-        Box size.
+    w : array_like
+        The array of the period.
     return_axis_distance : bool, optional
         If True, return the distance along each axis.
     """
+    x1 = np.atleast_1d(x1)
+    x2 = np.atleast_1d(x2)
+    w = np.atleast_1d(w)
+    assert x1.shape == x2.shape == w.shape
 
-    hLbox = 0.5*Lbox
-    axis_distance = []
-    for x1, x2 in zip(pos1, pos2):
-        dst = np.abs(x1-x2)
-        dst = Lbox - dst if dst > hLbox else dst
-        axis_distance.append(dst)
-    axis_distance = np.array(axis_distance)
-    dst = np.sqrt((axis_distance**2).sum())
+    hw = 0.5*w
+    axis_distance = np.abs(periodic_operator(x1-x2, -hw, hw))
+    pdst = np.sqrt((axis_distance**2).sum())
     if return_axis_distance:
         return axis_distance
     else:
-        return dst
+        return pdst
 
+def periodic_operator(x, a, b):
+    """The periodic operator.
+
+    Parameters
+    ----------
+    x : array_like
+        Input array.
+    a : array_like
+        Lower bound.
+    b : array_like
+        Upper bound.
+
+    Returns
+    -------
+    array_like
+        The periodic operator applied to x.
+
+    Reference
+    ---------
+    https://tommohr.dev/pbc/
+    """
+    x = np.atleast_1d(x)
+    a = np.atleast_1d(a)
+    b = np.atleast_1d(b)
+    assert x.shape == a.shape == b.shape
+
+    w = b - a
+    n = np.floor((x - a) / w)
+    return x - n*w
 
 def get_sonic(Mach_outer, l_outer, p=0.5):
     """returns sonic scale assuming linewidth-size relation v ~ R^p
