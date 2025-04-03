@@ -1146,6 +1146,23 @@ def get_coords_minimum(dat):
                   for dim in ['x', 'y', 'z']]
     return x0, y0, z0
 
+def periodic_distance1d(x1, x2, w):
+    """Returns periodic distance between two coordinates.
+
+    Parameters
+    ----------
+    x1 : array_like
+        (array of) First coordinate
+    x2 : array_like
+        (array of) First coordinate
+    w : scalar
+        The period.
+    """
+    assert len(x1) == len(x2)
+    hw = 0.5*w
+    pdst = np.abs(periodic_operator(x1 - x2, -hw, hw))
+    return pdst
+
 def periodic_distance(x1, x2, w, return_axis_distance=False):
     """Returns periodic distance between two coordinates.
 
@@ -1155,23 +1172,31 @@ def periodic_distance(x1, x2, w, return_axis_distance=False):
         Position of the first point.
     x2 : array_like
         Position of the second point.
-    w : array_like
+    w : scalar or array_like
         The array of the period.
     return_axis_distance : bool, optional
         If True, return the distance along each axis.
     """
-    x1 = np.atleast_1d(x1)
-    x2 = np.atleast_1d(x2)
-    w = np.atleast_1d(w)
-    assert x1.shape == x2.shape == w.shape
+    assert len(x1) == len(x2)
+    ndim = len(x1)
+    if np.isscalar(w):
+        w = np.ones(ndim)*w
+    else:
+        assert len(w) == ndim
+        w = np.array(w)
 
     hw = 0.5*w
-    axis_distance = np.abs(periodic_operator(x1-x2, -hw, hw))
-    pdst = np.sqrt((axis_distance**2).sum())
+    axis_distance = []
+    for x1_, x2_, hw_ in zip(x1, x2, hw):
+        x1v = np.atleast_1d(x1_)
+        x2v = np.atleast_1d(x2_)
+        axis_distance.append(periodic_distance1d(x1v, x2v, hw_))
+    axis_distance = np.array(axis_distance)
+    pdst = np.sqrt((axis_distance**2).sum(axis=0))
     if return_axis_distance:
         return axis_distance
     else:
-        return pdst
+        return pdst.squeeze()
 
 def periodic_operator(x, a, b):
     """The periodic operator.
@@ -1180,9 +1205,9 @@ def periodic_operator(x, a, b):
     ----------
     x : array_like
         Input array.
-    a : array_like
+    a : float
         Lower bound.
-    b : array_like
+    b : float
         Upper bound.
 
     Returns
@@ -1194,11 +1219,6 @@ def periodic_operator(x, a, b):
     ---------
     https://tommohr.dev/pbc/
     """
-    x = np.atleast_1d(x)
-    a = np.atleast_1d(a)
-    b = np.atleast_1d(b)
-    assert x.shape == a.shape == b.shape
-
     w = b - a
     n = np.floor((x - a) / w)
     return x - n*w
