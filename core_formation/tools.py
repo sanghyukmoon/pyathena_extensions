@@ -1099,6 +1099,9 @@ def critical_time(s, pid, method='empirical'):
                 if not fnet < 0:
                     ncrit = num + 1
                     break
+        if ncrit == cores.attrs['numcoll'] and np.isnan(cores.loc[ncrit].critical_radius):
+            # If ncrit is ncoll at which critical radius was nan, set ncrit to NaN.
+            ncrit = np.nan
     elif method in ['predicted', 'pred_xis']:
         for num, core in cores.sort_index(ascending=True).iterrows():
             if method == 'predicted':
