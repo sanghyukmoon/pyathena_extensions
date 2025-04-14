@@ -187,6 +187,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                       'time_cgs': tJ0.cgs.value,
                       'mean_mass_per_hydrogen': (muH*mH).cgs.value}
         self.u = Units('custom', units_dict=units_dict)
+        self.u.number_density = (self.u.density/(self.u.muH*self.u.mH)).to('cm-3')
+        self.u.column_density = (self.u.number_density*self.u.length).to('cm-2')
 
     def load_hdf5(self, num, sparse=False, **kwargs):
         """Load hdf5 file
