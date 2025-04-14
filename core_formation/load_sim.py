@@ -676,3 +676,22 @@ class LoadSimAll(object):
                 self.simdict[model] = self.sim
 
         return self.sim
+
+    def itercore(self, models=None, nres=8):
+        if models is None:
+            models = self.models
+        for mdl in models:
+            s = self.set_model(mdl)
+            for pid in s.good_cores(nres):
+                cores = s.cores[pid]
+                rprofs = s.rprofs[pid]
+                yield s, pid, cores, rprofs
+
+    def itercritcore(self, models=None, nres=8):
+        if models is None:
+            models = self.models
+        for s, pid, cores, rprofs in self.itercore(models, nres):
+            num = cores.attrs['numcrit']
+            core = cores.loc[num]
+            rprf = rprofs.sel(num=num)
+            yield s, pid, core, rprf
