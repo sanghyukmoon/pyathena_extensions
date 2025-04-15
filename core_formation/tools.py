@@ -544,60 +544,51 @@ def radial_profile_projected(s, num, origin):
     ledge = 0.5*s.dx
     nbin = s.domain['Nx'][0]//2 - 1
     redge = (nbin + 0.5)*s.dx
-    for i, ax in enumerate(['x', 'y', 'z']):
+
+    def rprf_incl_center(qty, ax, mass_weighted=False, rms=False):
+        """Inner wrapper function for radial binning
+
+        This function assumes that rprofs['rho'] is already calculated.
+        """
         x1, x2 = xycoordnames[ax]
         x1c, x2c = xycenters[ax]
+        ds = prj[ax][qty].copy(deep=True)
+        ds, new_center, _ = recenter_dataset(ds, {x1:x1c, x2:x2c})
+        ds.coords['R'] = np.sqrt((ds.coords[x1] - new_center[x1])**2
+                                 + (ds.coords[x2] - new_center[x2])**2)
+        rprf_c = ds.sel({x1:new_center[x1], x2:new_center[x2]}).drop_vars([x1, x2])
+        if mass_weighted:
+            nth = qty.split('nc')[1]  # read threshold density string
+            w = prj[ax][f'Sigma_gas_nc{nth}'].copy(deep=True)
+            w, _, _ = recenter_dataset(w, {x1:x1c, x2:x2c})
+            w.coords['R'] = np.sqrt((w.coords[x1] - new_center[x1])**2
+                                    + (w.coords[x2] - new_center[x2])**2)
+            if rms:
+                rprf = np.sqrt(transform.groupby_bins(ds**2*w, 'R', nbin, (ledge, redge))
+                               / transform.groupby_bins(w, 'R', nbin, (ledge, redge)))
+            else:
+                rprf = (transform.groupby_bins(ds*w, 'R', nbin, (ledge, redge))
+                        / transform.groupby_bins(w, 'R', nbin, (ledge, redge)))
+        else:
+            if rms:
+                rprf = np.sqrt(transform.groupby_bins(ds**2, 'R', nbin, (ledge, redge)))
+            else:
+                rprf = transform.groupby_bins(ds, 'R', nbin, (ledge, redge))
+        rprf = xr.concat([rprf_c, rprf], dim='R')
+        return rprf
 
-
+    for i, ax in enumerate(['x', 'y', 'z']):
         # Volume-weighted averages
         for qty in [k for k in prj[ax].keys() if k.startswith('Sigma_gas')]:
-            ds = prj[ax][qty].copy(deep=True)
-            ds, new_center, _ = recenter_dataset(ds, {x1:x1c, x2:x2c})
-            ds.coords['R'] = np.sqrt((ds.coords[x1]- new_center[x1])**2
-                                     + (ds.coords[x2] - new_center[x2])**2)
-            rprf_c = xr.DataArray(ds.sel({x1:new_center[x1], x2:new_center[x2]}).data[()],
-                                  dims='R', coords={'R':[0,]})
-            rprf = transform.fast_groupby_bins(ds, 'R', ledge, redge, nbin)
-            rprf = xr.concat([rprf_c, rprf], dim='R')
-            rprofs[f'{ax}_{qty}'] = rprf
+            rprofs[f'{ax}_{qty}'] = rprf_incl_center(qty, ax)
 
         # Mass-weighted averages
         for qty in [k for k in prj[ax].keys() if k.startswith('vel_nc')]:
-            ds = prj[ax][qty].copy(deep=True)
-            ds, new_center, _ = recenter_dataset(ds, {x1:x1c, x2:x2c})
-            ds.coords['R'] = np.sqrt((ds.coords[x1]- new_center[x1])**2
-                                     + (ds.coords[x2] - new_center[x2])**2)
-            nth = qty.split('vel_nc')[1]  # read threshold density string
-            w = prj[ax][f'Sigma_gas_nc{nth}'].copy(deep=True)
-            w, _, _ = recenter_dataset(w, {x1:x1c, x2:x2c})
-            w.coords['R'] = np.sqrt((w.coords[x1]- new_center[x1])**2
-                                    + (w.coords[x2] - new_center[x2])**2)
-            rprf_c = xr.DataArray(ds.sel({x1:new_center[x1], x2:new_center[x2]}).data[()],
-                                  dims='R', coords={'R':[0,]})
-            num = transform.fast_groupby_bins(w*ds, 'R', ledge, redge, nbin)
-            den = transform.fast_groupby_bins(w, 'R', ledge, redge, nbin)
-            rprf = num/den
-            rprf = xr.concat([rprf_c, rprf], dim='R')
-            rprofs[f'{ax}_{qty}'] = rprf
+            rprofs[f'{ax}_{qty}'] = rprf_incl_center(qty, ax, mass_weighted=True)
 
         # RMS averages
         for qty in [k for k in prj[ax].keys() if k.startswith('veldisp_nc')]:
-            ds = prj[ax][qty].copy(deep=True)
-            ds, new_center, _ = recenter_dataset(ds, {x1:x1c, x2:x2c})
-            ds.coords['R'] = np.sqrt((ds.coords[x1]- new_center[x1])**2
-                                     + (ds.coords[x2] - new_center[x2])**2)
-            nth = qty.split('veldisp_nc')[1]  # read threshold density string
-            w = prj[ax][f'Sigma_gas_nc{nth}'].copy(deep=True)
-            w, _, _ = recenter_dataset(w, {x1:x1c, x2:x2c})
-            w.coords['R'] = np.sqrt((w.coords[x1]- new_center[x1])**2
-                                    + (w.coords[x2] - new_center[x2])**2)
-            rprf_c = xr.DataArray(ds.sel({x1:new_center[x1], x2:new_center[x2]}).data[()],
-                                  dims='R', coords={'R':[0,]})
-            num = transform.fast_groupby_bins(w*ds**2, 'R', ledge, redge, nbin)
-            den = transform.fast_groupby_bins(w, 'R', ledge, redge, nbin)
-            rprf = np.sqrt(num/den)
-            rprf = xr.concat([rprf_c, rprf], dim='R')
-            rprofs[f'{ax}_{qty}'] = rprf
+            rprofs[f'{ax}_{qty}'] = rprf_incl_center(qty, ax, mass_weighted=True, rms=True)
 
     rprofs = xr.Dataset(rprofs)
 
