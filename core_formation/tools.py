@@ -943,7 +943,9 @@ def observable(s, core, rprf):
                            + (dv_map.coords[x2] - new_center[x2])**2)
 
             # Set a threshold column density for a given "tracer"
-            dcol_bgr = dcol_bgr0*s.mfrac_above(nthr/s.rho0)
+            # Take the background as the average column density over the entire
+            # map area. This could in principle be applicable to observations.
+            dcol_bgr = dcol_map.mean()
 
             # POS radius at which any pixel falls below dcol_bgr
             rmax = rpos.where(dcol_map < dcol_bgr).min().data[()]
