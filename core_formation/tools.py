@@ -564,16 +564,16 @@ def radial_profile_projected(s, num, origin):
             w.coords['R'] = np.sqrt((w.coords[x1] - new_center[x1])**2
                                     + (w.coords[x2] - new_center[x2])**2)
             if rms:
-                rprf = np.sqrt(transform.groupby_bins(ds**2*w, 'R', nbin, (ledge, redge))
-                               / transform.groupby_bins(w, 'R', nbin, (ledge, redge)))
+                rprf = np.sqrt(transform.groupby_bins(ds**2*w, 'R', nbin, (ledge, redge), skipna=True)
+                               / transform.groupby_bins(w, 'R', nbin, (ledge, redge), skipna=True))
             else:
-                rprf = (transform.groupby_bins(ds*w, 'R', nbin, (ledge, redge))
-                        / transform.groupby_bins(w, 'R', nbin, (ledge, redge)))
+                rprf = (transform.groupby_bins(ds*w, 'R', nbin, (ledge, redge), skipna=True)
+                        / transform.groupby_bins(w, 'R', nbin, (ledge, redge), skipna=True))
         else:
             if rms:
-                rprf = np.sqrt(transform.groupby_bins(ds**2, 'R', nbin, (ledge, redge)))
+                rprf = np.sqrt(transform.groupby_bins(ds**2, 'R', nbin, (ledge, redge), skipna=True))
             else:
-                rprf = transform.groupby_bins(ds, 'R', nbin, (ledge, redge))
+                rprf = transform.groupby_bins(ds, 'R', nbin, (ledge, redge), skipna=True)
         rprf = xr.concat([rprf_c, rprf], dim='R')
         return rprf
 
