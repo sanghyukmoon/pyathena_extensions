@@ -13,7 +13,8 @@ hydro_old = hydro.copy()
 hydro_old['M15J2P1N512'] = "/projects2/EOSTRIKE/sanghyuk/cores/M15.J2.P1.N512"
 hydro_old['M3J4P1N1024'] = "/tigress/sm69/cores/hydro/M3.J4.P1.N1024"
 
-mhd = {"M10J4B4P1N1024": "/tigress/sm69/cores/mhd/M10.J4.B4.P1.N1024"}
+mhd = {"M10J4B4P1N1024": "/tigress/sm69/cores/mhd/M10.J4.B4.P1.N1024",
+       "M10J4B2P1N1024": "/scratch/gpfs/EOST/sanghyuk/cores/mhd/M10J4B2P1N1024"}
 
 # All models
 models = {**M5N512, **M5N1024, **M10N1024, **mhd}
