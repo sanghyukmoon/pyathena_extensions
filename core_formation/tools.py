@@ -955,7 +955,7 @@ def observable(s, core, rprf):
             ledge = 0.5*s.dx
             nbin = s.domain['Nx'][0]//2 - 1
             redge = (nbin + 0.5)*s.dx
-            afrac = transform.fast_groupby_bins(flag, 'R', ledge, redge, nbin)
+            afrac = transform.groupby_bins(flag, 'R', nbin, (ledge, redge), skipna=True)
             xb = afrac.R.data[afrac < afrac_thres][0]
             xa = xb - s.dx
             try:
