@@ -105,15 +105,6 @@ if __name__ == "__main__":
                 p.map(wrapper, pids)
 
         # Calculate radial profiles of t_coll cores and pickle them.
-        if args.projections:
-            msg = ("calculate and save projections for " f"model {mdl}")
-            print(msg)
-            def wrapper(num):
-                tasks.projections(s, num, overwrite=args.overwrite)
-            with Pool(args.np) as p:
-                p.map(wrapper, s.nums)
-
-        # Calculate radial profiles of t_coll cores and pickle them.
         if args.radial_profile:
             msg = ("calculate and save radial profiles for "
                    f"model {mdl}")
@@ -124,16 +115,6 @@ if __name__ == "__main__":
             nums = s.nums[::-1] if args.reverse else s.nums
             with Pool(args.np) as p:
                 p.map(wrapper, nums)
-
-        # Calculate radial profiles of t_coll cores and pickle them.
-        if args.prj_radial_profile:
-            msg = ("calculate and save projected radial profiles for "
-                   f"model {mdl}")
-            print(msg)
-            def wrapper(num):
-                tasks.prj_radial_profile(s, num, pids, overwrite=args.overwrite)
-            with Pool(args.np) as p:
-                p.map(wrapper, s.nums)
 
         # Find critical tes
         if args.critical_tes:
@@ -147,6 +128,7 @@ if __name__ == "__main__":
 
         # Calculate Lagrangian properties
         if args.lagrangian_props:
+            s = sa.set_model(mdl, force_override=True)
             def wrapper(pid):
                 method_list = ['empirical', 'predicted']
                 for method in method_list:
@@ -157,8 +139,28 @@ if __name__ == "__main__":
             with Pool(args.np) as p:
                 p.map(wrapper, pids)
 
+        # Calculate radial profiles of t_coll cores and pickle them.
+        if args.projections:
+            msg = ("calculate and save projections for " f"model {mdl}")
+            print(msg)
+            def wrapper(num):
+                tasks.projections(s, num, overwrite=args.overwrite)
+            with Pool(args.np) as p:
+                p.map(wrapper, s.nums)
+
+        # Calculate radial profiles of t_coll cores and pickle them.
+        if args.prj_radial_profile:
+            msg = ("calculate and save projected radial profiles for "
+                   f"model {mdl}")
+            print(msg)
+            def wrapper(num):
+                tasks.prj_radial_profile(s, num, pids, overwrite=args.overwrite)
+            with Pool(args.np) as p:
+                p.map(wrapper, s.nums)
+
         # Find observables
         if args.observables:
+            s = sa.set_model(mdl, force_override=True)
             print(f"Calculate observable core properties for model {mdl}")
             pids = sorted(set(pids) & set(s.good_cores()))
             for pid in pids:
