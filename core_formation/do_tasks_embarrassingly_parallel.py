@@ -162,7 +162,6 @@ if __name__ == "__main__":
         if args.observables:
             s = sa.set_model(mdl, force_override=True)
             print(f"Calculate observable core properties for model {mdl}")
-            pids = sorted(set(pids) & set(s.good_cores()))
             for pid in pids:
                 cores = s.cores[pid]
                 cores = cores.loc[:cores.attrs['numcoll']]
