@@ -922,17 +922,20 @@ def observable(s, core, rprf):
     # Observable properties using density thresholding.
     # Analogous to molecular line observations.
     for nthr in nthr_list:
-        d3dthr = dens_3d.where(dens_3d > nthr, other=0)
+        d3dthr = dens_3d.where((dens_3d >= nthr)&(dens_3d < 10*nthr), other=0)
         for ax in ['x', 'y', 'z']:
+
+            pos_radius = dict(fwhm_dust=obsprops[f'{ax}_radius'])
+
             x1, x2 = xycoordnames[ax]
             x1c, x2c = xycenters[ax]
 
             # POS FWHM radius
             dcol_prf = rprf[f'{ax}_Sigma_gas_nc{nthr}']
             try:
-                rfwhm = obs_core_radius(dcol_prf, method='fwhm')
+                pos_radius['fwhm'] = obs_core_radius(dcol_prf, method='fwhm')
             except:
-                rfwhm = np.nan
+                pos_radius['fwhm'] = np.nan
 
             # POS radius using background thresholding
             dcol_map = prj[ax][f'Sigma_gas_nc{nthr}'].copy(deep=True)
@@ -948,7 +951,7 @@ def observable(s, core, rprf):
             dcol_bgr = dcol_map.mean()
 
             # POS radius at which any pixel falls below dcol_bgr
-            rmax = rpos.where(dcol_map < dcol_bgr).min().data[()]
+            pos_radius['f0'] = rpos.where(dcol_map < dcol_bgr).min().data[()]
 
             # POS radius using filling factor thresholding
             afrac_thres = 0.5
@@ -961,12 +964,12 @@ def observable(s, core, rprf):
             xb = afrac.R.data[afrac < afrac_thres][0]
             xa = xb - s.dx
             try:
-                rmax2 = brentq(lambda x: interp1d(afrac.R.data, afrac.data)(x) - afrac_thres, xa, xb)
+                pos_radius['f50'] = brentq(lambda x: interp1d(afrac.R.data, afrac.data)(x) - afrac_thres, xa, xb)
             except ValueError:
-                rmax2 = np.nan
+                pos_radius['f50'] = np.nan
 
             # Loop over different plane-of-sky radius definitions
-            for rcore_pos, method in zip([obsprops[f'{ax}_radius'], rfwhm, rmax, rmax2], ['fwhm_dust', 'fwhm', 'f0', 'f50']):
+            for method, rcore_pos in pos_radius.items():
                 obsprops[f'{ax}_pos_radius_{method}_nc{nthr}'] = rcore_pos
                 if np.isfinite(rcore_pos):
                     obsprops[f'{ax}_velocity_dispersion_{method}_nc{nthr}'] =\
