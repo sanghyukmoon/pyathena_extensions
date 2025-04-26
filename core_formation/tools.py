@@ -924,7 +924,6 @@ def observable(s, core, rprf):
     for nthr in nthr_list:
         d3dthr = dens_3d.where((dens_3d >= nthr)&(dens_3d < 10*nthr), other=0)
         for ax in ['x', 'y', 'z']:
-
             pos_radius = dict(fwhm_dust=obsprops[f'{ax}_radius'])
 
             x1, x2 = xycoordnames[ax]
@@ -937,44 +936,34 @@ def observable(s, core, rprf):
             except:
                 pos_radius['fwhm'] = np.nan
 
-            # POS radius using background thresholding
+            # POS radius at which any pixel falls below dcol_bgr
+            # Set a threshold column density for a given "tracer"
             dcol_map = prj[ax][f'Sigma_gas_nc{nthr}'].copy(deep=True)
             dv_map = prj[ax][f'veldisp_nc{nthr}'].copy(deep=True)
             dcol_map, _, _ = recenter_dataset(dcol_map, {x1: x1c, x2: x2c})
             dv_map, new_center, _ = recenter_dataset(dv_map, {x1: x1c, x2: x2c})
             rpos = np.sqrt((dv_map.coords[x1] - new_center[x1])**2
                            + (dv_map.coords[x2] - new_center[x2])**2)
-
-            # Set a threshold column density for a given "tracer"
-            # Take the background as the average column density over the entire
-            # map area. This could in principle be applicable to observations.
-            dcol_bgr = dcol_map.mean()
-
-            # POS radius at which any pixel falls below dcol_bgr
-            pos_radius['f0'] = rpos.where(dcol_map < dcol_bgr).min().data[()]
-
-            # POS radius using filling factor thresholding
-            afrac_thres = 0.5
-            flag = xr.where(dcol_map > dcol_bgr, 1, 0)
-            flag.coords['R'] = dens_3d.coords[f'{ax}_rpos']
-            ledge = 0.5*s.dx
-            nbin = s.domain['Nx'][0]//2 - 1
-            redge = (nbin + 0.5)*s.dx
-            afrac = transform.groupby_bins(flag, 'R', nbin, (ledge, redge), skipna=True)
-            xb = afrac.R.data[afrac < afrac_thres][0]
-            xa = xb - s.dx
-            try:
-                pos_radius['f50'] = brentq(lambda x: interp1d(afrac.R.data, afrac.data)(x) - afrac_thres, xa, xb)
-            except ValueError:
-                pos_radius['f50'] = np.nan
+            dcol_c = dcol_prf.isel(R=0).data[()]
+            bgr_level = dict(mean=dcol_map.mean(),
+                             c01=dcol_c*0.1,
+                             c02=dcol_c*0.2)
+            for k, v in bgr_level.items():
+                try:
+                    pos_radius[f'bgr_{k}'] = rpos.where(dcol_map < v).min().data[()]
+                except:
+                    pos_radius[f'bgr_{k}'] = np.nan
 
             # Loop over different plane-of-sky radius definitions
             for method, rcore_pos in pos_radius.items():
                 obsprops[f'{ax}_pos_radius_{method}_nc{nthr}'] = rcore_pos
                 if np.isfinite(rcore_pos):
-                    obsprops[f'{ax}_velocity_dispersion_{method}_nc{nthr}'] =\
-                        np.sqrt((dv_map.where(rpos < rcore_pos)**2
-                                 ).weighted(dcol_map).mean()).data[()]
+                    obsprops[f'{ax}_velocity_dispersion_{method}_nc{nthr}']\
+                            = np.sqrt((dv_map.where(rpos < rcore_pos)**2
+                                      ).weighted(dcol_map).mean()).data[()]
+                    obsprops[f'{ax}_mean_column_density_{method}_nc{nthr}']\
+                            = dcol_prf.sel(R=slice(0, rcore_pos)
+                                           ).weighted(dcol_prf.R).mean().data[()]
 
                     # True line-of-sight distance
                     rlos_crd = dens_3d.coords[f'{ax}_rlos']
@@ -992,13 +981,11 @@ def observable(s, core, rprf):
                     try:
                         # True line-of-sight distance defined by density-weighted average
                         # of |z - z0| over a cylinder R < R_pos
-                        # Note that we are not using rms average.
+                        # Note that we are not using rms average (why not?).
                         rlos_true = np.average(arr[msk], weights=wgt[msk])
                     except ZeroDivisionError:
                         rlos_true = np.nan
                     obsprops[f'{ax}_los_radius_{method}_nc{nthr}'] = rlos_true
-                    obsprops[f'{ax}_mean_column_density_{method}_nc{nthr}']\
-                            = dcol_prf.sel(R=slice(0, rcore_pos)).weighted(dcol_prf.R).mean().data[()]
                 else:
                     obsprops[f'{ax}_velocity_dispersion_{method}_nc{nthr}'] = np.nan
                     obsprops[f'{ax}_los_radius_{method}_nc{nthr}'] = np.nan
