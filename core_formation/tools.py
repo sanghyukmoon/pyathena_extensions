@@ -1442,10 +1442,11 @@ def get_evol_norm(vmin=-3, vmid=0, vmax=1):
 
 
 def get_evol_cbar(mappable, ax=None, cax=None, ticks=[-3, -1, 0, 0.5, 1],
-                  label=r'$\dfrac{t - t_\mathrm{crit}}{\Delta t_\mathrm{coll}}$'):
+                  label=r'$\dfrac{t - t_\mathrm{crit}}{\Delta t_\mathrm{coll}}$',
+                  location='right'):
     """Get an appropriate color bar for get_evol_norm"""
     import matplotlib.pyplot as plt
-    cbar = plt.colorbar(mappable, ax=ax, cax=cax, label=label)
+    cbar = plt.colorbar(mappable, ax=ax, cax=cax, label=label, location=location)
     cbar.solids.set(alpha=1)
     cbar.set_ticks(ticks)
     cbar.set_ticklabels(ticks)
