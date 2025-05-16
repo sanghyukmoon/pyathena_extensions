@@ -141,6 +141,7 @@ if __name__ == "__main__":
 
         # Calculate radial profiles of t_coll cores and pickle them.
         if args.projections:
+            s = sa.set_model(mdl, force_override=True)
             msg = ("calculate and save projections for " f"model {mdl}")
             print(msg)
             def wrapper(num):
@@ -150,6 +151,7 @@ if __name__ == "__main__":
 
         # Calculate radial profiles of t_coll cores and pickle them.
         if args.prj_radial_profile:
+            s = sa.set_model(mdl, force_override=True)
             msg = ("calculate and save projected radial profiles for "
                    f"model {mdl}")
             print(msg)
