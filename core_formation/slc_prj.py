@@ -50,6 +50,15 @@ class SliceProj:
         res = dict()
         res['extent'] = self._get_extent(self.domain)
 
+        def threshold(ds, ncrit, method):
+            if method=='tophat':
+                return ds.where((ds.dens >= ncrit)&(ds.dens < 10*ncrit), other=0)
+            elif method=='step':
+                return ds.where(ds.dens >= ncrit, other=0)
+            else:
+                raise ValueError(f'Unknown method {method}')
+
+
         for ax in axes:
             i = axtoi[ax]
             dx = self.domain['dx'][i]
@@ -57,18 +66,18 @@ class SliceProj:
 
             res[ax] = dict()
             res[ax]['Sigma_gas'] = (ds.dens*dx).sum(ax)
+            for method in ['tophat', 'step']:
+                for ncrit in [10, 30, 100]:
+                    d = threshold(ds, ncrit, method)
+                    # Surface density
+                    res[ax][f'Sigma_gas_mtd{method}_nc{ncrit}'] = (d.dens*dx).sum(ax)
 
-            for ncrit in [10, 30, 100]:
-                d = ds.where((ds.dens >= ncrit)&(ds.dens < 10*ncrit), other=0)
-                # Surface density
-                res[ax][f'Sigma_gas_nc{ncrit}'] = (d.dens*dx).sum(ax)
-
-                # Velocity and velocity dispersion
-                vel = d[f'vel{i+1}']
-                vel_los = vel.weighted(d.dens).mean(ax)
-                vdisp_los = np.sqrt((vel**2).weighted(d.dens).mean(ax) - vel_los**2)
-                res[ax][f'vel_nc{ncrit}'] = vel_los
-                res[ax][f'veldisp_nc{ncrit}'] = vdisp_los
+                    # Velocity and velocity dispersion
+                    vel = d[f'vel{i+1}']
+                    vel_los = vel.weighted(d.dens).mean(ax)
+                    vdisp_los = np.sqrt((vel**2).weighted(d.dens).mean(ax) - vel_los**2)
+                    res[ax][f'vel_mtd{method}_nc{ncrit}'] = vel_los
+                    res[ax][f'veldisp_mtd{method}_nc{ncrit}'] = vdisp_los
 
         return res
 

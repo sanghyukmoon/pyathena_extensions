@@ -558,8 +558,8 @@ def radial_profile_projected(s, num, origin):
                                  + (ds.coords[x2] - new_center[x2])**2)
         rprf_c = ds.sel({x1:new_center[x1], x2:new_center[x2]}).drop_vars([x1, x2])
         if mass_weighted:
-            nth = qty.split('nc')[1]  # read threshold density string
-            w = prj[ax][f'Sigma_gas_nc{nth}'].copy(deep=True)
+            method, nth = qty.split('mtd')[1].split('_nc')
+            w = prj[ax][f'Sigma_gas_mtd{method}_nc{nth}'].copy(deep=True)
             w, _, _ = recenter_dataset(w, {x1:x1c, x2:x2c})
             w.coords['R'] = np.sqrt((w.coords[x1] - new_center[x1])**2
                                     + (w.coords[x2] - new_center[x2])**2)
@@ -583,11 +583,11 @@ def radial_profile_projected(s, num, origin):
             rprofs[f'{ax}_{qty}'] = rprf_incl_center(qty, ax)
 
         # Mass-weighted averages
-        for qty in [k for k in prj[ax].keys() if k.startswith('vel_nc')]:
+        for qty in [k for k in prj[ax].keys() if k.startswith('vel_mtd')]:
             rprofs[f'{ax}_{qty}_mw'] = rprf_incl_center(qty, ax, mass_weighted=True)
 
         # RMS averages
-        for qty in [k for k in prj[ax].keys() if k.startswith('veldisp_nc')]:
+        for qty in [k for k in prj[ax].keys() if k.startswith('veldisp_mtd')]:
             rprofs[f'{ax}_{qty}'] = rprf_incl_center(qty, ax, rms=True)
             rprofs[f'{ax}_{qty}_mw'] = rprf_incl_center(qty, ax, mass_weighted=True, rms=True)
 
@@ -919,78 +919,86 @@ def observable(s, core, rprf):
         obsprops[f'{ax}_mean_density'] = dfwhm
         obsprops[f'{ax}_center_column_density'] = dcol_c
 
+    def threshold(dens, ncrit, method):
+        if method=='tophat':
+            return dens.where((dens >= ncrit)&(dens < 10*ncrit), other=0)
+        elif method=='step':
+            return dens.where(dens >= ncrit, other=0)
+        else:
+            raise ValueError(f'Unknown method {method}')
 
     # Observable properties using density thresholding.
     # Analogous to molecular line observations.
-    for nthr in nthr_list:
-        d3dthr = dens_3d.where((dens_3d >= nthr)&(dens_3d < 10*nthr), other=0)
-        for ax in ['x', 'y', 'z']:
-            pos_radius = dict(fwhm_dust=obsprops[f'{ax}_radius'])
-
-            x1, x2 = xycoordnames[ax]
-            x1c, x2c = xycenters[ax]
-
-            # POS FWHM radius
-            dcol_prf = rprf[f'{ax}_Sigma_gas_nc{nthr}']
-            try:
-                pos_radius['fwhm'] = obs_core_radius(dcol_prf, method='fwhm')
-            except:
-                pos_radius['fwhm'] = np.nan
-
-            # POS radius at which any pixel falls below dcol_bgr
-            # Set a threshold column density for a given "tracer"
-            dcol_map = prj[ax][f'Sigma_gas_nc{nthr}'].copy(deep=True)
-            dv_map = prj[ax][f'veldisp_nc{nthr}'].copy(deep=True)
-            dcol_map, _, _ = recenter_dataset(dcol_map, {x1: x1c, x2: x2c})
-            dv_map, new_center, _ = recenter_dataset(dv_map, {x1: x1c, x2: x2c})
-            rpos = np.sqrt((dv_map.coords[x1] - new_center[x1])**2
-                           + (dv_map.coords[x2] - new_center[x2])**2)
-            dcol_c = dcol_prf.isel(R=0).data[()]
-            bgr_level = dict(mean=dcol_map.mean(),
-                             c01=dcol_c*0.1,
-                             c02=dcol_c*0.2)
-            for k, v in bgr_level.items():
+    for threshold_method in ['tophat', 'step']:
+        for nthr in nthr_list:
+            d3dthr = threshold(dens_3d, nthr, threshold_method)
+            for ax in ['x', 'y', 'z']:
+                pos_radius = dict(fwhm_dust=obsprops[f'{ax}_radius'])
+    
+                x1, x2 = xycoordnames[ax]
+                x1c, x2c = xycenters[ax]
+    
+                # POS FWHM radius
+                dcol_prf = rprf[f'{ax}_Sigma_gas_mtd{threshold_method}_nc{nthr}']
                 try:
-                    pos_radius[f'bgr_{k}'] = rpos.where(dcol_map < v).min().data[()]
+                    pos_radius['fwhm'] = obs_core_radius(dcol_prf, method='fwhm')
                 except:
-                    pos_radius[f'bgr_{k}'] = np.nan
-
-            # Loop over different plane-of-sky radius definitions
-            for method, rcore_pos in pos_radius.items():
-                obsprops[f'{ax}_pos_radius_{method}_nc{nthr}'] = rcore_pos
-                if np.isfinite(rcore_pos):
-                    obsprops[f'{ax}_velocity_dispersion_{method}_nc{nthr}']\
-                            = np.sqrt((dv_map.where(rpos < rcore_pos)**2
-                                      ).weighted(dcol_map).mean()).data[()]
-                    obsprops[f'{ax}_mean_column_density_{method}_nc{nthr}']\
-                            = dcol_prf.sel(R=slice(0, rcore_pos)
-                                           ).weighted(dcol_prf.R).mean().data[()]
-
-                    # True line-of-sight distance
-                    rlos_crd = dens_3d.coords[f'{ax}_rlos']
-                    rpos_crd = dens_3d.coords[f'{ax}_rpos']
-                    # Optimized numpy operation using broadcast; almost order of faster than
-                    # built-in xarray weighted average which is commented out.
-                    # Slower version looks like:
-#                    rlos_true = rlos_crd.where(rpos_crd < rcore_pos
-#                                               ).weighted(d3dthr).mean().data[()]
-                    # Faster version:
-                    arr, msk, wgt = xr.broadcast(rlos_crd, rpos_crd < rcore_pos, d3dthr)
-                    arr = arr.transpose('z', 'y', 'x').data
-                    msk = msk.transpose('z', 'y', 'x').data
-                    wgt = wgt.transpose('z', 'y', 'x').data
+                    pos_radius['fwhm'] = np.nan
+    
+                # POS radius at which any pixel falls below dcol_bgr
+                # Set a threshold column density for a given "tracer"
+                dcol_map = prj[ax][f'Sigma_gas_mtd{threshold_method}_nc{nthr}'].copy(deep=True)
+                dv_map = prj[ax][f'veldisp_mtd{threshold_method}_nc{nthr}'].copy(deep=True)
+                dcol_map, _, _ = recenter_dataset(dcol_map, {x1: x1c, x2: x2c})
+                dv_map, new_center, _ = recenter_dataset(dv_map, {x1: x1c, x2: x2c})
+                rpos = np.sqrt((dv_map.coords[x1] - new_center[x1])**2
+                               + (dv_map.coords[x2] - new_center[x2])**2)
+                dcol_c = dcol_prf.isel(R=0).data[()]
+                bgr_level = dict(mean=dcol_map.mean(),
+                                 c01=dcol_c*0.1,
+                                 c02=dcol_c*0.2)
+                for k, v in bgr_level.items():
                     try:
-                        # True line-of-sight distance defined by density-weighted average
-                        # of |z - z0| over a cylinder R < R_pos
-                        # Note that we are not using rms average (why not?).
-                        rlos_true = np.average(arr[msk], weights=wgt[msk])
-                    except ZeroDivisionError:
-                        rlos_true = np.nan
-                    obsprops[f'{ax}_los_radius_{method}_nc{nthr}'] = rlos_true
-                else:
-                    obsprops[f'{ax}_velocity_dispersion_{method}_nc{nthr}'] = np.nan
-                    obsprops[f'{ax}_los_radius_{method}_nc{nthr}'] = np.nan
-                    obsprops[f'{ax}_mean_column_density_{method}_nc{nthr}'] = np.nan
+                        pos_radius[f'bgr_{k}'] = rpos.where(dcol_map < v).min().data[()]
+                    except:
+                        pos_radius[f'bgr_{k}'] = np.nan
+    
+                # Loop over different plane-of-sky radius definitions
+                for method, rcore_pos in pos_radius.items():
+                    obsprops[f'{ax}_pos_radius_{method}_mtd{threshold_method}_nc{nthr}'] = rcore_pos
+                    if np.isfinite(rcore_pos):
+                        obsprops[f'{ax}_velocity_dispersion_{method}_mtd{threshold_method}_nc{nthr}']\
+                                = np.sqrt((dv_map.where(rpos < rcore_pos)**2
+                                          ).weighted(dcol_map).mean()).data[()]
+                        obsprops[f'{ax}_mean_column_density_{method}_mtd{threshold_method}_nc{nthr}']\
+                                = dcol_prf.sel(R=slice(0, rcore_pos)
+                                               ).weighted(dcol_prf.R).mean().data[()]
+    
+                        # True line-of-sight distance
+                        rlos_crd = dens_3d.coords[f'{ax}_rlos']
+                        rpos_crd = dens_3d.coords[f'{ax}_rpos']
+                        # Optimized numpy operation using broadcast; almost order of faster than
+                        # built-in xarray weighted average which is commented out.
+                        # Slower version looks like:
+    #                    rlos_true = rlos_crd.where(rpos_crd < rcore_pos
+    #                                               ).weighted(d3dthr).mean().data[()]
+                        # Faster version:
+                        arr, msk, wgt = xr.broadcast(rlos_crd, rpos_crd < rcore_pos, d3dthr)
+                        arr = arr.transpose('z', 'y', 'x').data
+                        msk = msk.transpose('z', 'y', 'x').data
+                        wgt = wgt.transpose('z', 'y', 'x').data
+                        try:
+                            # True line-of-sight distance defined by density-weighted average
+                            # of |z - z0| over a cylinder R < R_pos
+                            # Note that we are not using rms average (why not?).
+                            rlos_true = np.average(arr[msk], weights=wgt[msk])
+                        except ZeroDivisionError:
+                            rlos_true = np.nan
+                        obsprops[f'{ax}_los_radius_{method}_mtd{threshold_method}_nc{nthr}'] = rlos_true
+                    else:
+                        obsprops[f'{ax}_velocity_dispersion_{method}_mtd{threshold_method}_nc{nthr}'] = np.nan
+                        obsprops[f'{ax}_los_radius_{method}_mtd{threshold_method}_nc{nthr}'] = np.nan
+                        obsprops[f'{ax}_mean_column_density_{method}_mtd{threshold_method}_nc{nthr}'] = np.nan
     return obsprops
 
 
