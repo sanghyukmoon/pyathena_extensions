@@ -949,24 +949,6 @@ def observable(s, core, rprf):
                 except:
                     pos_radius['fwhm'] = np.nan
     
-                # POS radius at which any pixel falls below dcol_bgr
-                # Set a threshold column density for a given "tracer"
-                dcol_map = prj[ax][f'Sigma_gas_mtd{threshold_method}_nc{nthr}'].copy(deep=True)
-                dv_map = prj[ax][f'veldisp_mtd{threshold_method}_nc{nthr}'].copy(deep=True)
-                dcol_map, _, _ = recenter_dataset(dcol_map, {x1: x1c, x2: x2c})
-                dv_map, new_center, _ = recenter_dataset(dv_map, {x1: x1c, x2: x2c})
-                rpos = np.sqrt((dv_map.coords[x1] - new_center[x1])**2
-                               + (dv_map.coords[x2] - new_center[x2])**2)
-                dcol_c = dcol_prf.isel(R=0).data[()]
-                bgr_level = dict(mean=dcol_map.mean(),
-                                 c01=dcol_c*0.1,
-                                 c02=dcol_c*0.2)
-                for k, v in bgr_level.items():
-                    try:
-                        pos_radius[f'bgr_{k}'] = rpos.where(dcol_map < v).min().data[()]
-                    except:
-                        pos_radius[f'bgr_{k}'] = np.nan
-    
                 # Loop over different plane-of-sky radius definitions
                 for method, rcore_pos in pos_radius.items():
                     obsprops[f'{ax}_pos_radius_{method}_mtd{threshold_method}_nc{nthr}'] = rcore_pos
