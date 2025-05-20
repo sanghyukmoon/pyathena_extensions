@@ -948,6 +948,9 @@ def observable(s, core, rprf):
                     pos_radius['fwhm'] = obs_core_radius(dcol_prf, method='fwhm')
                 except:
                     pos_radius['fwhm'] = np.nan
+
+                for rpos_pc in [0.05, 0.1]:
+                    pos_radius[f'fixed{rpos_pc}'] = (rpos_pc*au.pc / s.u.length).cgs.value
     
                 # Loop over different plane-of-sky radius definitions
                 for method, rcore_pos in pos_radius.items():
