@@ -586,10 +586,14 @@ def radial_profile_projected(s, num, origin):
         for qty in [k for k in prj[ax].keys() if k.startswith('vel_mtd')]:
             rprofs[f'{ax}_{qty}_mw'] = rprf_incl_center(qty, ax, mass_weighted=True)
 
+        for qty in [k for k in prj[ax].keys() if k.startswith('veldisp_mtd')]:
+            rprofs[f'{ax}_{qty}'] = rprf_incl_center(qty, ax)
+            rprofs[f'{ax}_{qty}_mw'] = rprf_incl_center(qty, ax, mass_weighted=True)
+
         # RMS averages
         for qty in [k for k in prj[ax].keys() if k.startswith('veldisp_mtd')]:
-            rprofs[f'{ax}_{qty}'] = rprf_incl_center(qty, ax, rms=True)
-            rprofs[f'{ax}_{qty}_mw'] = rprf_incl_center(qty, ax, mass_weighted=True, rms=True)
+            rprofs[f'{ax}_{qty}_rms'] = rprf_incl_center(qty, ax, rms=True)
+            rprofs[f'{ax}_{qty}_rms_mw'] = rprf_incl_center(qty, ax, mass_weighted=True, rms=True)
 
     rprofs = xr.Dataset(rprofs)
 
