@@ -13,6 +13,7 @@ from scipy.stats import linregress
 from scipy.optimize import brentq
 from scipy.integrate import quad
 from scipy.interpolate import interp1d
+from astropy import units as au
 from pathlib import Path
 from pyathena.util import transform
 from tesphere import utils, tes
