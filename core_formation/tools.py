@@ -950,7 +950,7 @@ def observable(s, core, rprf):
                 except:
                     pos_radius['fwhm'] = np.nan
 
-                for rpos_pc in [0.05, 0.1]:
+                for rpos_pc in [0.02, 0.05, 0.1]:
                     pos_radius[f'fixed{rpos_pc}'] = (rpos_pc*au.pc / s.u.length).cgs.value
 
                 # Set up 2D maps
