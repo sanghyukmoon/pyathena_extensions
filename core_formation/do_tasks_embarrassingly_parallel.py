@@ -202,6 +202,7 @@ if __name__ == "__main__":
 
         # make plots
         if args.plot_core_evolution:
+            s = sa.set_model(mdl, force_override=True)
             print(f"draw core evolution plots for model {mdl}")
             for pid in pids:
                 for method in ['empirical', 'predicted']:
@@ -214,6 +215,7 @@ if __name__ == "__main__":
                         p.map(wrapper, cores.index)
 
         if args.plot_sink_history:
+            s = sa.set_model(mdl, force_override=True)
             def wrapper(num):
                 tasks.plot_sink_history(s, num, overwrite=args.overwrite)
             print(f"draw sink history plots for model {mdl}")
