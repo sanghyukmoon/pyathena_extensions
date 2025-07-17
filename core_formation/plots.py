@@ -89,13 +89,13 @@ def plot_projection(s, ds, field='dens', axis='z', op='sum',
     else:
         prj = prj.to_numpy()
 
-    if ax is not None:
-        plt.sca(ax)
+    if ax is None:
+        ax = plt.gca()
     if transpose:
         prj = prj.T
         extent = {k: v[2:] + v[0:2] for k, v in extent.items()}
-    img = plt.imshow(prj, norm=LogNorm(vmin, vmax), origin='lower',
-                     extent=extent[axis], cmap=cmap, alpha=alpha)
+    img = ax.imshow(prj, norm=LogNorm(vmin, vmax), origin='lower',
+                    extent=extent[axis], cmap=cmap, alpha=alpha)
     if add_colorbar:
         plt.colorbar(cax=cax)
     return img
