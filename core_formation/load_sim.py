@@ -638,7 +638,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
 class LoadSimAll(object):
     """Class to load multiple simulations"""
-    def __init__(self, models=None):
+    def __init__(self, models=None, verbose=True):
 
         # Default models
         if models is None:
@@ -649,9 +649,10 @@ class LoadSimAll(object):
 
         for mdl, basedir in models.items():
             if not osp.exists(basedir):
-                msg = "[LoadSimAll]: "\
-                      "Model {0:s} doesn\'t exist: {1:s}".format(mdl, basedir)
-                print(msg)
+                if verbose:
+                    msg = "[LoadSimAll]: "\
+                          "Model {0:s} doesn\'t exist: {1:s}".format(mdl, basedir)
+                    print(msg)
             else:
                 self.models.append(mdl)
                 self.basedirs[mdl] = basedir
