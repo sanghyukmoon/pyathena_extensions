@@ -10,7 +10,8 @@ hydro = {**mach5, **mach10} # we may update hydro later, while keeping the old o
 hydro_old = hydro.copy()
 
 mhd = {"M10J4B4P1N1024": "/tigress/sm69/cores/mhd/M10.J4.B4.P1.N1024",
-       "M10J4B2P1N1024": "/scratch/gpfs/EOST/sanghyuk/cores/mhd/M10J4B2P1N1024"}
+       "M10J4B2P1N1024": "/scratch/gpfs/EOST/sanghyuk/cores/mhd/M10J4B2P1N1024",
+       "M5J2B2P1N512": "/scratch/gpfs/EOST/sanghyuk/cores/mhd/M5J2B2P1N512"}
 
 M5N512_ext = {f"M5J2P{iseed}N512": f"/scratch/gpfs/sm69/cores/hydro/M5.J2.P{iseed}.N512" for iseed in range(40, 70)}
 
