@@ -1,5 +1,5 @@
 M5N512 = {f"M5J2P{iseed}N512": f"/scratch/gpfs/sm69/cores/hydro/M5.J2.P{iseed}.N512" for iseed in range(0, 40)}
-M5N1024 = {f"M5J2P{iseed}N1024": f"/scratch/gpfs/sm69/cores/hydro/M5.J2.P{iseed}.N1024" for iseed in range(0, 100)}
+M5N1024 = {f"M5J2P{iseed}N1024": f"/scratch/gpfs/sm69/cores/hydro/M5.J2.P{iseed}.N1024" for iseed in range(0, 110)}
 M10N1024 = {f"M10J4P{iseed}N1024": f"/projects2/EOSTRIKE/sanghyuk/cores/M10.J4.P{iseed}.N1024" for iseed in range(0, 7)}
 
 # backward compatibility
