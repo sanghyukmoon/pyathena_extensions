@@ -10,7 +10,17 @@ def power_spectrum(arr, nx, lbox, nbin=50):
     kx = 2*np.pi*fft.fftfreq(nx, d=lbox/nx)
     pspec = xr.DataArray(pspec, coords=dict(kz=kx, ky=kx, kx=kx))
     pspec.coords['kmag'] = np.sqrt(pspec.kz**2 + pspec.ky**2 + pspec.kx**2)
-    pspec_avg = transform.groupby_bins(pspec, 'kmag', nbin, (np.abs(kx).min(), np.abs(kx).max()))
+    kmin = 2*np.pi/lbox
+    kmax = np.pi/(lbox/nx)
+    pspec_avg = transform.groupby_bins(pspec, 'kmag', nbin, (kmin, kmax))
+#    kmag = np.sqrt(pspec.kz**2 + pspec.ky**2 + pspec.kx**2)
+#    logkmag = xr.zeros_like(kmag)
+#    logkmag = logkmag.where(kmag==0, np.log10(kmag.where(kmag != 0)))
+#    pspec.coords['logkmag'] = logkmag
+#    pspec_avg = transform.groupby_bins(pspec, 'logkmag', nbin,
+#                                       (np.log10(kmin), np.log10(kmax)))
+#    pspec_avg = pspec_avg.assign_coords(dict(logkmag=10**pspec_avg.logkmag))
+#    pspec_avg = pspec_avg.rename({'logkmag': 'kmag'})
     return pspec_avg
 
 def generate_grf(nx, lbox, mean, varience, power_index):
