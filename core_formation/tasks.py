@@ -18,8 +18,9 @@ import glob
 import logging
 from pyathena.util import uniform, transform
 from grid_dendro import dendrogram
+from scipy import fft
 
-from . import plots, tools, config
+from . import plots, tools, config, stats
 
 
 def combine_partab(s, ns=None, ne=None, partag="par0", remove=False,
@@ -879,3 +880,42 @@ def plot_pdfs(s, num, overwrite=False):
     fig.tight_layout()
     fig.savefig(fname, bbox_inches='tight')
     plt.close(fig)
+
+
+def random_field_rtidal(s, iseed, pindex, mode=0):
+    lbox = s.Lbox
+    nx = s.domain['Nx'][0]
+    dx = s.dx
+    np.random.seed(iseed)
+    if mode==0:
+        # Phi is a Gaussian random field
+        phi = stats.generate_grf(nx, lbox, 0, 1.0, pindex)
+    elif mode==1:
+        # Phi is a gravitational potential corresponding to lognormal density field
+        logrho = stats.generate_grf(nx, lbox, -s.mu, s.var, pindex)
+        rho = np.exp(logrho/s.rho0)
+        rhok = fft.fftn(rho)
+        kx = 2*np.pi*fft.fftfreq(nx, d=dx)
+        kx_d = kx*np.sinc(kx*dx/(2*np.pi))
+        ksq = kx_d[:, None, None]**2 + kx_d[None, :, None]**2 + kx_d[None, None, :]**2
+        phik = -rhok/ksq
+        phik[0,0,0] = 0
+        phi = fft.ifftn(phik).real
+    # Construct dendrogram
+    gd = dendrogram.Dendrogram(phi)
+    gd.construct()
+    rtidal = []
+    if len(gd.leaves) > 1:
+        for lid in gd.leaves:
+            rtidal.append(np.min([s.distance_between(lid, nid) for nid in gd.nodes if nid != lid]))
+    with open(f'rtidal_mode{mode}_pindex{pindex}_{iseed:03d}.npy', 'wb') as f:
+        np.save(f, rtidal)
+
+    # As a bonus, save the result with the pruned dendrogram
+    gd.prune()
+    rtidal = []
+    if len(gd.leaves) > 1:
+        for lid in gd.leaves:
+            rtidal.append(np.min([s.distance_between(lid, nid) for nid in gd.nodes if nid != lid]))
+    with open(f'rtidal_mode{mode}_pindex{pindex}_pruned_{iseed:03d}.npy', 'wb') as f:
+        np.save(f, rtidal)

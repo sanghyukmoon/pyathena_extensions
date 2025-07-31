@@ -236,9 +236,10 @@ if __name__ == "__main__":
                 tasks.plot_diagnostics(s, pid, overwrite=args.overwrite)
 
         if args.grf_tidal:
-            print(f"Calculate grf tidal radii model {mdl}")
-            for pid in args.pids:
-                tasks.grf_tidal_radius(s, pid)
+            for pindex in [-6, -6.5, -7]:
+                print(f"Calculate grf tidal radii model {mdl}, pindex {pindex}")
+                for iseed in args.pids:  # use pid as a random seed
+                    tasks.random_field_rtidal(s, iseed, pindex)
 
         # make movie
         if args.make_movie:
