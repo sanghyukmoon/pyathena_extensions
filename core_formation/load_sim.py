@@ -90,6 +90,11 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             super().__init__(basedir, savdir=savdir, load_method='xarray',
                              units=Units('code'), verbose=verbose)
             self.Mach = self.par['problem']['Mach']
+            if self.Mach in {5, 10}:
+                if self.Mach == 5:
+                    self.color = 'r'
+                else:
+                    self.color = 'b'
             if self.basename.replace(".", "") in models.hydro_old:
                 # Old hydro models does not have 'configure' block
                 # Simply set mhd = False
