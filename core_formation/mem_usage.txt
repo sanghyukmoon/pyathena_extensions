@@ -1,0 +1,44 @@
+# Notes on memory usage
+# ---------------------
+# grid-denro
+# 1024 ~ 80 GB per core
+# 512  ~ 10 GB per core
+#
+# save-minima
+# 1024 ~ 1.2 GB per core (DASK)
+
+# core tracking
+# 1024 ~ 14 GB per core
+# 512 ~ 0.8 GB per core
+
+# radial profile
+# 1024 ~ 170 GB per core (exactly, max(mem) = 163.8 GB for test run as of 241218)
+# MHD
+# 1024 ~ 210 GB per core (or more...)
+##### 2025/1/28 162.1 GB per core for M10J4B4P1N1024
+##### 2025/2/15 224 GB for 32x3 = 96 cores dask run
+
+# 512 ~ 21 GB per core (needs to be updated)
+# 256 ~ 3.1 GB per core
+
+# critical core
+# 1024 ~ 
+# 512 ~ 35 MB
+
+# projections
+# 1024 ~ 90 GB per core
+# 512 ~ 10 GB per core
+
+# prj_radial_profile
+# 220 MB per core (negligible)
+
+# observables
+# 1024 ~ 15 GB per core
+
+# Core evolution plot
+# 1024 ~ 30 GB per core
+# 512 ~ 3 GB per core
+
+# linewidth-size
+# 1024 ~ 77 GB per core (106 GB per core for critical cores)
+# 512  ~ 9 GB per core
