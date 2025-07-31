@@ -54,6 +54,7 @@ if __name__ == "__main__":
                         help="Create density pdf and velocity power spectrum")
     parser.add_argument("--plot-diagnostics", action="store_true",
                         help="Create diagnostics plot for each core")
+    parser.add_argument("--grf-tidal", action="store_true")
     parser.add_argument("--pid-start", type=int)
     parser.add_argument("--pid-end", type=int)
 
@@ -233,6 +234,11 @@ if __name__ == "__main__":
             print(f"draw diagnostics plots for model {mdl}")
             for pid in s.good_cores():
                 tasks.plot_diagnostics(s, pid, overwrite=args.overwrite)
+
+        if args.grf_tidal:
+            print(f"Calculate grf tidal radii model {mdl}")
+            for pid in args.pids:
+                tasks.grf_tidal_radius(s, pid)
 
         # make movie
         if args.make_movie:
