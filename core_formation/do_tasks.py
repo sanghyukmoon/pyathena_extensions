@@ -62,8 +62,7 @@ if __name__ == "__main__":
 
     # Select models
     for mdl in args.models:
-        s = sa.set_model(mdl, force_override=True)
-
+        s = sa.set_model(mdl, force_override=False)
         if args.pid_start is not None and args.pid_end is not None:
             pids = np.arange(args.pid_start, args.pid_end+1)
         else:
@@ -83,6 +82,7 @@ if __name__ == "__main__":
 
         # Run GRID-dendro.
         if args.run_grid:
+            s = sa.set_model(mdl, force_override=False)
             def wrapper(num):
                 tasks.run_grid(s, num, overwrite=args.overwrite)
             print(f"Run GRID-dendro for model {mdl}")
@@ -91,6 +91,7 @@ if __name__ == "__main__":
 
         # Run GRID-dendro.
         if args.prune:
+            s = sa.set_model(mdl, force_override=False)
             def wrapper(num):
                 tasks.prune(s, num, overwrite=args.overwrite)
             print(f"Run GRID-dendro for model {mdl}")
@@ -99,6 +100,7 @@ if __name__ == "__main__":
 
         # Find t_coll cores and save their GRID-dendro node ID's.
         if args.track_cores:
+            s = sa.set_model(mdl, force_override=True)
             def wrapper(pid):
                 tasks.core_tracking(s, pid, overwrite=args.overwrite)
             print(f"Perform core tracking for model {mdl}")
@@ -107,6 +109,7 @@ if __name__ == "__main__":
 
         # Calculate radial profiles of t_coll cores and pickle them.
         if args.radial_profile:
+            s = sa.set_model(mdl, force_override=True)
             msg = ("calculate and save radial profiles for "
                    f"model {mdl}")
             print(msg)
@@ -119,6 +122,7 @@ if __name__ == "__main__":
 
         # Find critical tes
         if args.critical_tes:
+            s = sa.set_model(mdl, force_override=True)
             print(f"find critical tes for cores for model {mdl}")
             for pid in pids:
                 cores = s.cores[pid]
@@ -180,6 +184,7 @@ if __name__ == "__main__":
 
         # Calculate radial profiles of t_coll cores and pickle them.
         if args.linewidth_size:
+            s = sa.set_model(mdl, force_override=True)
             for num in [74]:
                 ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3'])
                 ds['vel1'] = ds.mom1/ds.dens
@@ -224,6 +229,7 @@ if __name__ == "__main__":
                 p.map(wrapper, s.nums)
 
         if args.plot_pdfs:
+            s = sa.set_model(mdl, force_override=True)
             def wrapper(num):
                 tasks.plot_pdfs(s, num, overwrite=args.overwrite)
             print(f"draw PDF-power spectrum plots for model {mdl}")
@@ -231,11 +237,13 @@ if __name__ == "__main__":
                 p.map(wrapper, s.nums)
 
         if args.plot_diagnostics:
+            s = sa.set_model(mdl, force_override=True)
             print(f"draw diagnostics plots for model {mdl}")
             for pid in s.good_cores():
                 tasks.plot_diagnostics(s, pid, overwrite=args.overwrite)
 
         if args.grf_tidal:
+            s = sa.set_model(mdl, force_override=False)
             for pindex in [-6, -6.5, -7]:
                 print(f"Calculate grf tidal radii model {mdl}, pindex {pindex}")
                 for iseed in args.pids:  # use pid as a random seed
@@ -243,6 +251,7 @@ if __name__ == "__main__":
 
         # make movie
         if args.make_movie:
+            s = sa.set_model(mdl, force_override=False)
             print(f"create movies for model {mdl}")
             srcdir = Path(s.savdir, "figures")
             plot_prefix = [
