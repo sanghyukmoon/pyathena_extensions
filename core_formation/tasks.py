@@ -407,6 +407,34 @@ def prj_radial_profile(s, num, pids, overwrite=False):
         rprf.to_netcdf(ofname)
 
 
+def power_spectrum(s, num, overwrite=False):
+    ofname = Path(s.savdir, config.FOURIER_DIR, f'power_spectrum.{num:05d}.p')
+    ofname.parent.mkdir(exist_ok=True)
+    if ofname.exists() and not overwrite:
+        print('[power_spectrum] file already exists. Skipping...')
+        return
+
+    msg = '[power_spectrum] processing model {} pid {} num {}'
+    print(msg.format(s.basename, pid, num))
+
+    ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
+    ds['mom1'] /= ds.dens
+    ds['mom2'] /= ds.dens
+    ds['mom3'] /= ds.dens
+    ds = ds.rename({f'mom{i}':f'vel{i}' for i in [1,2,3]})
+    fields = ['dens', 'vel1', 'vel2', 'vel3', 'phi']
+    ps = []
+    for f in fields:
+        ps.append(stats.power_spectrum(ds[f], s.domain['Nx'][0], s.Lbox,
+                  nbin=s.domain['Nx'][0]))
+    ps = xr.Dataset(dict(zip(fields, ps)))
+    ps = ps.expand_dims(dict(t=[ds.Time,]))
+    # write to file
+    if ofname.exists():
+        ofname.unlink()
+    rprf.to_netcdf(ofname)
+
+
 def lagrangian_props(s, pid, method='empirical', overwrite=False):
     # Check if file exists
     ofname = Path(s.savdir, config.CORE_DIR, f'lprops_tcrit_{method}.par{pid}.p')
