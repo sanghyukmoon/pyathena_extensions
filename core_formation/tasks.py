@@ -882,10 +882,22 @@ def plot_pdfs(s, num, overwrite=False):
     plt.close(fig)
 
 
-def random_field_rtidal(s, iseed, pindex, mode=0):
+def random_field_rtidal(s, iseed, pindex, mode=0, increase_resolution=1):
+    # Check if file exists
+    ofname = Path(f'rtidal_mode{mode}_pindex{pindex}_{iseed:03d}.npy')
+    ofname2 = Path(f'rtidal_mode{mode}_pindex{pindex}_pruned_{iseed:03d}.npy')
+    if ofname.exists() and ofname2.exists():
+        return
+
+    # Dirty fix; given the model name with, e.g., N512, turn into N1024 model, for example.
+    s.domain['Nx'] *= increase_resolution
+    s.domain['dx'] /= increase_resolution
+    s.dx /= increase_resolution
+
     lbox = s.Lbox
     nx = s.domain['Nx'][0]
     dx = s.dx
+
     np.random.seed(iseed)
     if mode==0:
         # Phi is a Gaussian random field
@@ -908,8 +920,9 @@ def random_field_rtidal(s, iseed, pindex, mode=0):
     if len(gd.leaves) > 1:
         for lid in gd.leaves:
             rtidal.append(np.min([s.distance_between(lid, nid) for nid in gd.nodes if nid != lid]))
-    with open(f'rtidal_mode{mode}_pindex{pindex}_{iseed:03d}.npy', 'wb') as f:
-        np.save(f, rtidal)
+    if not ofname.exists():
+        with open(ofname, 'wb') as f:
+            np.save(f, rtidal)
 
     # As a bonus, save the result with the pruned dendrogram
     gd.prune()
@@ -917,5 +930,6 @@ def random_field_rtidal(s, iseed, pindex, mode=0):
     if len(gd.leaves) > 1:
         for lid in gd.leaves:
             rtidal.append(np.min([s.distance_between(lid, nid) for nid in gd.nodes if nid != lid]))
-    with open(f'rtidal_mode{mode}_pindex{pindex}_pruned_{iseed:03d}.npy', 'wb') as f:
-        np.save(f, rtidal)
+    if not ofname2.exists():
+        with open(ofname2, 'wb') as f:
+            np.save(f, rtidal)
