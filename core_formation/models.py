@@ -13,7 +13,7 @@ mhd = {"M10J4B4P1N1024": "/tigress/sm69/cores/mhd/M10.J4.B4.P1.N1024",
        "M5J2B2P1N512": "/scratch/gpfs/EOST/sanghyuk/cores/mhd/M5.J2.B2.P1.N512"}
 
 M5N512_ext = {f"M5J2P{iseed}N512": f"/scratch/gpfs/sm69/cores/hydro/M5.J2.P{iseed}.N512" for iseed in range(40, 70)}
-M5N1024 = {f"M5J2P{iseed}N1024": f"/scratch/gpfs/sm69/cores/hydro/M5.J2.P{iseed}.N1024" for iseed in range(0, 110)}
+M5N1024 = {f"M5J2P{iseed}N1024": f"/scratch/gpfs/sm69/cores/hydro/M5.J2.P{iseed}.N1024" for iseed in range(0, 120)}
 
 # All models
 models = {**M5N512, **M5N1024, **M10N1024, **mhd, **M5N512_ext}
