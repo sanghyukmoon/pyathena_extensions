@@ -910,17 +910,12 @@ def plot_pdfs(s, num, overwrite=False):
     plt.close(fig)
 
 
-def random_field_rtidal(s, iseed, pindex, mode=0, increase_resolution=1):
+def random_field_rtidal(s, iseed, pindex, mode=0):
     # Check if file exists
     ofname = Path(f'rtidal_mode{mode}_pindex{pindex}_{iseed:03d}.npy')
     ofname2 = Path(f'rtidal_mode{mode}_pindex{pindex}_pruned_{iseed:03d}.npy')
     if ofname.exists() and ofname2.exists():
         return
-
-    # Dirty fix; given the model name with, e.g., N512, turn into N1024 model, for example.
-    s.domain['Nx'] *= increase_resolution
-    s.domain['dx'] /= increase_resolution
-    s.dx /= increase_resolution
 
     lbox = s.Lbox
     nx = s.domain['Nx'][0]

@@ -244,10 +244,17 @@ if __name__ == "__main__":
 
         if args.grf_tidal:
             s = sa.set_model(mdl, force_override=False)
-            for pindex in [-6, -6.5, -7]:
+
+            # Dirty fix; given the model name with, e.g., N512, turn into N1024 model, for example.
+            s.domain['Nx'] *= 2
+            s.domain['dx'] /= 2
+            s.dx /= 2
+
+            for pindex in [-6.0, -6.5, -7.0, -7.5]:
+#            for pindex in [-3.8]:
                 print(f"Calculate grf tidal radii model {mdl}, pindex {pindex}")
                 for iseed in args.pids:  # use pid as a random seed
-                    tasks.random_field_rtidal(s, iseed, pindex)
+                    tasks.random_field_rtidal(s, iseed, pindex, mode=0)
 
         # make movie
         if args.make_movie:
