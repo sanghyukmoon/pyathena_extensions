@@ -18,6 +18,9 @@ if __name__ == "__main__":
                         help="Calculate radial profiles of each cores")
     parser.add_argument("--save-minima", action="store_true",
                         help="Find minima and save to pickle")
+    parser.add_argument("--power-spectrum", action="store_true",
+                        help="Calculate power spectrum")
+
     args = parser.parse_args()
 
     sa = load_sim.LoadSimAll(models.models)
@@ -50,3 +53,9 @@ if __name__ == "__main__":
                     for num in s.nums:
                         tasks.radial_profile(s, num, s.pids, overwrite=args.overwrite,
                                              full_radius=True, days_overwrite=0)
+
+                if args.power_spectrum:
+                    s = sa.set_model(mdl, force_override=True)
+                    print(f"calculate power spectrum for model {mdl}")
+                    for num in s.nums:
+                        tasks.power_spectrum(s, num, overwrite=args.overwrite)
