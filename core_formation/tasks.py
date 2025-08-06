@@ -414,8 +414,8 @@ def power_spectrum(s, num, overwrite=False):
         print('[power_spectrum] file already exists. Skipping...')
         return
 
-    msg = '[power_spectrum] processing model {} pid {} num {}'
-    print(msg.format(s.basename, pid, num))
+    msg = '[power_spectrum] processing model {} num {}'
+    print(msg.format(s.basename, num))
 
     ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
     ds['mom1'] /= ds.dens
@@ -432,7 +432,7 @@ def power_spectrum(s, num, overwrite=False):
     # write to file
     if ofname.exists():
         ofname.unlink()
-    rprf.to_netcdf(ofname)
+    ps.to_netcdf(ofname)
 
 
 def lagrangian_props(s, pid, method='empirical', overwrite=False):
