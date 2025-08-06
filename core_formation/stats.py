@@ -35,8 +35,9 @@ def power_spectrum(arr, nx, lbox, nbin=50):
 
 def generate_grf(nx, lbox, mean, varience, power_index):
     from scipy.stats import gumbel_r
+    from scipy import fft as spfft
     # Create wavenumber grid
-    kx = 2*np.pi*fft.fftfreq(nx, d=lbox/nx)
+    kx = 2*np.pi*spfft.fftfreq(nx, d=lbox/nx)
     kmag = np.sqrt(kx[:, None, None]**2 + kx[None, :, None]**2 + kx[None, None, :]**2)
 
     # Set up power spectrum from the input varience and power_index
@@ -47,9 +48,9 @@ def generate_grf(nx, lbox, mean, varience, power_index):
     white_noise = np.random.normal(size=(nx, nx, nx))
 #    y = gumbel_r()
 #    white_noise = -y.rvs((nx,nx,nx))
-    white_noise_k = fft.fftn(white_noise)
+    white_noise_k = spfft.fftn(white_noise)
     fourier_coeff = white_noise_k * np.sqrt(power_spectrum)
-    grf = fft.ifftn(fourier_coeff).real
+    grf = spfft.ifftn(fourier_coeff).real
     grf *= np.sqrt((varience / grf.var()))
     grf += mean
     return grf
