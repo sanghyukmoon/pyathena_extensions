@@ -640,6 +640,26 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
         return rprofs_dict
 
+    def load_power_spectrum(self, force_override=False):
+        """
+        Raises
+        ------
+        FileNotFoundError
+            If individual radial profiles are not found
+        KeyError
+            If `cores` has not been initialized (due to missing files, etc.)
+        """
+        savdir = Path(self.savdir, config.FOURIER_DIR)
+        pspec = []
+        for num in self.nums:
+            fname = Path(savdir, f'power_spectrum.{num:05d}.p')
+            ps = xr.open_dataset(fname)
+            pspec.append(ps)
+        pspec = xr.concat(pspec, 't')
+        pspec = pspec.assign_coords(dict(num=('t', self.nums)))
+        pspec = pspec.set_xindex('num')
+        return pspec
+
 
 class LoadSimAll(object):
     """Class to load multiple simulations"""
