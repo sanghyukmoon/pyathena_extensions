@@ -408,7 +408,7 @@ def prj_radial_profile(s, num, pids, overwrite=False):
 
 
 def power_spectrum(s, num, overwrite=False):
-    ofname = Path(s.savdir, config.FOURIER_DIR, f'power_spectrum.{num:05d}.p')
+    ofname = Path(s.savdir, config.FOURIER_DIR, f'power_spectrum.{num:05d}.nc')
     ofname.parent.mkdir(exist_ok=True)
     if ofname.exists() and not overwrite:
         print('[power_spectrum] file already exists. Skipping...')
@@ -421,8 +421,9 @@ def power_spectrum(s, num, overwrite=False):
     ds['mom1'] /= ds.dens
     ds['mom2'] /= ds.dens
     ds['mom3'] /= ds.dens
+    ds['log_dens'] = np.log(ds.dens)
     ds = ds.rename({f'mom{i}':f'vel{i}' for i in [1,2,3]})
-    fields = ['dens', 'vel1', 'vel2', 'vel3', 'phi']
+    fields = ['dens', 'log_dens', 'vel1', 'vel2', 'vel3', 'phi']
     ps = []
     for f in fields:
         ps.append(stats.power_spectrum(ds[f], s.domain['Nx'][0], s.Lbox,
