@@ -110,7 +110,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             # Set nums dictionary (when hdf5 is stored in elsewhere for storage reasons)
             if self.nums is None:
-                self.nums = self.nums_parbin['par0']
+                if hasattr(self, 'nums_parbin'):
+                    self.nums = self.nums_parbin['par0']
+                elif hasattr(self, 'nums_partab'):
+                    self.nums = self.nums_partab['par0']
 
             # Set domain
             Lbox = set(self.domain['Lx'])
