@@ -581,6 +581,20 @@ def prune(s, num, overwrite=False):
     with open(ofname, 'wb') as handle:
         pickle.dump(gd, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
+def simplify_dendro(s):
+    for num in s.nums:
+        for pruned, suffix in zip([True, False], ['.pruned.', '.']):
+            ofname = Path(s.savdir, 'GRID', f'dendrogram{suffix}{num:05d}.p')
+            if ofname.exists():
+                gd = s.load_dendro(num, pruned=pruned)
+                if isinstance(list(gd.nodes.values())[0], np.ndarray):
+                    gd.nodes = {k: len(v) for k, v in gd.nodes.items()}
+                gd.cells_ordered = None
+                ofname.unlink()
+                with open(ofname, 'wb') as handle:
+                    pickle.dump(gd, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+
 
 def resample_hdf5(s, level=0):
     """Resamples AMR output into uniform resolution.
