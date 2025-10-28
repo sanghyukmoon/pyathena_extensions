@@ -1104,7 +1104,7 @@ def critical_time(s, pid, method='empirical'):
         if ncrit == cores.attrs['numcoll'] and np.isnan(cores.loc[ncrit].critical_radius):
             # If ncrit is ncoll at which critical radius was nan, set ncrit to NaN.
             ncrit = np.nan
-    elif method in ['predicted', 'pred_xis']:
+    elif method in ['predicted', 'pred_be', 'pred_xis']:
         for num, core in cores.sort_index(ascending=True).iterrows():
             if method == 'predicted':
                 # Predicted critical time using R_tidal_avg and Menc
@@ -1116,6 +1116,22 @@ def critical_time(s, pid, method='empirical'):
                 rtidal_avg = 0.5*(core.leaf_radius + core.tidal_radius)
                 cond1 = rtidal_avg >= core.critical_radius
                 cond2 = menc >= core.critical_mass
+                if cond1 and cond2:
+                    ncrit = num
+                    break
+            elif method == 'pred_be':
+                # Predicted critical time using BE criterion
+                rprf = rprofs.sel(num=num)
+                rhoc = rprf.rho.isel(r=0).data[()]
+                r0 = s.cs/np.sqrt(4*np.pi*s.gconst*rhoc)
+                m0 = s.cs**3/np.sqrt(4*np.pi*s.gconst**3*rhoc)
+                ts = tes.TES()
+                rbe = ts.rcrit*r0
+                mbe = ts.mcrit*m0
+                menc = rprf.menc.interp(r=rbe).data[()]
+                rtidal_avg = 0.5*(core.leaf_radius + core.tidal_radius)
+                cond1 = rtidal_avg >= rbe
+                cond2 = menc >= mbe
                 if cond1 and cond2:
                     ncrit = num
                     break

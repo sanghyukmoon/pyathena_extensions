@@ -157,7 +157,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             # Load derived core informations using various alternative critical times
             self.cores_dict = {}
-            for mtd in ['empirical', 'predicted']:  # retire experimental pred_xis
+            for mtd in ['empirical', 'predicted', 'pred_be', 'pred_xis']:  # retire experimental pred_xis
                 try:
                     # Calculate derived core properties using the predicted critical time
                     savdir = Path(self.savdir, config.CORE_DIR)
@@ -260,9 +260,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         return ds['Time']
 
     def select_cores(self, method):
-        method_list = {'empirical', 'predicted', 'pred_xis'}
-        if method not in method_list:
-            raise Exception("Method must be one of {}".format(sorted(method_list)))
         self.cores = self.cores_dict[method].copy()
 
     def good_cores(self, nres=8):
