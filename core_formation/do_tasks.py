@@ -135,7 +135,7 @@ if __name__ == "__main__":
         if args.lagrangian_props:
             s = sa.set_model(mdl, force_override=True)
             def wrapper(pid):
-                method_list = ['empirical', 'predicted']
+                method_list = ['empirical', 'predicted', 'pred_be', 'pred_xis']
                 for method in method_list:
                     s.select_cores(method)
                     if pid in s.cores:
