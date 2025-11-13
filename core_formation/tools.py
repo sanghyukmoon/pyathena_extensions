@@ -491,6 +491,12 @@ def radial_profile(s, ds, origin, rmax=None, newz=None):
     # Mass-weighted averages
     for k in ['gacc1', 'velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3', 'phi']:
         rprofs[k+'_mw'] = rprf_incl_center(ds[k], mass_weighted=True)
+
+    # virial terms
+    rprofs['xgx_mw'] = rprf_incl_center((ds.x - origin[0])*gacc['x'], mass_weighted=True)
+    rprofs['ygy_mw'] = rprf_incl_center((ds.y - origin[1])*gacc['y'], mass_weighted=True)
+    rprofs['zgz_mw'] = rprf_incl_center((ds.z - origin[2])*gacc['z'], mass_weighted=True)
+
     # Mass-weighted squared averages
     for k in ['velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3']:
         rprofs[k+'_sq_mw'] = rprf_incl_center(ds[k]**2, mass_weighted=True)
