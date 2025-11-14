@@ -228,7 +228,7 @@ def core_tracking(s, pid, overwrite=False):
     cores.to_pickle(ofname, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def radial_profile(s, num, pids, overwrite=False, full_radius=False, days_overwrite=30):
+def radial_profile(s, num, pids, overwrite=False, full_radius=False):
     """Calculates and pickles radial profiles of all cores.
 
     Parameters
@@ -253,17 +253,8 @@ def radial_profile(s, num, pids, overwrite=False, full_radius=False, days_overwr
             continue
         ofname = Path(s.savdir, config.RPROF_DIR,
                       'radial_profile.par{}.{:05d}.nc'.format(pid, num))
-        if ofname.exists():
-            if overwrite:
-                creation_time = ofname.stat().st_ctime
-                creation_date = datetime.datetime.fromtimestamp(creation_time)
-                current_time = datetime.datetime.now()
-                if (current_time - creation_date).days < days_overwrite:
-                    pids_skip.append(pid)
-                else:
-                    pass
-            else:
-                pids_skip.append(pid)
+        if ofname.exists() and not overwrite:
+            pids_skip.append(pid)
 
     pids_to_process = sorted(set(pids) - set(pids_skip))
 
