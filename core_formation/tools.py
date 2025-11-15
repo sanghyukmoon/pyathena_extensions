@@ -357,6 +357,15 @@ def critical_tes_property(s, rprf, core):
                                               ).integrate('r').data[()]
     mean_tidal_density = mtidal / (4*np.pi*core.tidal_radius**3/3)
 
+    rprf = rprf.sel(r=slice(0, core.tidal_radius))
+    vx_com = rprf.velx_mw.weighted(rprf.r**2*rprf.rho).mean()
+    vy_com = rprf.vely_mw.weighted(rprf.r**2*rprf.rho).mean()
+    vz_com = rprf.velz_mw.weighted(rprf.r**2*rprf.rho).mean()
+    sig1d = np.sqrt((rprf.velx_sq_mw.weighted(rprf.r**2*rprf.rho).mean()
+                   + rprf.vely_sq_mw.weighted(rprf.r**2*rprf.rho).mean()
+                   + rprf.velz_sq_mw.weighted(rprf.r**2*rprf.rho).mean()
+                   - vx_com**2 - vy_com**2 - vz_com**2).data[()]/3)
+
     rmin_fit = 0.5*s.dx
     rmax_fit = max(core.tidal_radius, 16.5*s.dx)
     # Select data for sonic radius fit
@@ -383,7 +392,7 @@ def critical_tes_property(s, rprf, core):
         except UserWarning:
             dcrit = rcrit = mcrit = np.nan
 
-    res = dict(tidal_mass=mtidal, center_density=rhoc,
+    res = dict(center_density=rhoc, tidal_mass=mtidal, sigma_1d_tidal=sig1d,
                mean_tidal_density=mean_tidal_density, sonic_radius=rs, pindex=pindex,
                critical_contrast=dcrit, critical_radius=rcrit,
                critical_mass=mcrit)
