@@ -9,5 +9,6 @@ tags
 job*
 *.out
 *.err
+*.slurm
 visitlog.py
 visit_script.py

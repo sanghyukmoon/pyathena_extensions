@@ -228,15 +228,15 @@ def core_tracking(s, pid, overwrite=False):
     cores.to_pickle(ofname, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def radial_profile(s, num, pids, overwrite=False, full_radius=False):
+def radial_profile(s, nums=None, pids=None, overwrite=False, full_radius=False):
     """Calculates and pickles radial profiles of all cores.
 
     Parameters
     ----------
     s : LoadSim
         LoadSim instance.
-    num : int
-        Snapshot number
+    nums : array of int
+        Snapshot numbers
     pids : list of int
         Particle ids to process.
     overwrite : str, optional
@@ -245,96 +245,103 @@ def radial_profile(s, num, pids, overwrite=False, full_radius=False):
         If true, use the full domain size as the outer radius.
     """
 
-    pids_skip = []
-    for pid in pids:
-        cores = s.cores[pid]
-        if num not in cores.index:
-            pids_skip.append(pid)
-            continue
-        ofname = Path(s.savdir, config.RPROF_DIR,
-                      'radial_profile.par{}.{:05d}.nc'.format(pid, num))
-        if ofname.exists() and not overwrite:
-            pids_skip.append(pid)
+    if pids is None:
+        pids = s.pids
 
-    pids_to_process = sorted(set(pids) - set(pids_skip))
+    if nums is None:
+        nums = s.nums
 
-    if len(pids_to_process) == 0:
-        msg = ("[radial_profile] Every core alreay has radial profiles at "
-               f"num = {num}. Skipping...")
-        print(msg)
-        return
+    for num in nums:
+        pids_skip = []
+        for pid in pids:
+            cores = s.cores[pid]
+            if num not in cores.index:
+                pids_skip.append(pid)
+                continue
+            ofname = Path(s.savdir, config.RPROF_DIR,
+                          'radial_profile.par{}.{:05d}.nc'.format(pid, num))
+            if ofname.exists() and not overwrite:
+                pids_skip.append(pid)
 
-    msg = ("[radial_profile] Start reading snapshot at "
-           f"num = {num}.")
-    print(msg)
+        pids_to_process = sorted(set(pids) - set(pids_skip))
 
-    # Load the snapshot
-    # ds0 should not be modified in the following loop.
-    ds0 = s.load_hdf5(num, chunks=config.CHUNKSIZE)
-
-    # Loop through cores
-    for pid in pids_to_process:
-        cores = s.cores[pid]
-        if num not in cores.index:
-            # This snapshot `num` does not contain any image of the core `pid`
-            # Continue to the next core.
-            continue
-
-        # Create directory and check if a file already exists
-        ofname = Path(s.savdir, config.RPROF_DIR,
-                      f'radial_profile.par{pid}.{num:05d}.nc')
-        ofname.parent.mkdir(exist_ok=True)
-        if ofname.exists() and not overwrite:
-            msg = (f"[radial_profile] A file already exists for pid = {pid} "
-                   f", num = {num}. Continue to the next core")
+        if len(pids_to_process) == 0:
+            msg = ("[radial_profile] Every core alreay has radial profiles at "
+                   f"num = {num}. Skipping...")
             print(msg)
             continue
 
-        msg = (f"[radial_profile] processing model {s.basename}, "
-               f"pid {pid}, num {num}")
+        msg = ("[radial_profile] Start reading snapshot at "
+               f"num = {num}.")
         print(msg)
 
-        core = cores.loc[num]
+        # Load the snapshot
+        # ds0 should not be modified in the following loop.
+        ds0 = s.load_hdf5(num, chunks=config.CHUNKSIZE)
 
-        if full_radius:
-            rmax = 0.5*s.Lbox
-        else:
-            rmax = min(0.5*s.Lbox, 3*cores.loc[:cores.attrs['numcoll']].tidal_radius.max())
+        # Loop through cores
+        for pid in pids_to_process:
+            cores = s.cores[pid]
+            if num not in cores.index:
+                # This snapshot `num` does not contain any image of the core `pid`
+                # Continue to the next core.
+                continue
 
-        # Find the location of the core
-        center = s.flatindex_to_cartesian(core.leaf_id)
-        center = dict(zip(['x', 'y', 'z'], center))
+            # Create directory and check if a file already exists
+            ofname = Path(s.savdir, config.RPROF_DIR,
+                          f'radial_profile.par{pid}.{num:05d}.nc')
+            ofname.parent.mkdir(exist_ok=True)
+            if ofname.exists() and not overwrite:
+                msg = (f"[radial_profile] A file already exists for pid = {pid} "
+                       f", num = {num}. Continue to the next core")
+                print(msg)
+                continue
 
-        # Roll the data such that the core is at the center of the domain
-        ds, center, _ = tools.recenter_dataset(ds0, center)
+            msg = (f"[radial_profile] processing model {s.basename}, "
+                   f"pid {pid}, num {num}")
+            print(msg)
 
-        # Workaround for xarray being unable to chunk IndexVariable
-        # see https://github.com/pydata/xarray/issues/6204
-        # The workaround is provided by _chunk_like helper function introduced in
-        # xclim. See https://github.com/Ouranosinc/xclim/pull/1542
-        x, y, z = transform._chunk_like(ds.x, ds.y, ds.z, chunks=ds.chunksizes)
+            core = cores.loc[num]
 
-        # Calculate the angular momentum vector within the tidal radius.
-        x = x - center['x']
-        y = y - center['y']
-        z = z - center['z']
-        r = np.sqrt(z**2 + y**2 + x**2)
-        lx = (y*ds.mom3 - z*ds.mom2).where(r <= max(core.tidal_radius, 1.1*s.dx)).sum().data[()]*s.dV
-        ly = (z*ds.mom1 - x*ds.mom3).where(r <= max(core.tidal_radius, 1.1*s.dx)).sum().data[()]*s.dV
-        lz = (x*ds.mom2 - y*ds.mom1).where(r <= max(core.tidal_radius, 1.1*s.dx)).sum().data[()]*s.dV
-        lvec = (lx, ly, lz)
+            if full_radius:
+                rmax = 0.5*s.Lbox
+            else:
+                rmax = min(0.5*s.Lbox, 3*cores.loc[:cores.attrs['numcoll']].tidal_radius.max())
 
-        # Calculate radial profile
-        rprf = tools.radial_profile(s, ds, list(center.values()), rmax, lvec)
-        rprf = rprf.expand_dims(dict(t=[ds.Time,]))
-        rprf['lx'] = xr.DataArray(np.atleast_1d(lx), dims='t')
-        rprf['ly'] = xr.DataArray(np.atleast_1d(ly), dims='t')
-        rprf['lz'] = xr.DataArray(np.atleast_1d(lz), dims='t')
+            # Find the location of the core
+            center = s.flatindex_to_cartesian(core.leaf_id)
+            center = dict(zip(['x', 'y', 'z'], center))
 
-        # write to file
-        if ofname.exists():
-            ofname.unlink()
-        rprf.to_netcdf(ofname)
+            # Roll the data such that the core is at the center of the domain
+            ds, center, _ = tools.recenter_dataset(ds0, center)
+
+            # Workaround for xarray being unable to chunk IndexVariable
+            # see https://github.com/pydata/xarray/issues/6204
+            # The workaround is provided by _chunk_like helper function introduced in
+            # xclim. See https://github.com/Ouranosinc/xclim/pull/1542
+            x, y, z = transform._chunk_like(ds.x, ds.y, ds.z, chunks=ds.chunksizes)
+
+            # Calculate the angular momentum vector within the tidal radius.
+            x = x - center['x']
+            y = y - center['y']
+            z = z - center['z']
+            r = np.sqrt(z**2 + y**2 + x**2)
+            lx = (y*ds.mom3 - z*ds.mom2).where(r <= max(core.tidal_radius, 1.1*s.dx)).sum().data[()]*s.dV
+            ly = (z*ds.mom1 - x*ds.mom3).where(r <= max(core.tidal_radius, 1.1*s.dx)).sum().data[()]*s.dV
+            lz = (x*ds.mom2 - y*ds.mom1).where(r <= max(core.tidal_radius, 1.1*s.dx)).sum().data[()]*s.dV
+            lvec = (lx, ly, lz)
+
+            # Calculate radial profile
+            rprf = tools.radial_profile(s, ds, list(center.values()), rmax, lvec)
+            rprf = rprf.expand_dims(dict(t=[ds.Time,]))
+            rprf['lx'] = xr.DataArray(np.atleast_1d(lx), dims='t')
+            rprf['ly'] = xr.DataArray(np.atleast_1d(ly), dims='t')
+            rprf['lz'] = xr.DataArray(np.atleast_1d(lz), dims='t')
+
+            # write to file
+            if ofname.exists():
+                ofname.unlink()
+            rprf.to_netcdf(ofname)
 
 
 def prj_radial_profile(s, num, pids, overwrite=False):

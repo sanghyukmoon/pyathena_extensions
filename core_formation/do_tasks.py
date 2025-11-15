@@ -1,277 +1,62 @@
-from pathlib import Path
-import numpy as np
 import argparse
 import subprocess
-from multiprocessing import Pool
+from pathlib import Path
+import uuid
+
+from dask.distributed import Client
+from dask_jobqueue.slurm import SLURMRunner
 
 from core_formation import config, tasks, models, load_sim
 
-if __name__ == "__main__":
-    sa = load_sim.LoadSimAll(models.models)
+jobid = uuid.uuid4().hex[:8]
+SCRIPT_PATH = f"./job{jobid}.slurm"
 
+def write_slurm_script(model, tasks, overwrite):
+    jobname = f"{jobid}{model}"
+    tasks_str = " ".join(tasks)
+    overwrite_flag = "--overwrite" if overwrite else ""
+    slurm_script = f"""#!/bin/bash
+#SBATCH --job-name={jobname}
+#SBATCH --nodes=1
+#SBATCH --ntasks=32
+#SBATCH --cpus-per-task=3
+#SBATCH --mem=740G
+#SBATCH --time=24:00:00
+#SBATCH --output={model}_%j.out
+#SBATCH --error={model}_%j.err
+
+eval "$(/home/sm69/miniforge3/bin/mamba shell hook --shell bash)"
+mamba activate pyathena
+
+srun python do_tasks.py {model} {tasks_str} --runbyslurm {overwrite_flag}
+    """
+    if Path(SCRIPT_PATH).exists():
+        raise FileExistsError(f"SLURM script path {SCRIPT_PATH} already exists.")
+    with open(SCRIPT_PATH, 'w') as f:
+        f.write(slurm_script)
+
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("models", nargs='+', type=str,
-                        help="List of models to process")
-    parser.add_argument("--pids", nargs='+', type=int,
-                        help="List of particle ids to process")
-    parser.add_argument("--np", type=int, default=1,
-                        help="Number of processors")
-    parser.add_argument("-o", "--overwrite", action="store_true",
-                        help="Overwrite everything")
-    parser.add_argument("-r", "--reverse", action="store_true",
-                        help="Loop through nums in revserse direction")
-    parser.add_argument("--combine-partab", action="store_true",
-                        help="Join partab files")
-    parser.add_argument("--combine-partab-full", action="store_true",
-                        help="Join partab files including last output")
-    parser.add_argument("--run-grid", action="store_true",
-                        help="Run GRID-dendro")
-    parser.add_argument("--prune", action="store_true",
-                        help="Prune dendrogram")
-    parser.add_argument("--track-cores", action="store_true",
-                        help="Perform reverse core tracking (prestellar phase)")
-    parser.add_argument("--radial-profile", action="store_true",
-                        help="Calculate radial profiles of each cores")
-    parser.add_argument("--critical-tes", action="store_true",
-                        help="Calculate critical TES of each cores")
-    parser.add_argument("--lagrangian-props", action="store_true",
-                        help="Calculate Lagrangian properties of cores")
-    parser.add_argument("--projections", action="store_true",
-                        help="Calculate projections")
-    parser.add_argument("--prj-radial-profile", action="store_true",
-                        help="Calculate radial profiles of each cores")
-    parser.add_argument("--observables", action="store_true",
-                        help="Calculate observable properties of cores")
-    parser.add_argument("--linewidth-size", action="store_true",
-                        help="Calculate linewidth-size relation")
-    parser.add_argument("--make-movie", action="store_true",
-                        help="Create movies")
-    parser.add_argument("--plot-core-evolution", action="store_true",
-                        help="Create core evolution plots")
-    parser.add_argument("--plot-sink-history", action="store_true",
-                        help="Create sink history plots")
-    parser.add_argument("--plot-pdfs", action="store_true",
-                        help="Create density pdf and velocity power spectrum")
-    parser.add_argument("--plot-diagnostics", action="store_true",
-                        help="Create diagnostics plot for each core")
-    parser.add_argument("--grf-tidal", action="store_true")
-    parser.add_argument("--pid-start", type=int)
-    parser.add_argument("--pid-end", type=int)
+    parser.add_argument("model", type=str, help="Model to process")
+    parser.add_argument("tasks", nargs='+', type=str, help="Tasks to do")
+    parser.add_argument("--runbyslurm", action="store_true")
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--num", type=int)
 
     args = parser.parse_args()
 
-    # Select models
-    for mdl in args.models:
-        s = sa.set_model(mdl, force_override=False)
-        if args.pid_start is not None and args.pid_end is not None:
-            pids = np.arange(args.pid_start, args.pid_end+1)
-        else:
-            pids = s.pids
-        if args.pids:
-            pids = args.pids
-        pids = sorted(list(set(s.pids) & set(pids)))
+    if args.runbyslurm:
+        sa = load_sim.LoadSimAll(models.models)
+        with SLURMRunner(scheduler_options={"interface": "ib0"},
+                         worker_options={"interface": "ib0"}) as runner:
+            # The runner object contains the scheduler address info and can be used to construct a client.
+            with Client(runner) as client:
+                # Wait for all the workers to be ready before continuing.
+                client.wait_for_workers(runner.n_workers)
 
-        # Combine output files.
-        if args.combine_partab:
-            print(f"Combine partab files for model {mdl}")
-            tasks.combine_partab(s, remove=True, include_last=False)
-
-        if args.combine_partab_full:
-            print(f"Combine all partab files for model {mdl}")
-            tasks.combine_partab(s, remove=True, include_last=True)
-
-        # Run GRID-dendro.
-        if args.run_grid:
-            s = sa.set_model(mdl, force_override=False)
-            def wrapper(num):
-                tasks.run_grid(s, num, overwrite=args.overwrite)
-            print(f"Run GRID-dendro for model {mdl}")
-            with Pool(args.np) as p:
-                p.map(wrapper, s.nums[config.GRID_NUM_START:], 1)
-
-        # Run GRID-dendro.
-        if args.prune:
-            s = sa.set_model(mdl, force_override=False)
-            def wrapper(num):
-                tasks.prune(s, num, overwrite=args.overwrite)
-            print(f"Run GRID-dendro for model {mdl}")
-            with Pool(args.np) as p:
-                p.map(wrapper, s.nums[config.GRID_NUM_START:], 1)
-
-        # Find t_coll cores and save their GRID-dendro node ID's.
-        if args.track_cores:
-            s = sa.set_model(mdl, force_override=True)
-            def wrapper(pid):
-                tasks.core_tracking(s, pid, overwrite=args.overwrite)
-            print(f"Perform core tracking for model {mdl}")
-            with Pool(args.np) as p:
-                p.map(wrapper, pids)
-
-        # Calculate radial profiles of t_coll cores and pickle them.
-        if args.radial_profile:
-            s = sa.set_model(mdl, force_override=True)
-            msg = ("calculate and save radial profiles for "
-                   f"model {mdl}")
-            print(msg)
-            def wrapper(num):
-                tasks.radial_profile(s, num, pids, overwrite=args.overwrite,
-                                     full_radius=True, days_overwrite=0)
-            nums = s.nums[::-1] if args.reverse else s.nums
-            with Pool(args.np) as p:
-                p.map(wrapper, nums)
-
-        # Find critical tes
-        if args.critical_tes:
-            s = sa.set_model(mdl, force_override=True)
-            print(f"find critical tes for cores for model {mdl}")
-            for pid in pids:
-                cores = s.cores[pid]
-                def wrapper(num):
-                    tasks.critical_tes(s, pid, num, overwrite=args.overwrite)
-                with Pool(args.np) as p:
-                    p.map(wrapper, cores.index)
-
-        # Calculate Lagrangian properties
-        if args.lagrangian_props:
-            s = sa.set_model(mdl, force_override=True)
-            def wrapper(pid):
-                method_list = ['empirical', 'predicted', 'pred_be', 'pred_xis']
-                for method in method_list:
-                    s.select_cores(method)
-                    if pid in s.cores:
-                        tasks.lagrangian_props(s, pid, method=method, overwrite=args.overwrite)
-            print(f"Calculate Lagrangian properties for model {mdl}")
-            with Pool(args.np) as p:
-                p.map(wrapper, pids)
-
-        # Calculate radial profiles of t_coll cores and pickle them.
-        if args.projections:
-            s = sa.set_model(mdl, force_override=True)
-            msg = ("calculate and save projections for " f"model {mdl}")
-            print(msg)
-            def wrapper(num):
-                tasks.projections(s, num, overwrite=args.overwrite)
-            with Pool(args.np) as p:
-                p.map(wrapper, s.nums)
-
-        # Calculate radial profiles of t_coll cores and pickle them.
-        if args.prj_radial_profile:
-            s = sa.set_model(mdl, force_override=True)
-            msg = ("calculate and save projected radial profiles for "
-                   f"model {mdl}")
-            print(msg)
-            def wrapper(num):
-                tasks.prj_radial_profile(s, num, pids, overwrite=args.overwrite)
-            with Pool(args.np) as p:
-                p.map(wrapper, s.nums)
-
-        # Find observables
-        if args.observables:
-            s = sa.set_model(mdl, force_override=True)
-            print(f"Calculate observable core properties for model {mdl}")
-            for pid in pids:
-                cores = s.cores[pid]
-                cores = cores.loc[:cores.attrs['numcoll']]
-                def wrapper(num):
-                    tasks.observables(s, pid, num, overwrite=args.overwrite)
-                with Pool(args.np) as p:
-                    p.map(wrapper, cores.index)
-
-
-        # Resample AMR data into uniform grid
-#        print(f"resample AMR to uniform for model {mdl}")
-#        tasks.resample_hdf5(s)
-
-        # Calculate radial profiles of t_coll cores and pickle them.
-        if args.linewidth_size:
-            s = sa.set_model(mdl, force_override=True)
-            for num in [74]:
-                ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3'])
-                ds['vel1'] = ds.mom1/ds.dens
-                ds['vel2'] = ds.mom2/ds.dens
-                ds['vel3'] = ds.mom3/ds.dens
-                def wrapper(seed):
-                    tasks.calculate_linewidth_size(s, num, seed=seed, overwrite=args.overwrite, ds=ds)
-                with Pool(args.np) as p:
-                    p.map(wrapper, np.arange(1000))
-
-                def wrapper2(pid):
-                    tasks.calculate_linewidth_size(s, num, pid=pid, overwrite=args.overwrite, ds=ds)
-                with Pool(args.np) as p:
-                    p.map(wrapper2, s.good_cores())
-
-            def wrapper3(pid):
-                ncrit = s.cores[pid].attrs['numcrit']
-                tasks.calculate_linewidth_size(s, ncrit, pid=pid, overwrite=args.overwrite)
-            with Pool(args.np) as p:
-                p.map(wrapper3, s.good_cores())
-
-        # make plots
-        if args.plot_core_evolution:
-            s = sa.set_model(mdl, force_override=True)
-            print(f"draw core evolution plots for model {mdl}")
-            for pid in pids:
-                for method in ['empirical', 'predicted']:
-                    s.select_cores(method)
-                    cores = s.cores[pid]
-                    def wrapper(num):
-                        tasks.plot_core_evolution(s, pid, num, method=method,
-                                                  overwrite=args.overwrite)
-                    with Pool(args.np) as p:
-                        p.map(wrapper, cores.index)
-
-        if args.plot_sink_history:
-            s = sa.set_model(mdl, force_override=True)
-            def wrapper(num):
-                tasks.plot_sink_history(s, num, overwrite=args.overwrite)
-            print(f"draw sink history plots for model {mdl}")
-            with Pool(args.np) as p:
-                p.map(wrapper, s.nums)
-
-        if args.plot_pdfs:
-            s = sa.set_model(mdl, force_override=True)
-            def wrapper(num):
-                tasks.plot_pdfs(s, num, overwrite=args.overwrite)
-            print(f"draw PDF-power spectrum plots for model {mdl}")
-            with Pool(args.np) as p:
-                p.map(wrapper, s.nums)
-
-        if args.plot_diagnostics:
-            s = sa.set_model(mdl, force_override=True)
-            print(f"draw diagnostics plots for model {mdl}")
-            for pid in s.good_cores():
-                tasks.plot_diagnostics(s, pid, overwrite=args.overwrite)
-
-        if args.grf_tidal:
-            s = sa.set_model(mdl, force_override=False)
-
-            # Dirty fix; given the model name with, e.g., N512, turn into N1024 model, for example.
-            s.domain['Nx'] *= 2
-            s.domain['dx'] /= 2
-            s.dx /= 2
-
-            for pindex in [-6.0, -6.5, -7.0, -7.5]:
-#            for pindex in [-3.8]:
-                print(f"Calculate grf tidal radii model {mdl}, pindex {pindex}")
-                for iseed in args.pids:  # use pid as a random seed
-                    tasks.random_field_rtidal(s, iseed, pindex, mode=0)
-
-        # make movie
-        if args.make_movie:
-            s = sa.set_model(mdl, force_override=False)
-            print(f"create movies for model {mdl}")
-            srcdir = Path(s.savdir, "figures")
-            plot_prefix = [
-#                    config.PLOT_PREFIX_PDF_PSPEC,
-                    config.PLOT_PREFIX_SINK_HISTORY,
-                          ]
-            for prefix in plot_prefix:
-                subprocess.run(["make_movie", "-p", prefix, "-s", srcdir, "-d",
-                                srcdir])
-            prefix = config.PLOT_PREFIX_CORE_EVOLUTION
-            for pid in pids:
-                for method in ['empirical', 'predicted']:
-                    s.select_cores(method)
-                    prf = f"{prefix}.par{pid}.tcrit_{method}"
-                    subprocess.run(["make_movie", "-p", prf, "-s", srcdir,
-                                    "-d", srcdir])
+                for task in args.tasks:
+                    s = sa.set_model(args.model, force_override=True)
+                    tasks.__dict__[task](s, overwrite=args.overwrite)
+    else:
+        write_slurm_script(args.model, args.tasks, args.overwrite)
+        subprocess.run(["sbatch", SCRIPT_PATH])
