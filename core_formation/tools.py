@@ -9,8 +9,7 @@ import pandas as pd
 import dask
 import dask.array as da
 from scipy.special import erfcinv, erfc
-from scipy.stats import linregress
-from scipy.optimize import brentq
+from scipy.optimize import brentq, curve_fit
 from scipy.integrate import quad
 from scipy.interpolate import interp1d
 from astropy import units as au
@@ -366,15 +365,17 @@ def critical_tes_property(s, rprf, core):
                    + rprf.velz_sq_mw.weighted(rprf.r**2*rprf.rho).mean()
                    - vx_com**2 - vy_com**2 - vz_com**2).data[()]/3)
 
-    rmin_fit = 0.5*s.dx
+    rmin_fit = 3.5*s.dx
     rmax_fit = max(core.tidal_radius, 16.5*s.dx)
     # Select data for sonic radius fit
     rds = rprf.r.sel(r=slice(rmin_fit, rmax_fit)).data
     vr = np.sqrt(rprf.dvel1_sq_mw.sel(r=slice(rmin_fit, rmax_fit)).data)
-
-    res = linregress(np.log(rds), np.log(vr/s.cs))
-    pindex = min(res.slope, 0.9999)  # Apply ceiling to pindex
-    intercept = res.intercept
+    res, _ = curve_fit(lambda r, a, b: a*np.log(r) + b, rds, np.log(vr/s.cs))
+    pindex, intercept = res[0], res[1]
+    pmax = 0.999 # Apply ceiling to avoid unphysical pindex
+    if pindex >= pmax:
+        res, _ = curve_fit(lambda r, b: pmax*np.log(r) + b, rds, np.log(vr/s.cs))
+        pindex, intercept = pmax, res[0]
 
     if pindex <= 0:
         rs = dcrit = rcrit = mcrit = np.nan
