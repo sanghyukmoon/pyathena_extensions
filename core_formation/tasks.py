@@ -228,7 +228,7 @@ def core_tracking(s, pid, overwrite=False):
     cores.to_pickle(ofname, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def radial_profile(s, nums=None, pids=None, overwrite=False, full_radius=False):
+def radial_profile(s, nums=None, pids=None, overwrite=False, full_radius=True):
     """Calculates and pickles radial profiles of all cores.
 
     Parameters
