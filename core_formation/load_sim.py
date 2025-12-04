@@ -600,7 +600,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                                                  - rprofs[f'vel{axis}_mw']**2)
                 rprofs['menc'] = (4*np.pi*rprofs.r**2*rprofs.rho
                                   ).cumulative_integrate('r')
-                rprofs = rprofs.merge(tools.radial_acceleration(self, rprofs))
+                rprofs = rprofs.merge(tools.radial_acceleration(self, rprofs), compat="no_conflicts")
                 rprofs = rprofs.set_xindex('num')
 
             # Read projected radial profiles
@@ -627,7 +627,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 prj_rprofs = prj_rprofs.isel(R=slice(0, min_nr))
                 if 'num' in rprofs.indexes:
                     rprofs = rprofs.drop_indexes('num')
-                rprofs = rprofs.merge(prj_rprofs)
+                rprofs = rprofs.merge(prj_rprofs, compat="no_conflicts")
                 rprofs = rprofs.set_xindex('num')
 
             rprofs_dict[pid] = rprofs
