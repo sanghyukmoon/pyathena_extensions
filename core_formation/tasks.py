@@ -201,7 +201,7 @@ def critical_tes(s, pid, num, overwrite=False):
         pickle.dump(critical_tes, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def core_tracking(s, pid, overwrite=False):
+def core_tracking(s, pids=None, overwrite=False):
     """Loops over all sink particles and find their progenitor cores
 
     Finds a unique grid-dendro leaf at each snapshot that is going to collapse.
@@ -217,15 +217,19 @@ def core_tracking(s, pid, overwrite=False):
     overwrite : str, optional
         If true, overwrites the existing pickle file.
     """
-    # Check if file exists
-    ofname = Path(s.savdir, config.CORE_DIR, 'cores.par{}.p'.format(pid))
-    ofname.parent.mkdir(exist_ok=True)
-    if ofname.exists() and not overwrite:
-        print('[core_tracking] file already exists. Skipping...')
-        return
+    if pids is None:
+        pids = s.pids
 
-    cores = tools.track_cores(s, pid)
-    cores.to_pickle(ofname, protocol=pickle.HIGHEST_PROTOCOL)
+    for pid in pids:
+        # Check if file exists
+        ofname = Path(s.savdir, config.CORE_DIR, 'cores.par{}.p'.format(pid))
+        ofname.parent.mkdir(exist_ok=True)
+        if ofname.exists() and not overwrite:
+            print('[core_tracking] file already exists. Skipping...')
+            continue
+
+        cores = tools.track_cores(s, pid)
+        cores.to_pickle(ofname, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def radial_profile(s, nums=None, pids=None, overwrite=False, full_radius=True):
@@ -405,33 +409,36 @@ def prj_radial_profile(s, num, pids, overwrite=False):
         rprf.to_netcdf(ofname)
 
 
-def power_spectrum(s, num, overwrite=False):
-    ofname = Path(s.savdir, config.FOURIER_DIR, f'power_spectrum.{num:05d}.nc')
-    ofname.parent.mkdir(exist_ok=True)
-    if ofname.exists() and not overwrite:
-        print('[power_spectrum] file already exists. Skipping...')
-        return
+def power_spectrum(s, nums=None, overwrite=False):
+    if nums is None:
+        nums = s.nums
+    for num in nums:
+        ofname = Path(s.savdir, config.FOURIER_DIR, f'power_spectrum.{num:05d}.nc')
+        ofname.parent.mkdir(exist_ok=True)
+        if ofname.exists() and not overwrite:
+            print('[power_spectrum] file already exists. Skipping...')
+            continue
 
-    msg = '[power_spectrum] processing model {} num {}'
-    print(msg.format(s.basename, num))
+        msg = '[power_spectrum] processing model {} num {}'
+        print(msg.format(s.basename, num))
 
-    ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
-    ds['mom1'] /= ds.dens
-    ds['mom2'] /= ds.dens
-    ds['mom3'] /= ds.dens
-    ds['log_dens'] = np.log(ds.dens)
-    ds = ds.rename({f'mom{i}':f'vel{i}' for i in [1,2,3]})
-    fields = ['dens', 'log_dens', 'vel1', 'vel2', 'vel3', 'phi']
-    ps = []
-    for f in fields:
-        ps.append(stats.power_spectrum(ds[f], s.domain['Nx'][0], s.Lbox,
-                  nbin=s.domain['Nx'][0]))
-    ps = xr.Dataset(dict(zip(fields, ps)))
-    ps = ps.expand_dims(dict(t=[ds.Time,]))
-    # write to file
-    if ofname.exists():
-        ofname.unlink()
-    ps.to_netcdf(ofname)
+        ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
+        ds['mom1'] /= ds.dens
+        ds['mom2'] /= ds.dens
+        ds['mom3'] /= ds.dens
+        ds['log_dens'] = np.log(ds.dens)
+        ds = ds.rename({f'mom{i}':f'vel{i}' for i in [1,2,3]})
+        fields = ['dens', 'log_dens', 'vel1', 'vel2', 'vel3', 'phi']
+        ps = []
+        for f in fields:
+            ps.append(stats.power_spectrum(ds[f], s.domain['Nx'][0], s.Lbox,
+                      nbin=s.domain['Nx'][0]))
+        ps = xr.Dataset(dict(zip(fields, ps)))
+        ps = ps.expand_dims(dict(t=[ds.Time,]))
+        # write to file
+        if ofname.exists():
+            ofname.unlink()
+        ps.to_netcdf(ofname)
 
 
 def lagrangian_props(s, pid, method='empirical', overwrite=False):

@@ -24,6 +24,8 @@ def write_slurm_script(model, tasks, overwrite):
 #SBATCH --time=24:00:00
 #SBATCH --output={model}_%j.out
 #SBATCH --error={model}_%j.err
+#SBATCH --mail-type=end,fail
+#SBATCH --mail-user=sanghyuk.moon@princeton.edu
 
 eval "$(/home/sm69/miniforge3/bin/mamba shell hook --shell bash)"
 mamba activate pyathena
