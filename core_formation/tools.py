@@ -356,13 +356,13 @@ def critical_tes_property(s, rprf, core):
                                               ).integrate('r').data[()]
     mean_tidal_density = mtidal / (4*np.pi*core.tidal_radius**3/3)
 
-    rprf = rprf.sel(r=slice(0, core.tidal_radius))
-    vx_com = rprf.velx_mw.weighted(rprf.r**2*rprf.rho).mean()
-    vy_com = rprf.vely_mw.weighted(rprf.r**2*rprf.rho).mean()
-    vz_com = rprf.velz_mw.weighted(rprf.r**2*rprf.rho).mean()
-    sig1d = np.sqrt((rprf.velx_sq_mw.weighted(rprf.r**2*rprf.rho).mean()
-                   + rprf.vely_sq_mw.weighted(rprf.r**2*rprf.rho).mean()
-                   + rprf.velz_sq_mw.weighted(rprf.r**2*rprf.rho).mean()
+    rprf_slc = rprf.sel(r=slice(0, core.tidal_radius))
+    vx_com = rprf_slc.velx_mw.weighted(rprf_slc.r**2*rprf_slc.rho).mean()
+    vy_com = rprf_slc.vely_mw.weighted(rprf_slc.r**2*rprf_slc.rho).mean()
+    vz_com = rprf_slc.velz_mw.weighted(rprf_slc.r**2*rprf_slc.rho).mean()
+    sig1d = np.sqrt((rprf_slc.velx_sq_mw.weighted(rprf_slc.r**2*rprf_slc.rho).mean()
+                   + rprf_slc.vely_sq_mw.weighted(rprf_slc.r**2*rprf_slc.rho).mean()
+                   + rprf_slc.velz_sq_mw.weighted(rprf_slc.r**2*rprf_slc.rho).mean()
                    - vx_com**2 - vy_com**2 - vz_com**2).data[()]/3)
 
     rmin_fit = 3.5*s.dx
