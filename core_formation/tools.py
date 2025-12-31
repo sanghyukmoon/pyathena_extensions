@@ -369,7 +369,11 @@ def critical_tes_property(s, rprf, core):
     rmax_fit = max(core.tidal_radius, 16.5*s.dx)
     # Select data for sonic radius fit
     rds = rprf.r.sel(r=slice(rmin_fit, rmax_fit)).data
-    vr = np.sqrt(rprf.dvel1_sq_mw.sel(r=slice(rmin_fit, rmax_fit)).data)
+    vr = np.sqrt(
+            rprf.dvel1_sq_mw.sel(r=slice(rmin_fit, rmax_fit)).data
+            + rprf.dvel2_sq_mw.sel(r=slice(rmin_fit, rmax_fit)).data
+            + rprf.dvel3_sq_mw.sel(r=slice(rmin_fit, rmax_fit)).data
+            ) / np.sqrt(3)
     res, _ = curve_fit(lambda r, a, b: a*np.log(r) + b, rds, np.log(vr/s.cs))
     pindex, intercept = res[0], res[1]
     pmax = 0.999 # Apply ceiling to avoid unphysical pindex
