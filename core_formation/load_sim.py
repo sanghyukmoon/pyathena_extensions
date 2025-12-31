@@ -600,6 +600,27 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                                                  - rprofs[f'vel{axis}_mw']**2)
                 rprofs['menc'] = (4*np.pi*rprofs.r**2*rprofs.rho
                                   ).cumulative_integrate('r')
+                # Virial terms
+                rdotg = rprofs.xgx_mw + rprofs.ygy_mw + rprofs.zgz_mw
+                rprofs['Omega_G'] = -(4*np.pi*rprofs.r**2*rprofs.rho*rdotg).cumulative_integrate('r')
+                rprofs['Omega_G0'] = self.gconst*rprofs.menc**2/rprofs.r
+                rprofs['Omega_K_thm'] = 1.5*(4*np.pi*rprofs.r**2*self.cs**2*rprofs.rho).cumulative_integrate('r')
+                rprofs['Omega_K_kin'] = 2*np.pi*(rprofs.r**2*rprofs.rho*(
+                    rprofs.vel1_sq_mw + rprofs.vel2_sq_mw + rprofs.vel3_sq_mw)
+                ).cumulative_integrate('r')
+                rprofs['Omega_K'] = rprofs['Omega_K_thm'] + rprofs['Omega_K_kin']
+                rprofs['Omega_S_thm'] = 4*np.pi*rprofs.r**3*self.cs**2*rprofs.rho
+                rprofs['Omega_S_kin'] = 4*np.pi*rprofs.r**3*rprofs.rho*rprofs.vel1_sq_mw
+                rprofs['Omega_S'] = rprofs['Omega_S_thm'] + rprofs['Omega_S_kin']
+                rprofs['alpha_vir'] = 2*rprofs['Omega_K'] / rprofs['Omega_G']
+                if self.mhd:
+                    bsq = (rprofs.b1_sq + rprofs.b2_sq + rprofs.b3_sq)
+                    rprofs['Omega_M'] = 2*np.pi*(rprofs.r**2*bsq).cumulative_integrate('r')
+                    rprofs['Omega_S_mag'] = 2*np.pi*rprofs.r**3*(rprofs.b2_sq + rprofs.b3_sq - rprofs.b1_sq)
+                    rprofs['Omega_S'] += rprofs['Omega_S_mag']
+                    rprofs['gamma_M'] = rprofs['Omega_M'] / (2*rprofs['Omega_K'])
+                rprofs['gamma_S'] = rprofs['Omega_S'] / rprofs['Omega_G']
+
                 rprofs = rprofs.merge(tools.radial_acceleration(self, rprofs), compat="no_conflicts")
                 rprofs = rprofs.set_xindex('num')
 
