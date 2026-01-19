@@ -157,7 +157,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             # Load derived core informations using various alternative critical times
             self.cores_dict = {}
-            for mtd in ['empirical', 'predicted', 'pred_be', 'pred_xis']:  # retire experimental pred_xis
+            for mtd in ['empirical', 'predicted']: # pred_be, pred_xis
                 try:
                     # Calculate derived core properties using the predicted critical time
                     savdir = Path(self.savdir, config.CORE_DIR)
@@ -305,7 +305,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 rprf = rprofs.sel(num=ncrit)
                 rcore = core.critical_radius
                 if np.isnan(rcore) and cores.attrs['isolated']:
-                    raise ValueError("Critical radius at t_crit is NaN even though core is isolated")
+                    raise ValueError("Critical radius at t_crit is NaN even though core is isolated: "
+                                     f"Model {self.basename}, par {pid}, ncrit = {ncrit}")
                 if rcore > rprf.r.max()[()]:
                     msg = (
                         f"Core radius exceeds the maximum rprof radius for "
@@ -604,22 +605,43 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 rdotg = rprofs.xgx_mw + rprofs.ygy_mw + rprofs.zgz_mw
                 rprofs['Omega_G'] = -(4*np.pi*rprofs.r**2*rprofs.rho*rdotg).cumulative_integrate('r')
                 rprofs['Omega_G0'] = self.gconst*rprofs.menc**2/rprofs.r
-                rprofs['Omega_K_thm'] = 1.5*(4*np.pi*rprofs.r**2*self.cs**2*rprofs.rho).cumulative_integrate('r')
-                rprofs['Omega_K_kin'] = 2*np.pi*(rprofs.r**2*rprofs.rho*(
+                rprofs['Omega_K_thm'] = (4*np.pi*rprofs.r**2*3*self.cs**2*rprofs.rho).cumulative_integrate('r')
+                rprofs['Omega_K_kin'] = (4*np.pi*rprofs.r**2*rprofs.rho*(
                     rprofs.vel1_sq_mw + rprofs.vel2_sq_mw + rprofs.vel3_sq_mw)
                 ).cumulative_integrate('r')
                 rprofs['Omega_K'] = rprofs['Omega_K_thm'] + rprofs['Omega_K_kin']
                 rprofs['Omega_S_thm'] = 4*np.pi*rprofs.r**3*self.cs**2*rprofs.rho
                 rprofs['Omega_S_kin'] = 4*np.pi*rprofs.r**3*rprofs.rho*rprofs.vel1_sq_mw
                 rprofs['Omega_S'] = rprofs['Omega_S_thm'] + rprofs['Omega_S_kin']
-                rprofs['alpha_vir'] = 2*rprofs['Omega_K'] / rprofs['Omega_G']
+                rprofs['alpha_vir'] = rprofs['Omega_K'] / rprofs['Omega_G']
                 if self.mhd:
                     bsq = (rprofs.b1_sq + rprofs.b2_sq + rprofs.b3_sq)
                     rprofs['Omega_M'] = 2*np.pi*(rprofs.r**2*bsq).cumulative_integrate('r')
                     rprofs['Omega_S_mag'] = 2*np.pi*rprofs.r**3*(rprofs.b2_sq + rprofs.b3_sq - rprofs.b1_sq)
                     rprofs['Omega_S'] += rprofs['Omega_S_mag']
                     rprofs['gamma_M'] = rprofs['Omega_M'] / (2*rprofs['Omega_K'])
+                else:
+                    rprofs['Omega_M'] = rprofs.rho*0
+                    rprofs['Omega_S_mag'] = rprofs.rho*0
+                    rprofs['gamma_M'] = rprofs.rho*0
                 rprofs['gamma_S'] = rprofs['Omega_S'] / rprofs['Omega_G']
+                rprofs['Alpha'] = rprofs.Omega_K + rprofs.Omega_M - rprofs.Omega_G - rprofs.Omega_S
+                rprofs['peff'] = rprofs.rho*(self.cs**2 + rprofs.vel1_sq_mw)
+                rprofs['peq'] = (rprofs.Omega_K + rprofs.Omega_M - rprofs.Omega_G) / (4*np.pi*rprofs.r**3)
+
+                # Maximum pressure from McCrea analysis
+                rgrav = self.gconst*rprofs.menc/self.cs**2
+                pgrav = self.cs**8/(4*np.pi*self.gconst**3*rprofs.menc**2)
+                sigma_1d_sq = rprofs.Omega_K_kin / (3*rprofs.menc)
+                mach2 = sigma_1d_sq / self.cs**2
+                a = rprofs.Omega_G/rprofs.Omega_G0
+                xi0 = rprofs.r / rgrav
+                xi_max = (-9 + np.sqrt(81 + 96*mach2*a.where(a>0)/xi0)) / (12*mach2/xi0)
+                eta_max = 3*xi_max**-3*(1 + mach2*xi_max/xi0) - a*xi_max**-4
+                rprofs['pmax_const_rsonic'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
+                xi_max = 4*a/9/(1 + mach2)
+                eta_max = 3*xi_max**-3*(1 + mach2) - a*xi_max**-4
+                rprofs['pmax_const_sigma'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
 
                 rprofs = rprofs.merge(tools.radial_acceleration(self, rprofs), compat="no_conflicts")
                 rprofs = rprofs.set_xindex('num')
