@@ -887,6 +887,11 @@ def radial_acceleration(s, rprf):
     acc['Fani'] = (dm*acc.ani).cumulative_integrate('r')
     acc['Fmag_ani'] = (dm*acc.mag_ani).cumulative_integrate('r')
 
+    # Net forces
+    acc['fnet'] = (acc.thm + acc.trb + acc.cen + acc.ani
+                   + acc.mag + acc.mag_ani + acc.grv) / (-acc.grv)
+    acc['Fnet'] = (acc.Fthm + acc.Ftrb + acc.Fcen + acc.Fani
+                   + acc.Fmag + acc.Fmag_ani - acc.Fgrv) / acc.Fgrv
     return acc
 
 
@@ -1085,9 +1090,9 @@ def critical_time(s, pid, method='empirical'):
         if np.all(cores.iloc[-(num_buffer+1):].pindex < 0):
             s.logger.warning("pindex in the last three snapshots is negative."
                              f" for pid = {pid}."
-                             " Skipping the critical time calculation."
+                             " cannot calculate critical radius and thus the critical time"
                              f" Isolated = {cores.attrs['isolated']}")
-            pass
+            ncrit = np.nan
         else:
             for num, core in cores.sort_index(ascending=False).iterrows():
                 # Exclude t_coll snapshot at which the turbulence has amplified
