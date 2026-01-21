@@ -1072,7 +1072,7 @@ def column_density(rcyl, frho, rmax):
     return dcol
 
 
-def critical_time(s, pid, method='empirical'):
+def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
     cores = s.cores[pid].copy()
     if len(cores) == 0:
         return np.nan
@@ -1169,6 +1169,36 @@ def critical_time(s, pid, method='empirical'):
                 if cond1 and cond2:
                     ncrit = num
                     break
+    elif method == 'virial':
+        for num, core in cores.sort_index(ascending=True).iterrows():
+            rceil = np.inf
+            # Other sink particles present within rcrit?
+            pds = s.load_par(num)
+            for _, par in pds.iterrows():
+                dist_to_star = s.distance_between(core.leaf_id, s.cartesian_to_flatindex(par.x1, par.x2, par.x3))[()]
+                rceil = np.min([rceil, dist_to_star])
+            # Neighboring sink formation within rcrit in the future?
+            numcoll = cores.attrs['numcoll']
+            for _pid, par in s.tcoll_cores[(s.tcoll_cores.num >= num)
+                                           &(s.tcoll_cores.num <= numcoll)].iterrows():
+                # Exclude myself
+                if _pid == pid:
+                    continue
+                dist_to_star = s.distance_between(cores.loc[par.num].leaf_id,
+                                                  s.cartesian_to_flatindex(par.x1, par.x2, par.x3))[()]
+                rceil = np.min([rceil, dist_to_star])
+
+            # Peff > Pmax?
+            rprf = rprofs.sel(num=num).sel(r=slice(0, rceil))
+            if np.any(rprf.peff > rprf[f'pmax_{perturbation}']):
+                ncrit = num
+                rcrit = rprf.r.where(rprf.peff > rprf[f'pmax_{perturbation}']).max().data[()]
+            else:
+                continue
+            if ncrit is None:
+                ncrit = np.nan
+                rcrit = np.nan
+            return ncrit, rcrit
 
     if ncrit is None or ncrit == cores.index[-1] + 1:
         # If the critical condition is satisfied for all time, or is not
