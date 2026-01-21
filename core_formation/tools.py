@@ -1127,7 +1127,10 @@ def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
                 # the upper limit on p.
                 if not fnet < 0:
                     ncrit = num + 1
-                    rcrit = cores.loc[ncrit].critical_radius
+                    if ncrit == cores.index[-1] + 1:
+                        rcrit = np.nan
+                    else:
+                        rcrit = cores.loc[ncrit].critical_radius
                     break
         if ncrit == cores.attrs['numcoll'] and np.isnan(cores.loc[ncrit].critical_radius):
             # If ncrit is ncoll at which critical radius was nan, set ncrit to NaN.
