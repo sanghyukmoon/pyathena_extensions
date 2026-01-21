@@ -548,6 +548,24 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Find collapse time
             cores.attrs['tcoll'] = self.tcoll_cores.loc[pid].time
 
+            min_dst, mw_dst = [], []
+            for num in cores.index:
+                pds = self.load_par(num)
+                core = cores.loc[num]
+                dst, mass = [], []
+                if len(pds) == 0:
+                    min_dst.append(np.nan)
+                    mw_dst.append(np.nan)
+                else:
+                    for _, par in pds.iterrows():
+                        dst.append(self.distance_between(core.leaf_id,
+                                                         self.cartesian_to_flatindex(par.x1, par.x2, par.x3))[()])
+                        mass.append(par.mass)
+                    min_dst.append(min(dst))
+                    mw_dst.append(np.average(dst, weights=mass))
+            cores['min_dst_to_star'] = min_dst
+            cores['mw_dst_to_star'] = mw_dst
+
             # Sort attributes
             cores.attrs = {k: cores.attrs[k] for k in sorted(cores.attrs)}
 
