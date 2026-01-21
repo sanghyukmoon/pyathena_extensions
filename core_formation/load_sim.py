@@ -157,7 +157,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             # Load derived core informations using various alternative critical times
             self.cores_dict = {}
-            for mtd in ['empirical', 'predicted']: # pred_be, pred_xis
+            for mtd in ['empirical', 'predicted', 'virial']: # pred_be, pred_xis
                 try:
                     # Calculate derived core properties using the predicted critical time
                     savdir = Path(self.savdir, config.CORE_DIR)
@@ -292,7 +292,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             rprofs = self.rprofs[pid]
 
             # Find critical time
-            ncrit = tools.critical_time(self, pid, method)
+            ncrit, rcrit = tools.critical_time(self, pid, method)
             cores.attrs['numcrit'] = ncrit
             if np.isnan(ncrit):
                 cores.attrs['tcrit'] = np.nan
@@ -303,7 +303,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             else:
                 core = cores.loc[ncrit]
                 rprf = rprofs.sel(num=ncrit)
-                rcore = core.critical_radius
+                rcore = rcrit
                 if np.isnan(rcore) and cores.attrs['isolated']:
                     raise ValueError("Critical radius at t_crit is NaN even though core is isolated: "
                                      f"Model {self.basename}, par {pid}, ncrit = {ncrit}")

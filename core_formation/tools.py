@@ -1080,6 +1080,7 @@ def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
     rprofs = s.rprofs[pid]
 
     ncrit = None
+    rcrit = None
 
     if method == 'empirical':
         # Earliest time after which the net force integrated within r_crit
@@ -1093,6 +1094,7 @@ def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
                              " cannot calculate critical radius and thus the critical time"
                              f" Isolated = {cores.attrs['isolated']}")
             ncrit = np.nan
+            rcrit = np.nan
         else:
             for num, core in cores.sort_index(ascending=False).iterrows():
                 # Exclude t_coll snapshot at which the turbulence has amplified
@@ -1125,6 +1127,7 @@ def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
                 # the upper limit on p.
                 if not fnet < 0:
                     ncrit = num + 1
+                    rcrit = cores.loc[ncrit].critical_radius
                     break
         if ncrit == cores.attrs['numcoll'] and np.isnan(cores.loc[ncrit].critical_radius):
             # If ncrit is ncoll at which critical radius was nan, set ncrit to NaN.
@@ -1143,6 +1146,7 @@ def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
                 cond2 = menc >= core.critical_mass
                 if cond1 and cond2:
                     ncrit = num
+                    rcrit = cores.loc[ncrit].critical_radius
                     break
             elif method == 'pred_be':
                 # Predicted critical time using BE criterion
@@ -1159,6 +1163,7 @@ def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
                 cond2 = menc >= mbe
                 if cond1 and cond2:
                     ncrit = num
+                    rcrit = cores.loc[ncrit].critical_radius
                     break
             elif method == 'pred_xis':
                 # Predicted critical time using xi_s
@@ -1168,6 +1173,7 @@ def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
                 cond2 = core.pindex > 0 and core.pindex < 1
                 if cond1 and cond2:
                     ncrit = num
+                    rcrit = cores.loc[ncrit].critical_radius
                     break
     elif method == 'virial':
         for num, core in cores.sort_index(ascending=True).iterrows():
@@ -1198,7 +1204,7 @@ def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
             if ncrit is None:
                 ncrit = np.nan
                 rcrit = np.nan
-            return ncrit, rcrit
+            break
 
     if ncrit is None or ncrit == cores.index[-1] + 1:
         # If the critical condition is satisfied for all time, or is not
@@ -1206,7 +1212,8 @@ def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
         # TODO: we may not want to discard those that the critical condition
         # is satisfied for all times.
         ncrit = np.nan
-    return ncrit
+        rcrit = np.nan
+    return ncrit, rcrit
 
 
 def get_coords_minimum(dat):
