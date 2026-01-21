@@ -1394,10 +1394,10 @@ def test_resolved_core(s, cores, nres):
     bool
         True if a core is resolved, false otherwise.
     """
-    ncrit = cores.attrs['numcrit']
-    if np.isnan(ncrit):
+    rcore = cores.attrs['rcore']
+    if np.isnan(rcore):
         return False
-    ncells = cores.loc[ncrit].critical_radius / s.dx
+    ncells = rcore / s.dx
     if ncells >= nres:
         return True
     else:
