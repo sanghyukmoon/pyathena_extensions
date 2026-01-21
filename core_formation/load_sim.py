@@ -645,14 +645,20 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 rprofs['gamma_S'] = rprofs['Omega_S'] / rprofs['Omega_G']
                 rprofs['Alpha'] = rprofs.Omega_K + rprofs.Omega_M - rprofs.Omega_G - rprofs.Omega_S
                 rprofs['peff'] = rprofs.rho*(self.cs**2 + rprofs.vel1_sq_mw)
-                rprofs['peq'] = (rprofs.Omega_K + rprofs.Omega_M - rprofs.Omega_G) / (4*np.pi*rprofs.r**3)
+                rprofs['peq'] = (rprofs.Omega_K + rprofs.Omega_M - rprofs.Omega_S_mag - rprofs.Omega_G) / (4*np.pi*rprofs.r**3)
 
                 # Maximum pressure from McCrea analysis
                 rgrav = self.gconst*rprofs.menc/self.cs**2
                 pgrav = self.cs**8/(4*np.pi*self.gconst**3*rprofs.menc**2)
-                sigma_1d_sq = rprofs.Omega_K_kin / (3*rprofs.menc)
+                sigma_1d_sq = rprofs.Omega_K_kin/(3*rprofs.menc)
                 mach2 = sigma_1d_sq / self.cs**2
                 a = rprofs.Omega_G/rprofs.Omega_G0
+                if self.mhd:
+                    brms = np.sqrt(rprofs.Omega_M/(2*np.pi*rprofs.r**3/3))
+                    bflux = np.pi*rprofs.r**2*brms
+                    b = (rprofs.Omega_M - rprofs.Omega_S_mag) / (bflux**2/rprofs.r)
+                    mmag2 = b/a/self.gconst*bflux**2  # magnetic critical mass
+                    a *= (1 - mmag2/rprofs.menc**2)  # gravity dilution due to magnetic support
                 xi0 = rprofs.r / rgrav
                 xi_max = (-9 + np.sqrt(81 + 96*mach2*a.where(a>0)/xi0)) / (12*mach2/xi0)
                 eta_max = 3*xi_max**-3*(1 + mach2*xi_max/xi0) - a*xi_max**-4
