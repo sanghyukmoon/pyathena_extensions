@@ -222,9 +222,14 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                           kwargs['chunks']['z'])
             else:
                 raise ValueError("chunks must be specified for sparse hdf5")
-            return myio.read_sparse_hdf5(fname, chunks)
+            ds = myio.read_sparse_hdf5(fname, chunks)
         else:
-            return LoadSimBase.load_hdf5(self, num, **kwargs)
+            ds = LoadSimBase.load_hdf5(self, num, **kwargs)
+        if self.mhd:
+            for k in ['Bcc1', 'Bcc2', 'Bcc3']:
+                if k in ds:
+                    ds[k] *= np.sqrt(4*np.pi)
+        return  ds
 
     def load_par(self, num, **kwargs):
         """Load partab or parbin"""
@@ -633,9 +638,11 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 rprofs['Omega_S'] = rprofs['Omega_S_thm'] + rprofs['Omega_S_kin']
                 rprofs['alpha_vir'] = rprofs['Omega_K'] / rprofs['Omega_G']
                 if self.mhd:
-                    bsq = (rprofs.b1_sq + rprofs.b2_sq + rprofs.b3_sq)
-                    rprofs['Omega_M'] = 2*np.pi*(rprofs.r**2*bsq).cumulative_integrate('r')
-                    rprofs['Omega_S_mag'] = 2*np.pi*rprofs.r**3*(rprofs.b2_sq + rprofs.b3_sq - rprofs.b1_sq)
+                    magnetic_energy_density = (rprofs.b1_sq + rprofs.b2_sq + rprofs.b3_sq) / (8*np.pi)
+                    rprofs['Omega_M'] = (4*np.pi*rprofs.r**2*magnetic_energy_density
+                                         ).cumulative_integrate('r')
+                    t_rr = rprofs.b1_sq/(4*np.pi) - magnetic_energy_density
+                    rprofs['Omega_S_mag'] = -4*np.pi*rprofs.r**3*t_rr
                     rprofs['Omega_S'] += rprofs['Omega_S_mag']
                     rprofs['gamma_M'] = rprofs['Omega_M'] / (2*rprofs['Omega_K'])
                 else:
