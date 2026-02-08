@@ -1199,14 +1199,17 @@ def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
 
             # Peff > Pmax?
             rprf = rprofs.sel(num=num).sel(r=slice(0, rceil))
-            if np.any(rprf.peff > rprf[f'pmax_{perturbation}']):
+            if np.any(rprf.ptot > rprf[f'pmax_{perturbation}']):
+                rcrit = rprf.r.where(rprf.ptot > rprf[f'pmax_{perturbation}']).max().data[()]
+                if rprf.sel(r=rcrit).Omega_M < rprf.sel(r=rcrit).Omega_S_mag:
+                    # surface term is greater than the volume term
+                    continue
                 ncrit = num
-                rcrit = rprf.r.where(rprf.peff > rprf[f'pmax_{perturbation}']).max().data[()]
             else:
                 continue
             if ncrit is None:
-                ncrit = np.nan
                 rcrit = np.nan
+                ncrit = np.nan
             break
 
     if ncrit is None or ncrit == cores.index[-1] + 1:
