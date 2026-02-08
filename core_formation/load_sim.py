@@ -633,9 +633,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 rprofs['Omega_S'] = rprofs['Omega_S_thm'] + rprofs['Omega_S_kin']
                 rprofs['alpha_vir'] = rprofs['Omega_K'] / rprofs['Omega_G']
                 if self.mhd:
-                    bsq = (rprofs.b1_sq + rprofs.b2_sq + rprofs.b3_sq)
-                    rprofs['Omega_M'] = 2*np.pi*(rprofs.r**2*bsq).cumulative_integrate('r')
-                    rprofs['Omega_S_mag'] = 2*np.pi*rprofs.r**3*(rprofs.b2_sq + rprofs.b3_sq - rprofs.b1_sq)
+                    magnetic_energy_density = (rprofs.b1_sq + rprofs.b2_sq + rprofs.b3_sq)/2
+                    rprofs['Omega_M'] = (4*np.pi*rprofs.r**2*magnetic_energy_density).cumulative_integrate('r')
+                    t_rr = rprofs.b1_sq - magnetic_energy_density
+                    rprofs['Omega_S_mag'] = -4*np.pi*rprofs.r**3*t_rr
                     rprofs['Omega_S'] += rprofs['Omega_S_mag']
                     rprofs['gamma_M'] = rprofs['Omega_M'] / (2*rprofs['Omega_K'])
                 else:
@@ -644,8 +645,11 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     rprofs['gamma_M'] = rprofs.rho*0
                 rprofs['gamma_S'] = rprofs['Omega_S'] / rprofs['Omega_G']
                 rprofs['Alpha'] = rprofs.Omega_K + rprofs.Omega_M - rprofs.Omega_G - rprofs.Omega_S
-                rprofs['peff'] = rprofs.rho*(self.cs**2 + rprofs.vel1_sq_mw)
+                rprofs['ptot'] = rprofs.rho*(self.cs**2 + rprofs.vel1_sq_mw)
+                #if self.mhd:
+                #    rprofs['ptot'] -= t_rr
                 rprofs['peq'] = (rprofs.Omega_K + rprofs.Omega_M - rprofs.Omega_S_mag - rprofs.Omega_G) / (4*np.pi*rprofs.r**3)
+                #rprofs['peq'] = (rprofs.Omega_K + rprofs.Omega_M - rprofs.Omega_G) / (4*np.pi*rprofs.r**3)
 
                 # Maximum pressure from McCrea analysis
                 rgrav = self.gconst*rprofs.menc/self.cs**2
@@ -654,9 +658,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 mach2 = sigma_1d_sq / self.cs**2
                 a = rprofs.Omega_G/rprofs.Omega_G0
                 if self.mhd:
-                    brms = np.sqrt(rprofs.Omega_M/(2*np.pi*rprofs.r**3/3))
+                    brms = np.sqrt(2*rprofs.Omega_M/(4*np.pi*rprofs.r**3/3))
                     bflux = np.pi*rprofs.r**2*brms
                     b = (rprofs.Omega_M - rprofs.Omega_S_mag) / (bflux**2/rprofs.r)
+                    #b = rprofs.Omega_M / (bflux**2/rprofs.r)  # This is exactly 2/3pi
                     mmag2 = b/a/self.gconst*bflux**2  # magnetic critical mass
                     a *= (1 - mmag2/rprofs.menc**2)  # gravity dilution due to magnetic support
                 xi0 = rprofs.r / rgrav
@@ -664,8 +669,23 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 eta_max = 3*xi_max**-3*(1 + mach2*xi_max/xi0) - a*xi_max**-4
                 rprofs['pmax_const_rsonic'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
                 xi_max = 4*a/9/(1 + mach2)
-                eta_max = 3*xi_max**-3*(1 + mach2) - a*xi_max**-4
+#                rprofs['pmax_thm'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
+#                rprofs['pmax_thm_trb'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
+#                eta_max = 3**7/(2**8*a**3)*np.sqrt(1 + mach2)**8 / (1 - mmag2/rprofs.menc**2)**3
+#                rprofs['pmax_thm_trb_mag'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
+                eta_max = 3**7/(2**8*a**3)*np.sqrt(1 + mach2)**8
                 rprofs['pmax_const_sigma'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
+
+                # Correction factor from assuming constant a
+#                rprofs['pmax_thm'] *= 0.81
+#                rprofs['pmax_thm_trb'] *= 0.81
+#                rprofs['pmax_thm_trb_mag'] *= 0.81
+                rprofs['pmax_const_rsonic'] *= 0.81
+                rprofs['pmax_const_sigma'] *= 0.81
+                # TODO Tomisaka, Ikeuchi, and Nakamura (1989) gives a = 1.2 for mhd equilibrium
+                # with particular mass-to-flux distribution. This would correspond to correction factor
+                # of XXX instead of 0.81, but we simply take common factor; anyway the mass to flux
+                # distribution is unknown.
 
                 rprofs = rprofs.merge(tools.radial_acceleration(self, rprofs), compat="no_conflicts")
                 rprofs = rprofs.set_xindex('num')
