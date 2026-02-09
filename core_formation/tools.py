@@ -12,6 +12,7 @@ from scipy.special import erfcinv, erfc
 from scipy.optimize import brentq, curve_fit
 from scipy.integrate import quad
 from scipy.interpolate import interp1d
+from scipy.ndimage import label
 from astropy import units as au
 from pathlib import Path
 from pyathena.util import transform
@@ -1179,38 +1180,47 @@ def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
                     rcrit = cores.loc[ncrit].critical_radius
                     break
     elif method == 'virial':
-        for num, core in cores.sort_index(ascending=True).iterrows():
-            rceil = np.inf
-            # Other sink particles present within rcrit?
-            pds = s.load_par(num)
-            for _, par in pds.iterrows():
-                dist_to_star = s.distance_between(core.leaf_id, s.cartesian_to_flatindex(par.x1, par.x2, par.x3))[()]
-                rceil = np.min([rceil, dist_to_star])
-            # Neighboring sink formation within rcrit in the future?
-            numcoll = cores.attrs['numcoll']
-            for _pid, par in s.tcoll_cores[(s.tcoll_cores.num >= num)
-                                           &(s.tcoll_cores.num <= numcoll)].iterrows():
-                # Exclude myself
-                if _pid == pid:
-                    continue
-                dist_to_star = s.distance_between(cores.loc[par.num].leaf_id,
-                                                  s.cartesian_to_flatindex(par.x1, par.x2, par.x3))[()]
-                rceil = np.min([rceil, dist_to_star])
-
-            # Peff > Pmax?
-            rprf = rprofs.sel(num=num).sel(r=slice(0, rceil))
-            if np.any(rprf.ptot > rprf[f'pmax_{perturbation}']):
-                rcrit = rprf.r.where(rprf.ptot > rprf[f'pmax_{perturbation}']).max().data[()]
-                if rprf.sel(r=rcrit).Omega_M < rprf.sel(r=rcrit).Omega_S_mag:
-                    # surface term is greater than the volume term
-                    continue
-                ncrit = num
-            else:
-                continue
-            if ncrit is None:
-                rcrit = np.nan
-                ncrit = np.nan
-            break
+        rprofs = rprofs.transpose('t', 'r', ...)
+        try:
+            res = critical_time_and_radius_left_upper_island(rprofs.ptot/rprofs.pmax_const_sigma)
+            tcrit = res['critical_time']
+            ncrit = rprofs.t.isel(t=res['critical_time_idx']).num.data[()]
+            rcrit = res['critical_radius']
+        except NoIslandFoundError:
+            ncrit = None
+            rcrit = None
+#        for num, core in cores.sort_index(ascending=True).iterrows():
+#            rceil = np.inf
+#            # Other sink particles present within rcrit?
+#            pds = s.load_par(num)
+#            for _, par in pds.iterrows():
+#                dist_to_star = s.distance_between(core.leaf_id, s.cartesian_to_flatindex(par.x1, par.x2, par.x3))[()]
+#                rceil = np.min([rceil, dist_to_star])
+#            # Neighboring sink formation within rcrit in the future?
+#            numcoll = cores.attrs['numcoll']
+#            for _pid, par in s.tcoll_cores[(s.tcoll_cores.num >= num)
+#                                           &(s.tcoll_cores.num <= numcoll)].iterrows():
+#                # Exclude myself
+#                if _pid == pid:
+#                    continue
+#                dist_to_star = s.distance_between(cores.loc[par.num].leaf_id,
+#                                                  s.cartesian_to_flatindex(par.x1, par.x2, par.x3))[()]
+#                rceil = np.min([rceil, dist_to_star])
+#
+#            # Peff > Pmax?
+#            rprf = rprofs.sel(num=num).sel(r=slice(0, rceil))
+#            if np.any(rprf.ptot > rprf[f'pmax_{perturbation}']):
+#                rcrit = rprf.r.where(rprf.ptot > rprf[f'pmax_{perturbation}']).max().data[()]
+#                if rprf.sel(r=rcrit).Omega_M < rprf.sel(r=rcrit).Omega_S_mag:
+#                    # surface term is greater than the volume term
+#                    continue
+#                ncrit = num
+#            else:
+#                continue
+#            if ncrit is None:
+#                rcrit = np.nan
+#                ncrit = np.nan
+#            break
 
     if ncrit is None or ncrit == cores.index[-1] + 1:
         # If the critical condition is satisfied for all time, or is not
@@ -1220,6 +1230,149 @@ def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
         ncrit = np.nan
         rcrit = np.nan
     return ncrit, rcrit
+
+
+class NoIslandFoundError(RuntimeError):
+    """Raised when no connected region satisfies Pnorm > 1."""
+    pass
+
+
+def critical_time_and_radius_left_upper_island(
+    Pnorm: xr.DataArray,
+    *,
+    connectivity: int = 4,
+    critical_radius_stat: str = "max",  # "max" (default), "min", "mean"
+):
+    """
+    Find the "critical" connected island in a normalized (t,r) DataArray.
+
+    Mask = (Pnorm > 1)
+
+    Choose the connected component ("island") that is:
+      1) uppermost in time (largest max(t) index), then
+      2) tie-broken by smallest min(r) index.
+
+    Critical time:
+      = earliest time within that island.
+
+    Critical radius:
+      At the critical time slice, compute min/mean/max radius
+      over island pixels at that time (default: max).
+
+    Parameters
+    ----------
+    Pnorm : xarray.DataArray
+        Normalized map with dims ('t','r') and coordinates 't' and 'r'.
+    connectivity : {4, 8}
+        Connectivity for connected components.
+    critical_radius_stat : {"max","min","mean"}
+        Statistic for defining critical radius at the critical time.
+
+    Returns
+    -------
+    dict with keys:
+      - critical_time        : float
+      - critical_time_idx    : int
+      - critical_radius      : float
+      - label                : int
+      - island_min_r         : float
+      - island_max_t         : float
+      - mask                 : xarray.DataArray (boolean mask of chosen island)
+    """
+
+    if not isinstance(Pnorm, xr.DataArray):
+        raise TypeError("Pnorm must be an xarray.DataArray.")
+
+    if tuple(Pnorm.dims) != ("t", "r"):
+        raise ValueError(f"Pnorm must have dims ('t','r'). Got {Pnorm.dims}")
+
+    t = Pnorm["t"].values
+    r = Pnorm["r"].values
+    arr = Pnorm.values
+
+    # Threshold mask: Pnorm > 1
+    mask = np.isfinite(arr) & (arr > 1.0)
+    if not np.any(mask):
+        raise NoIslandFoundError("No points satisfy Pnorm > 1.0; no islands found.")
+
+    # Connectivity structure
+    if connectivity == 4:
+        struct = np.array([[0, 1, 0],
+                           [1, 1, 1],
+                           [0, 1, 0]], dtype=np.uint8)
+    elif connectivity == 8:
+        struct = np.ones((3, 3), dtype=np.uint8)
+    else:
+        raise ValueError("connectivity must be 4 or 8.")
+
+    labeled, ncomp = label(mask, structure=struct)
+    if ncomp == 0:
+        raise ValueError("No connected components found (unexpected).")
+
+    # Component stats: only what we need
+    comps = []
+    for lab in range(1, ncomp + 1):
+        comp_mask = (labeled == lab)
+        if not np.any(comp_mask):
+            continue
+
+        t_idx, r_idx = np.nonzero(comp_mask)
+
+        comps.append({
+            "label": lab,
+            "min_r_idx": int(r_idx.min()),
+            "max_t_idx": int(t_idx.max()),
+        })
+
+    if not comps:
+        raise ValueError("No valid components found after labeling.")
+
+    # 1) Choose uppermost: largest max_t_idx
+    best_max_t_idx = max(c["max_t_idx"] for c in comps)
+    candidates = [c for c in comps if c["max_t_idx"] == best_max_t_idx]
+
+    # 2) Tie-break: smallest min_r_idx
+    best = min(candidates, key=lambda c: c["min_r_idx"])
+
+    chosen_label = best["label"]
+    chosen_mask_np = (labeled == chosen_label)
+
+    # Critical time: earliest t index in chosen island
+    chosen_t_idx, _ = np.nonzero(chosen_mask_np)
+    crit_t_idx = int(chosen_t_idx.min())
+    crit_time = float(t[crit_t_idx])
+
+    # Critical radius: radii present at critical time
+    r_idx_at_crit_t = np.nonzero(chosen_mask_np[crit_t_idx, :])[0]
+    r_vals = r[r_idx_at_crit_t]
+
+    stat = critical_radius_stat.lower()
+    if stat == "max":
+        crit_r = float(np.max(r_vals))
+    elif stat == "min":
+        crit_r = float(np.min(r_vals))
+    elif stat == "mean":
+        crit_r = float(np.mean(r_vals))
+    else:
+        raise ValueError("critical_radius_stat must be 'max', 'min', or 'mean'.")
+
+    # Return mask as xarray
+    chosen_mask_xr = xr.DataArray(
+        chosen_mask_np,
+        dims=("t", "r"),
+        coords={"t": Pnorm["t"], "r": Pnorm["r"]},
+        name="chosen_island_mask",
+    )
+
+    return {
+        "critical_time": crit_time,
+        "critical_time_idx": crit_t_idx,
+        "critical_radius": crit_r,
+        "label": chosen_label,
+        "island_min_r": float(r[best["min_r_idx"]]),
+        "island_max_t": float(t[best["max_t_idx"]]),
+        "mask": chosen_mask_xr,
+    }
 
 
 def get_coords_minimum(dat):
