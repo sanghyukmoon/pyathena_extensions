@@ -338,6 +338,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 # Reattach attributes
                 cores.attrs = attrs
 
+            # Net force
+            Fnet = cores.Fthm + cores.Ftrb + cores.Fcen + cores.Fani - cores.Fgrv
+            if self.mhd:
+                Fnet += cores.Fmag + cores.Fmag_ani
+            cores['Fnet'] = Fnet / cores.Fgrv
+
             mcore = cores.attrs['mcore']
             rcore = cores.attrs['rcore']
 
@@ -656,33 +662,42 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 pgrav = self.cs**8/(4*np.pi*self.gconst**3*rprofs.menc**2)
                 sigma_1d_sq = rprofs.Omega_K_kin/(3*rprofs.menc)
                 mach2 = sigma_1d_sq / self.cs**2
-                a = rprofs.Omega_G/rprofs.Omega_G0
+                a_grv = rprofs.Omega_G/rprofs.Omega_G0
+                a_grv_eff = a_grv.copy()
                 if self.mhd:
                     brms = np.sqrt(2*rprofs.Omega_M/(4*np.pi*rprofs.r**3/3))
                     bflux = np.pi*rprofs.r**2*brms
-                    b = (rprofs.Omega_M - rprofs.Omega_S_mag) / (bflux**2/rprofs.r)
-                    #b = rprofs.Omega_M / (bflux**2/rprofs.r)  # This is exactly 2/3pi
-                    mmag2 = b/a/self.gconst*bflux**2  # magnetic critical mass
-                    a *= (1 - mmag2/rprofs.menc**2)  # gravity dilution due to magnetic support
+                    b_mag = (rprofs.Omega_M - rprofs.Omega_S_mag) / (bflux**2/rprofs.r)
+                    #b_mag = rprofs.Omega_M / (bflux**2/rprofs.r)  # This is exactly 2/3pi
+                    mmag2 = b_mag/a_grv/self.gconst*bflux**2  # magnetic critical mass
+                    a_grv_eff *= (1 - mmag2/rprofs.menc**2)  # gravity dilution due to magnetic support
                 xi0 = rprofs.r / rgrav
-                xi_max = (-9 + np.sqrt(81 + 96*mach2*a.where(a>0)/xi0)) / (12*mach2/xi0)
-                eta_max = 3*xi_max**-3*(1 + mach2*xi_max/xi0) - a*xi_max**-4
+
+                xi_max = (-9 + np.sqrt(81 + 96*mach2*a_grv_eff.where(a_grv_eff>0)/xi0)) / (12*mach2/xi0)
+                eta_max = 3*xi_max**-3*(1 + mach2*xi_max/xi0) - a_grv_eff*xi_max**-4
                 rprofs['pmax_const_rsonic'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
-                xi_max = 4*a/9/(1 + mach2)
-#                rprofs['pmax_thm'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
-#                rprofs['pmax_thm_trb'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
-#                eta_max = 3**7/(2**8*a**3)*np.sqrt(1 + mach2)**8 / (1 - mmag2/rprofs.menc**2)**3
-#                rprofs['pmax_thm_trb_mag'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
-                eta_max = 3**7/(2**8*a**3)*np.sqrt(1 + mach2)**8
+
+                # Maximum pressure including thermal  pressures
+                xi_max = 4*a_grv/9
+                eta_max = 3**7/(2**8*a_grv**3)
+                rprofs['pmax_thm'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
+
+                # Maximum pressure including thermal and turbulent pressures
+                xi_max = 4*a_grv/9/(1 + mach2)
+                eta_max = 3**7/(2**8*a_grv**3)*np.sqrt(1 + mach2)**8
+                rprofs['pmax_thm_trb'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
+
+                # Maximum pressure including all pressure components
+                xi_max = 4*a_grv_eff/9/(1 + mach2)
+                eta_max = 3**7/(2**8*a_grv_eff**3)*np.sqrt(1 + mach2)**8
                 rprofs['pmax_const_sigma'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
 
-                # Correction factor from assuming constant a
-#                rprofs['pmax_thm'] *= 0.81
-#                rprofs['pmax_thm_trb'] *= 0.81
-#                rprofs['pmax_thm_trb_mag'] *= 0.81
+                # Correction factor from assuming constant a_grv
+                rprofs['pmax_thm'] *= 0.81
+                rprofs['pmax_thm_trb'] *= 0.81
                 rprofs['pmax_const_rsonic'] *= 0.81
                 rprofs['pmax_const_sigma'] *= 0.81
-                # TODO Tomisaka, Ikeuchi, and Nakamura (1989) gives a = 1.2 for mhd equilibrium
+                # TODO Tomisaka, Ikeuchi, and Nakamura (1989) gives a_grv = 1.2 for mhd equilibrium
                 # with particular mass-to-flux distribution. This would correspond to correction factor
                 # of XXX instead of 0.81, but we simply take common factor; anyway the mass to flux
                 # distribution is unknown.
