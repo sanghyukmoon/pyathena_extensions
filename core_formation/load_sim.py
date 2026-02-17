@@ -344,6 +344,17 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 Fnet += cores.Fmag + cores.Fmag_ani
             cores['Fnet'] = Fnet / cores.Fgrv
 
+            # Critical radius based on ptot/pmax
+            rcrit_virial = []
+            for num in cores.index:
+                rprf = rprofs.sel(num=num)
+                ratio = rprf.ptot / rprf.pmax_const_sigma
+                try:
+                    rcrit_virial.append(float(rprf.r[ratio > 1][0]))
+                except IndexError:
+                    rcrit_virial.append(np.nan)
+            cores['rcrit_virial'] = rcrit_virial
+
             mcore = cores.attrs['mcore']
             rcore = cores.attrs['rcore']
 
