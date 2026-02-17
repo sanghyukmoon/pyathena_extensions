@@ -1182,7 +1182,9 @@ def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
     elif method == 'virial':
         rprofs = rprofs.transpose('t', 'r', ...)
         try:
-            res = critical_time_and_radius_left_upper_island(rprofs.ptot/rprofs.pmax_const_sigma)
+            cond = rprofs.r < xr.DataArray(cores.min_dst_to_star, coords=dict(t=rprofs.t))
+            cond = cond & (rprofs.ptot/rprofs.pmax_const_sigma > 1)
+            res = critical_time_and_radius_left_upper_island(cond, critical_radius_stat='mean')
             tcrit = res['critical_time']
             ncrit = rprofs.t.isel(t=res['critical_time_idx']).num.data[()]
             rcrit = res['critical_radius']
@@ -1233,20 +1235,18 @@ def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
 
 
 class NoIslandFoundError(RuntimeError):
-    """Raised when no connected region satisfies Pnorm > 1."""
+    """Raised when no connected region satisfies given condition"""
     pass
 
 
 def critical_time_and_radius_left_upper_island(
-    Pnorm: xr.DataArray,
+    cond: xr.DataArray,
     *,
     connectivity: int = 4,
     critical_radius_stat: str = "max",  # "max" (default), "min", "mean"
 ):
     """
     Find the "critical" connected island in a normalized (t,r) DataArray.
-
-    Mask = (Pnorm > 1)
 
     Choose the connected component ("island") that is:
       1) uppermost in time (largest max(t) index), then
@@ -1261,7 +1261,7 @@ def critical_time_and_radius_left_upper_island(
 
     Parameters
     ----------
-    Pnorm : xarray.DataArray
+    cond : xarray.DataArray
         Normalized map with dims ('t','r') and coordinates 't' and 'r'.
     connectivity : {4, 8}
         Connectivity for connected components.
@@ -1280,20 +1280,20 @@ def critical_time_and_radius_left_upper_island(
       - mask                 : xarray.DataArray (boolean mask of chosen island)
     """
 
-    if not isinstance(Pnorm, xr.DataArray):
-        raise TypeError("Pnorm must be an xarray.DataArray.")
+    if not isinstance(cond, xr.DataArray):
+        raise TypeError("cond must be an xarray.DataArray.")
 
-    if tuple(Pnorm.dims) != ("t", "r"):
-        raise ValueError(f"Pnorm must have dims ('t','r'). Got {Pnorm.dims}")
+    if tuple(cond.dims) == ("r", "t"):
+        cond = cond.transpose("t", "r")
+    if tuple(cond.dims) != ("t", "r"):
+        raise ValueError(f"cond must have dims ('t','r'). Got {cond.dims}")
 
-    t = Pnorm["t"].values
-    r = Pnorm["r"].values
-    arr = Pnorm.values
+    t = cond["t"].values
+    r = cond["r"].values
+    mask = cond.values
 
-    # Threshold mask: Pnorm > 1
-    mask = np.isfinite(arr) & (arr > 1.0)
     if not np.any(mask):
-        raise NoIslandFoundError("No points satisfy Pnorm > 1.0; no islands found.")
+        raise NoIslandFoundError("No points satisfy cond; no islands found.")
 
     # Connectivity structure
     if connectivity == 4:
@@ -1360,7 +1360,7 @@ def critical_time_and_radius_left_upper_island(
     chosen_mask_xr = xr.DataArray(
         chosen_mask_np,
         dims=("t", "r"),
-        coords={"t": Pnorm["t"], "r": Pnorm["r"]},
+        coords={"t": cond["t"], "r": cond["r"]},
         name="chosen_island_mask",
     )
 
