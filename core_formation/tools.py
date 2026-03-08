@@ -1182,7 +1182,8 @@ def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
     elif method == 'virial':
         rprofs = rprofs.transpose('t', 'r', ...)
         try:
-            cond = rprofs.r < xr.DataArray(cores.min_dst_to_star, coords=dict(t=rprofs.t))
+            dst_to_star = cores.min_dst_to_star.replace(np.nan, np.inf)
+            cond = rprofs.r < xr.DataArray(dst_to_star, coords=dict(t=rprofs.t))
             cond = cond & (rprofs.ptot/rprofs.pmax_const_sigma > 1)
             res = critical_time_and_radius_left_upper_island(cond, critical_radius_stat='mean')
             tcrit = res['critical_time']
