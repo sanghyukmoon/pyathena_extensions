@@ -682,6 +682,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     #b_mag = rprofs.Omega_M / (bflux**2/rprofs.r)  # This is exactly 2/3pi
                     mmag2 = b_mag/a_grv/self.gconst*bflux**2  # magnetic critical mass
                     a_grv_eff *= (1 - mmag2/rprofs.menc**2)  # gravity dilution due to magnetic support
+                else:
+                    mmag2 = xr.zeros_like(a_grv)
                 xi0 = rprofs.r / rgrav
 
                 xi_max = (-9 + np.sqrt(81 + 96*mach2*a_grv_eff.where(a_grv_eff>0)/xi0)) / (12*mach2/xi0)
@@ -704,14 +706,27 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 rprofs['pmax_const_sigma'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
 
                 # Correction factor from assuming constant a_grv
-                rprofs['pmax_thm'] *= 0.81
-                rprofs['pmax_thm_trb'] *= 0.81
-                rprofs['pmax_const_rsonic'] *= 0.81
-                rprofs['pmax_const_sigma'] *= 0.81
+#                rprofs['pmax_thm'] *= 0.81
+#                rprofs['pmax_thm_trb'] *= 0.81
+#                rprofs['pmax_const_rsonic'] *= 0.81
+#                rprofs['pmax_const_sigma'] *= 0.81
                 # TODO Tomisaka, Ikeuchi, and Nakamura (1989) gives a_grv = 1.2 for mhd equilibrium
                 # with particular mass-to-flux distribution. This would correspond to correction factor
                 # of XXX instead of 0.81, but we simply take common factor; anyway the mass to flux
                 # distribution is unknown.
+
+                # Maximum mass
+                c_J = np.sqrt(3**7 / (4*np.pi*2**8*a_grv**3))
+                sigma_tot2 = self.cs**2 + sigma_1d_sq
+                a = -3*mmag2 - c_J**2*sigma_tot2**4/(self.gconst**3*rprofs.ptot)
+                b = 3*mmag2**2
+                c = -mmag2**3
+                p = (3*b - a**2)/3
+                q = (2*a**3 - 9*a*b + 27*c)/27
+                disc = (q/2)**2 + (p/3)**3
+                A = xr.where(disc >= 0, (-q/2 + np.sqrt(disc))**(1/3), np.nan)
+                B = xr.where(disc >= 0, (-q/2 - np.sqrt(disc))**(1/3), np.nan)
+                rprofs['mmax_const_sigma'] = np.sqrt(A + B - a/3)
 
                 rprofs = rprofs.merge(tools.radial_acceleration(self, rprofs), compat="no_conflicts")
                 rprofs = rprofs.set_xindex('num')
