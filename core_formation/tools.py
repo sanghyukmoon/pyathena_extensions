@@ -1184,7 +1184,8 @@ def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
         try:
             dst_to_star = cores.min_dst_to_star.replace(np.nan, np.inf)
             cond = rprofs.r < xr.DataArray(dst_to_star, coords=dict(t=rprofs.t))
-            cond = cond & (rprofs.ptot/rprofs.pmax_const_sigma > 1)
+            #cond = cond & (rprofs.ptot/rprofs.pmax_const_sigma > 1)
+            cond = cond & (rprofs.menc/rprofs.mmax_const_sigma > 1)
             res = critical_time_and_radius_left_upper_island(cond, critical_radius_stat='mean')
             tcrit = res['critical_time']
             ncrit = rprofs.t.isel(t=res['critical_time_idx']).num.data[()]
