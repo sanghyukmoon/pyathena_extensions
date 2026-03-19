@@ -716,17 +716,43 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 # distribution is unknown.
 
                 # Maximum mass
-                c_J = np.sqrt(3**7 / (4*np.pi*2**8*a_grv**3))
+                # Solve cubic equation for maximum mass using Cardano's formula
+                c_J = np.sqrt(3**7 / (4 * np.pi * 2**8 * a_grv.where(a_grv >= 0)**3))
                 sigma_tot2 = self.cs**2 + sigma_1d_sq
-                a = -3*mmag2 - c_J**2*sigma_tot2**4/(self.gconst**3*rprofs.ptot)
+                a = -3*mmag2 - c_J**2 * sigma_tot2**4 / (self.gconst**3 * rprofs.ptot)
                 b = 3*mmag2**2
                 c = -mmag2**3
-                p = (3*b - a**2)/3
-                q = (2*a**3 - 9*a*b + 27*c)/27
+                p = (3*b - a**2) / 3
+                q = (2*a**3 - 9*a*b + 27*c) / 27
                 disc = (q/2)**2 + (p/3)**3
-                A = xr.where(disc >= 0, (-q/2 + np.sqrt(disc))**(1/3), np.nan)
-                B = xr.where(disc >= 0, (-q/2 - np.sqrt(disc))**(1/3), np.nan)
-                rprofs['mmax_const_sigma'] = np.sqrt(A + B - a/3)
+
+                # Case 1: disc >= 0, one real root via standard Cardano formula
+                def safe_cbrt(val):
+                    """Sign-safe cube root for xarray DataArrays."""
+                    return np.sign(val) * np.abs(val)**(1/3)
+
+                sqrt_disc = np.sqrt(disc.where(disc >= 0))
+                x_cardano = safe_cbrt(-q/2 + sqrt_disc) + safe_cbrt(-q/2 - sqrt_disc) - a/3
+
+                # Case 2: disc < 0, three real roots via trigonometric method
+                arg = -q/2/np.sqrt(-(p.where(disc < 0)/3)**3)
+                # Validate arg is within [-1, 1] — violations indicate numerical issues
+                arg_violation = xr.where(disc < 0, np.abs(arg) > 1 + 1e-10, False)
+                if arg_violation.any():
+                    max_violation = float((np.abs(arg) - 1).where(arg_violation).max())
+                    warnings.warn(
+                        f"arccos argument out of [-1, 1] by up to {max_violation:.2e} in "
+                        f"{int(arg_violation.sum())} cells. Possible numerical issue near disc=0."
+                    )
+                phi = np.arccos(arg.where(disc < 0))
+                r = 2*np.sqrt(-p.where(disc < 0)/3)
+                x0 = r*np.cos(phi/3) - a/3
+                x1 = r*np.cos((phi + 2*np.pi)/3) - a/3
+                x2 = r*np.cos((phi + 4*np.pi)/3) - a/3
+                x_three = xr.concat([x0, x1, x2], 'root')
+                x_cardano_disc_neg = x_three.max(dim='root')
+                x = xr.where(disc >= 0, x_cardano, x_cardano_disc_neg)
+                rprofs['mmax_const_sigma'] = np.sqrt(x.where(x >= 0))
 
                 rprofs = rprofs.merge(tools.radial_acceleration(self, rprofs), compat="no_conflicts")
                 rprofs = rprofs.set_xindex('num')
