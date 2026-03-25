@@ -736,6 +736,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 a_grv_eff *= (1 - mmag2/rprofs.menc**2)
             else:
                 mmag2 = xr.zeros_like(a_grv)
+            rprofs['mcrit_mag'] = np.sqrt(mmag2.where(mmag2 >= 0))
             xi0 = rprofs.r / rgrav
 
             xi_max = (-9 + np.sqrt(81 + 96*mach2*a_grv_eff.where(a_grv_eff > 0)/xi0)) / (12*mach2/xi0)
