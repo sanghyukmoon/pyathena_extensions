@@ -596,6 +596,49 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             self.logger.warning(msg)
         return cores_dict
 
+    def concat_radial_profiles(self):
+        """Concatenate per-snapshot 3D radial profiles into one pickle file."""
+        savdir = Path(self.savdir, config.RPROF_DIR)
+        savdir.mkdir(parents=True, exist_ok=True)
+        fname_concat = savdir / 'radial_profile.concatenated.p'
+
+        rprofs_dict = {}
+        pids_not_found = []
+        for pid in self.pids:
+            cores = self.cores[pid]
+            rprofs_pid, nums = [], []
+            min_nr = None
+            for num in cores.index:
+                try:
+                    fname = savdir / f'radial_profile.par{pid}.{num:05d}.nc'
+                    rprf = xr.load_dataset(fname)
+                    if min_nr is None:
+                        min_nr = rprf.sizes['r']
+                    else:
+                        min_nr = min(min_nr, rprf.sizes['r'])
+                    rprofs_pid.append(rprf)
+                    nums.append(num)
+                except FileNotFoundError:
+                    pids_not_found.append(pid)
+                    break
+            if len(rprofs_pid) > 0:
+                rprf = xr.concat(rprofs_pid, 't')
+                rprf = rprf.assign_coords(num=('t', nums))
+                rprf = rprf.isel(r=slice(0, min_nr))
+                rprf = rprf.set_xindex('num')
+                rprofs_dict[pid] = rprf
+
+        if len(pids_not_found) > 0:
+            msg = f"Some radial profiles are missing for pid {pids_not_found}."
+            self.logger.warning(msg)
+
+        if len(rprofs_dict) == 0:
+            raise FileNotFoundError('No radial profile files found to concatenate.')
+
+        with open(fname_concat, 'wb') as handle:
+            pickle.dump(rprofs_dict, handle)
+        return rprofs_dict
+
     @LoadSimBase.Decorators.check_pickle
     def _load_radial_profiles(self, prefix='radial_profile', savdir=None, force_override=False):
         """
@@ -606,166 +649,131 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         KeyError
             If `cores` has not been initialized (due to missing files, etc.)
         """
+        savdir = Path(self.savdir, config.RPROF_DIR)
+        fname_concat = savdir / 'radial_profile.concatenated.p'
+
+        if not fname_concat.exists():
+            raw_rprofs_dict = self.concat_radial_profiles()
+        else:
+            with open(fname_concat, 'rb') as handle:
+                raw_rprofs_dict = pickle.load(handle)
+
         rprofs_dict = {}
-        pids_not_found = []
         pids_not_found_prj = []
-        for pid in self.pids:
-            cores = self.cores[pid]
-            rprofs, nums = [], []
-            min_nr = None
-            for num in cores.index:
-                try:
-                    fname = Path(savdir,
-                                 f'radial_profile.par{pid}.{num:05d}.nc')
-                    rprf = xr.open_dataset(fname)
-                    if min_nr is None:
-                        min_nr = rprf.sizes['r']
-                    else:
-                        min_nr = min(min_nr, rprf.sizes['r'])
-                    rprofs.append(rprf)
-                    nums.append(num)
-                except FileNotFoundError:
-                    pids_not_found.append(pid)
-                    break
-            if len(rprofs) > 0:
-                rprofs = xr.concat(rprofs, 't')
-                rprofs = rprofs.assign_coords(dict(num=('t', nums)))
-                # Slice data to common range in r.
-                rprofs = rprofs.isel(r=slice(0, min_nr))
-                for axis in [1, 2, 3, 'x', 'y', 'z']:
-                    rprofs[f'dvel{axis}_sq_mw'] = (rprofs[f'vel{axis}_sq_mw']
-                                                 - rprofs[f'vel{axis}_mw']**2)
-                rprofs['menc'] = (4*np.pi*rprofs.r**2*rprofs.rho
-                                  ).cumulative_integrate('r')
-                # Virial terms
-                rdotg = rprofs.xgx_mw + rprofs.ygy_mw + rprofs.zgz_mw
-                rprofs['Omega_G'] = -(4*np.pi*rprofs.r**2*rprofs.rho*rdotg).cumulative_integrate('r')
-                rprofs['Omega_G0'] = self.gconst*rprofs.menc**2/rprofs.r
-                rprofs['Omega_K_thm'] = (4*np.pi*rprofs.r**2*3*self.cs**2*rprofs.rho).cumulative_integrate('r')
-                rprofs['Omega_K_kin'] = (4*np.pi*rprofs.r**2*rprofs.rho*(
-                    rprofs.vel1_sq_mw + rprofs.vel2_sq_mw + rprofs.vel3_sq_mw)
-                ).cumulative_integrate('r')
-                rprofs['Omega_K'] = rprofs['Omega_K_thm'] + rprofs['Omega_K_kin']
-                rprofs['Omega_S_thm'] = 4*np.pi*rprofs.r**3*self.cs**2*rprofs.rho
-                rprofs['Omega_S_kin'] = 4*np.pi*rprofs.r**3*rprofs.rho*rprofs.vel1_sq_mw
-                rprofs['Omega_S'] = rprofs['Omega_S_thm'] + rprofs['Omega_S_kin']
-                rprofs['alpha_vir'] = rprofs['Omega_K'] / rprofs['Omega_G']
-                if self.mhd:
-                    magnetic_energy_density = (rprofs.b1_sq + rprofs.b2_sq + rprofs.b3_sq)/2
-                    rprofs['Omega_M'] = (4*np.pi*rprofs.r**2*magnetic_energy_density).cumulative_integrate('r')
-                    t_rr = rprofs.b1_sq - magnetic_energy_density
-                    rprofs['Omega_S_mag'] = -4*np.pi*rprofs.r**3*t_rr
-                    rprofs['Omega_S'] += rprofs['Omega_S_mag']
-                    rprofs['gamma_M'] = rprofs['Omega_M'] / (2*rprofs['Omega_K'])
-                else:
-                    rprofs['Omega_M'] = rprofs.rho*0
-                    rprofs['Omega_S_mag'] = rprofs.rho*0
-                    rprofs['gamma_M'] = rprofs.rho*0
-                rprofs['gamma_S'] = rprofs['Omega_S'] / rprofs['Omega_G']
-                rprofs['Alpha'] = rprofs.Omega_K + rprofs.Omega_M - rprofs.Omega_G - rprofs.Omega_S
-                rprofs['ptot'] = rprofs.rho*(self.cs**2 + rprofs.vel1_sq_mw)
-                #if self.mhd:
-                #    rprofs['ptot'] -= t_rr
-                rprofs['peq'] = (rprofs.Omega_K + rprofs.Omega_M - rprofs.Omega_S_mag - rprofs.Omega_G) / (4*np.pi*rprofs.r**3)
-                #rprofs['peq'] = (rprofs.Omega_K + rprofs.Omega_M - rprofs.Omega_G) / (4*np.pi*rprofs.r**3)
+        for pid, rprofs in raw_rprofs_dict.items():
+            rprofs = rprofs.copy()
+            for axis in [1, 2, 3, 'x', 'y', 'z']:
+                rprofs[f'dvel{axis}_sq_mw'] = (rprofs[f'vel{axis}_sq_mw']
+                                             - rprofs[f'vel{axis}_mw']**2)
+            rprofs['menc'] = (4*np.pi*rprofs.r**2*rprofs.rho
+                              ).cumulative_integrate('r')
+            # Virial terms
+            rdotg = rprofs.xgx_mw + rprofs.ygy_mw + rprofs.zgz_mw
+            rprofs['Omega_G'] = -(4*np.pi*rprofs.r**2*rprofs.rho*rdotg).cumulative_integrate('r')
+            rprofs['Omega_G0'] = self.gconst*rprofs.menc**2/rprofs.r
+            rprofs['Omega_K_thm'] = (4*np.pi*rprofs.r**2*3*self.cs**2*rprofs.rho).cumulative_integrate('r')
+            rprofs['Omega_K_kin'] = (4*np.pi*rprofs.r**2*rprofs.rho*(
+                rprofs.vel1_sq_mw + rprofs.vel2_sq_mw + rprofs.vel3_sq_mw)
+            ).cumulative_integrate('r')
+            rprofs['Omega_K'] = rprofs['Omega_K_thm'] + rprofs['Omega_K_kin']
+            rprofs['Omega_S_thm'] = 4*np.pi*rprofs.r**3*self.cs**2*rprofs.rho
+            rprofs['Omega_S_kin'] = 4*np.pi*rprofs.r**3*rprofs.rho*rprofs.vel1_sq_mw
+            rprofs['Omega_S'] = rprofs['Omega_S_thm'] + rprofs['Omega_S_kin']
+            rprofs['alpha_vir'] = rprofs['Omega_K'] / rprofs['Omega_G']
+            if self.mhd:
+                magnetic_energy_density = (rprofs.b1_sq + rprofs.b2_sq + rprofs.b3_sq)/2
+                rprofs['Omega_M'] = (4*np.pi*rprofs.r**2*magnetic_energy_density).cumulative_integrate('r')
+                t_rr = rprofs.b1_sq - magnetic_energy_density
+                rprofs['Omega_S_mag'] = -4*np.pi*rprofs.r**3*t_rr
+                rprofs['Omega_S'] += rprofs['Omega_S_mag']
+                rprofs['gamma_M'] = rprofs['Omega_M'] / (2*rprofs['Omega_K'])
+            else:
+                rprofs['Omega_M'] = xr.zeros_like(rprofs.rho)
+                rprofs['Omega_S_mag'] = xr.zeros_like(rprofs.rho)
+                rprofs['gamma_M'] = xr.zeros_like(rprofs.rho)
+            rprofs['gamma_S'] = rprofs['Omega_S'] / rprofs['Omega_G']
+            rprofs['Alpha'] = rprofs.Omega_K + rprofs.Omega_M - rprofs.Omega_G - rprofs.Omega_S
+            rprofs['ptot'] = rprofs.rho*(self.cs**2 + rprofs.vel1_sq_mw)
+            rprofs['peq'] = (rprofs.Omega_K + rprofs.Omega_M - rprofs.Omega_S_mag - rprofs.Omega_G) / (4*np.pi*rprofs.r**3)
 
-                # Maximum pressure from McCrea analysis
-                rgrav = self.gconst*rprofs.menc/self.cs**2
-                pgrav = self.cs**8/(4*np.pi*self.gconst**3*rprofs.menc**2)
-                sigma_1d_sq = rprofs.Omega_K_kin/(3*rprofs.menc)
-                mach2 = sigma_1d_sq / self.cs**2
-                a_grv = rprofs.Omega_G/rprofs.Omega_G0
-                a_grv_eff = a_grv.copy()
-                if self.mhd:
-                    brms = np.sqrt(2*rprofs.Omega_M/(4*np.pi*rprofs.r**3/3))
-                    bflux = np.pi*rprofs.r**2*brms
-                    b_mag = (rprofs.Omega_M - rprofs.Omega_S_mag) / (bflux**2/rprofs.r)
-                    #b_mag = rprofs.Omega_M / (bflux**2/rprofs.r)  # This is exactly 2/3pi
-                    mmag2 = b_mag/a_grv/self.gconst*bflux**2  # magnetic critical mass
-                    a_grv_eff *= (1 - mmag2/rprofs.menc**2)  # gravity dilution due to magnetic support
-                else:
-                    mmag2 = xr.zeros_like(a_grv)
-                xi0 = rprofs.r / rgrav
+            # Maximum pressure from McCrea analysis
+            rgrav = self.gconst*rprofs.menc/self.cs**2
+            pgrav = self.cs**8/(4*np.pi*self.gconst**3*rprofs.menc**2)
+            sigma_1d_sq = rprofs.Omega_K_kin/(3*rprofs.menc)
+            mach2 = sigma_1d_sq / self.cs**2
+            a_grv = rprofs.Omega_G/rprofs.Omega_G0
+            a_grv_eff = a_grv.copy()
+            if self.mhd:
+                brms = np.sqrt(2*rprofs.Omega_M/(4*np.pi*rprofs.r**3/3))
+                bflux = np.pi*rprofs.r**2*brms
+                b_mag = (rprofs.Omega_M - rprofs.Omega_S_mag) / (bflux**2/rprofs.r)
+                mmag2 = b_mag/a_grv/self.gconst*bflux**2
+                a_grv_eff *= (1 - mmag2/rprofs.menc**2)
+            else:
+                mmag2 = xr.zeros_like(a_grv)
+            xi0 = rprofs.r / rgrav
 
-                xi_max = (-9 + np.sqrt(81 + 96*mach2*a_grv_eff.where(a_grv_eff>0)/xi0)) / (12*mach2/xi0)
-                eta_max = 3*xi_max**-3*(1 + mach2*xi_max/xi0) - a_grv_eff*xi_max**-4
-                rprofs['pmax_const_rsonic'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
+            xi_max = (-9 + np.sqrt(81 + 96*mach2*a_grv_eff.where(a_grv_eff > 0)/xi0)) / (12*mach2/xi0)
+            eta_max = 3*xi_max**-3*(1 + mach2*xi_max/xi0) - a_grv_eff*xi_max**-4
+            rprofs['pmax_const_rsonic'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
 
-                # Maximum pressure including thermal  pressures
-                xi_max = 4*a_grv/9
-                eta_max = 3**7/(2**8*a_grv**3)
-                rprofs['pmax_thm'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
+            xi_max = 4*a_grv/9
+            eta_max = 3**7/(2**8*a_grv**3)
+            rprofs['pmax_thm'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
 
-                # Maximum pressure including thermal and turbulent pressures
-                xi_max = 4*a_grv/9/(1 + mach2)
-                eta_max = 3**7/(2**8*a_grv**3)*np.sqrt(1 + mach2)**8
-                rprofs['pmax_thm_trb'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
+            xi_max = 4*a_grv/9/(1 + mach2)
+            eta_max = 3**7/(2**8*a_grv**3)*np.sqrt(1 + mach2)**8
+            rprofs['pmax_thm_trb'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
 
-                # Maximum pressure including all pressure components
-                xi_max = 4*a_grv_eff/9/(1 + mach2)
-                eta_max = 3**7/(2**8*a_grv_eff**3)*np.sqrt(1 + mach2)**8
-                rprofs['pmax_const_sigma'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
+            xi_max = 4*a_grv_eff/9/(1 + mach2)
+            eta_max = 3**7/(2**8*a_grv_eff**3)*np.sqrt(1 + mach2)**8
+            rprofs['pmax_const_sigma'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
 
-                # Correction factor from assuming constant a_grv
-#                rprofs['pmax_thm'] *= 0.81
-#                rprofs['pmax_thm_trb'] *= 0.81
-#                rprofs['pmax_const_rsonic'] *= 0.81
-#                rprofs['pmax_const_sigma'] *= 0.81
-                # TODO Tomisaka, Ikeuchi, and Nakamura (1989) gives a_grv = 1.2 for mhd equilibrium
-                # with particular mass-to-flux distribution. This would correspond to correction factor
-                # of XXX instead of 0.81, but we simply take common factor; anyway the mass to flux
-                # distribution is unknown.
+            c_J = np.sqrt(3**7 / (4 * np.pi * 2**8 * a_grv.where(a_grv >= 0)**3))
+            sigma_tot2 = self.cs**2 + sigma_1d_sq
+            a = -3*mmag2 - c_J**2 * sigma_tot2**4 / (self.gconst**3 * rprofs.ptot)
+            b = 3*mmag2**2
+            c = -mmag2**3
+            p = (3*b - a**2) / 3
+            q = (2*a**3 - 9*a*b + 27*c) / 27
+            disc = (q/2)**2 + (p/3)**3
 
-                # Maximum mass
-                # Solve cubic equation for maximum mass using Cardano's formula
-                c_J = np.sqrt(3**7 / (4 * np.pi * 2**8 * a_grv.where(a_grv >= 0)**3))
-                sigma_tot2 = self.cs**2 + sigma_1d_sq
-                a = -3*mmag2 - c_J**2 * sigma_tot2**4 / (self.gconst**3 * rprofs.ptot)
-                b = 3*mmag2**2
-                c = -mmag2**3
-                p = (3*b - a**2) / 3
-                q = (2*a**3 - 9*a*b + 27*c) / 27
-                disc = (q/2)**2 + (p/3)**3
+            def safe_cbrt(val):
+                """Sign-safe cube root for xarray DataArrays."""
+                return np.sign(val) * np.abs(val)**(1/3)
 
-                # Case 1: disc >= 0, one real root via standard Cardano formula
-                def safe_cbrt(val):
-                    """Sign-safe cube root for xarray DataArrays."""
-                    return np.sign(val) * np.abs(val)**(1/3)
+            sqrt_disc = np.sqrt(disc.where(disc >= 0))
+            x_cardano = safe_cbrt(-q/2 + sqrt_disc) + safe_cbrt(-q/2 - sqrt_disc) - a/3
 
-                sqrt_disc = np.sqrt(disc.where(disc >= 0))
-                x_cardano = safe_cbrt(-q/2 + sqrt_disc) + safe_cbrt(-q/2 - sqrt_disc) - a/3
+            arg = -q/2/np.sqrt(-(p.where(disc < 0)/3)**3)
+            arg_violation = xr.where(disc < 0, np.abs(arg) > 1 + 1e-10, False)
+            if arg_violation.any():
+                max_violation = float((np.abs(arg) - 1).where(arg_violation).max())
+                warnings.warn(
+                    f"arccos argument out of [-1, 1] by up to {max_violation:.2e} in "
+                    f"{int(arg_violation.sum())} cells. Possible numerical issue near disc=0."
+                )
+            phi = np.arccos(arg.where(disc < 0))
+            r = 2*np.sqrt(-p.where(disc < 0)/3)
+            x0 = r*np.cos(phi/3) - a/3
+            x1 = r*np.cos((phi + 2*np.pi)/3) - a/3
+            x2 = r*np.cos((phi + 4*np.pi)/3) - a/3
+            x_three = xr.concat([x0, x1, x2], 'root')
+            x_cardano_disc_neg = x_three.max(dim='root')
+            x = xr.where(disc >= 0, x_cardano, x_cardano_disc_neg)
+            rprofs['mmax_const_sigma'] = np.sqrt(x.where(x >= 0))
 
-                # Case 2: disc < 0, three real roots via trigonometric method
-                arg = -q/2/np.sqrt(-(p.where(disc < 0)/3)**3)
-                # Validate arg is within [-1, 1] — violations indicate numerical issues
-                arg_violation = xr.where(disc < 0, np.abs(arg) > 1 + 1e-10, False)
-                if arg_violation.any():
-                    max_violation = float((np.abs(arg) - 1).where(arg_violation).max())
-                    warnings.warn(
-                        f"arccos argument out of [-1, 1] by up to {max_violation:.2e} in "
-                        f"{int(arg_violation.sum())} cells. Possible numerical issue near disc=0."
-                    )
-                phi = np.arccos(arg.where(disc < 0))
-                r = 2*np.sqrt(-p.where(disc < 0)/3)
-                x0 = r*np.cos(phi/3) - a/3
-                x1 = r*np.cos((phi + 2*np.pi)/3) - a/3
-                x2 = r*np.cos((phi + 4*np.pi)/3) - a/3
-                x_three = xr.concat([x0, x1, x2], 'root')
-                x_cardano_disc_neg = x_three.max(dim='root')
-                x = xr.where(disc >= 0, x_cardano, x_cardano_disc_neg)
-                rprofs['mmax_const_sigma'] = np.sqrt(x.where(x >= 0))
-
-                rprofs = rprofs.merge(tools.radial_acceleration(self, rprofs), compat="no_conflicts")
+            rprofs = rprofs.merge(tools.radial_acceleration(self, rprofs), compat="no_conflicts")
+            if 'num' not in rprofs.indexes:
                 rprofs = rprofs.set_xindex('num')
 
-            # Read projected radial profiles
+            cores = self.cores[pid]
             prj_rprofs, nums = [], []
             min_nr = None
             for num in cores.index:
                 try:
-                    fname = Path(savdir,
-                                 f'prj_radial_profile.par{pid}.{num:05d}.nc')
-                    rprf = xr.open_dataset(fname)
+                    fname = Path(savdir, f'prj_radial_profile.par{pid}.{num:05d}.nc')
+                    rprf = xr.load_dataset(fname)
                     if min_nr is None:
                         min_nr = rprf.sizes['R']
                     else:
@@ -778,7 +786,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             if len(prj_rprofs) > 0:
                 prj_rprofs = xr.concat(prj_rprofs, 't')
                 prj_rprofs = prj_rprofs.assign_coords(dict(num=('t', nums)))
-                # Slice data to common range in R.
                 prj_rprofs = prj_rprofs.isel(R=slice(0, min_nr))
                 if 'num' in rprofs.indexes:
                     rprofs = rprofs.drop_indexes('num')
@@ -786,9 +793,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 rprofs = rprofs.set_xindex('num')
 
             rprofs_dict[pid] = rprofs
-        if len(pids_not_found) > 0:
-            msg = f"Some radial profiles are missing for pid {pids_not_found}."
-            self.logger.warning(msg)
         if len(pids_not_found_prj) > 0:
             msg = f"Some projected radial profiles are missing for pid {pids_not_found_prj}."
             self.logger.warning(msg)
@@ -873,7 +877,8 @@ class LoadSimAll(object):
     def itercritcore(self, models=None, nres=8, force_override=False):
         if models is None:
             models = self.models
-        for s, pid, cores, rprofs in self.itercore(models=models, nres=nres, force_override=force_override):
+        for s, pid, cores, rprofs in self.itercore(models=models, nres=nres,
+                                                   force_override=force_override):
             num = cores.attrs['numcrit']
             core = cores.loc[num]
             rprf = rprofs.sel(num=num)
