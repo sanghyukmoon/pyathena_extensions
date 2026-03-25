@@ -604,6 +604,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
         rprofs_dict = {}
         pids_not_found = []
+        pids_not_found_prj = []
         for pid in self.pids:
             cores = self.cores[pid]
             rprofs_pid, nums = [], []
@@ -625,11 +626,36 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 rprf = xr.concat(rprofs_pid, 't')
                 rprf = rprf.assign_coords(num=('t', nums))
                 rprf = rprf.isel(r=slice(0, min_nr))
+
+                prj_rprofs, nums = [], []
+                min_nr = None
+                for num in cores.index:
+                    try:
+                        fname = savdir / f'prj_radial_profile.par{pid}.{num:05d}.nc'
+                        prj_rprf = xr.load_dataset(fname)
+                        if min_nr is None:
+                            min_nr = prj_rprf.sizes['R']
+                        else:
+                            min_nr = min(min_nr, prj_rprf.sizes['R'])
+                        prj_rprofs.append(prj_rprf)
+                        nums.append(num)
+                    except FileNotFoundError:
+                        pids_not_found_prj.append(pid)
+                        break
+                if len(prj_rprofs) > 0:
+                    prj_rprofs = xr.concat(prj_rprofs, 't')
+                    prj_rprofs = prj_rprofs.assign_coords(dict(num=('t', nums)))
+                    prj_rprofs = prj_rprofs.isel(R=slice(0, min_nr))
+                    rprf = rprf.merge(prj_rprofs, compat="no_conflicts")
+
                 rprf = rprf.set_xindex('num')
                 rprofs_dict[pid] = rprf
 
         if len(pids_not_found) > 0:
             msg = f"Some radial profiles are missing for pid {pids_not_found}."
+            self.logger.warning(msg)
+        if len(pids_not_found_prj) > 0:
+            msg = f"Some projected radial profiles are missing for pid {pids_not_found_prj}."
             self.logger.warning(msg)
 
         if len(rprofs_dict) == 0:
@@ -659,7 +685,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 raw_rprofs_dict = pickle.load(handle)
 
         rprofs_dict = {}
-        pids_not_found_prj = []
         for pid, rprofs in raw_rprofs_dict.items():
             rprofs = rprofs.copy()
             for axis in [1, 2, 3, 'x', 'y', 'z']:
@@ -767,35 +792,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             if 'num' not in rprofs.indexes:
                 rprofs = rprofs.set_xindex('num')
 
-            cores = self.cores[pid]
-            prj_rprofs, nums = [], []
-            min_nr = None
-            for num in cores.index:
-                try:
-                    fname = Path(savdir, f'prj_radial_profile.par{pid}.{num:05d}.nc')
-                    rprf = xr.load_dataset(fname)
-                    if min_nr is None:
-                        min_nr = rprf.sizes['R']
-                    else:
-                        min_nr = min(min_nr, rprf.sizes['R'])
-                    prj_rprofs.append(rprf)
-                    nums.append(num)
-                except FileNotFoundError:
-                    pids_not_found_prj.append(pid)
-                    break
-            if len(prj_rprofs) > 0:
-                prj_rprofs = xr.concat(prj_rprofs, 't')
-                prj_rprofs = prj_rprofs.assign_coords(dict(num=('t', nums)))
-                prj_rprofs = prj_rprofs.isel(R=slice(0, min_nr))
-                if 'num' in rprofs.indexes:
-                    rprofs = rprofs.drop_indexes('num')
-                rprofs = rprofs.merge(prj_rprofs, compat="no_conflicts")
-                rprofs = rprofs.set_xindex('num')
-
             rprofs_dict[pid] = rprofs
-        if len(pids_not_found_prj) > 0:
-            msg = f"Some projected radial profiles are missing for pid {pids_not_found_prj}."
-            self.logger.warning(msg)
 
         return rprofs_dict
 
