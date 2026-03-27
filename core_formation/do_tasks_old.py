@@ -2,9 +2,14 @@ from pathlib import Path
 import numpy as np
 import argparse
 import subprocess
-from multiprocessing import Pool
+import multiprocessing as mp
 
 from core_formation import config, tasks, models, load_sim
+
+# Python 3.14 defaults to forkserver on POSIX. This runner relies on
+# inherited state and local wrapper functions, so keep the historical fork
+# behavior explicitly.
+Pool = mp.get_context("fork").Pool
 
 if __name__ == "__main__":
     sa = load_sim.LoadSimAll(models.models)
@@ -135,7 +140,8 @@ if __name__ == "__main__":
         if args.lagrangian_props:
             s = sa.set_model(mdl, force_override=True)
             def wrapper(pid):
-                method_list = ['empirical', 'predicted', 'virial'] # pred_be, pred_xis
+#                method_list = ['empirical', 'predicted', 'virial'] # pred_be, pred_xis
+                method_list = ['virial'] # pred_be, pred_xis
                 for method in method_list:
                     s.select_cores(method)
                     if pid in s.cores:
