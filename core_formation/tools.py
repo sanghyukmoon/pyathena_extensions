@@ -652,13 +652,13 @@ def lagrangian_property(s, cores, rprofs):
         vinfall = vcom = sigma_mw = sigma_1d = sigma_1d_trb = sigma_1d_blk = np.nan
         Fthm = Ftrb = Fcen = Fani = Fgrv = np.nan
         if s.mhd:
-            Fmag = Fmag_ani = np.nan
+            mcrit_mag = Fmag = Fmag_ani = np.nan
     else:
         radius, menc_crit, rhoe, rhoavg = [], [], [], []
         vinfall, vcom, sigma_mw, sigma_1d, sigma_1d_trb, sigma_1d_blk = [], [], [], [], [], []
         Fthm, Ftrb, Fcen, Fani, Fgrv = [], [], [], [], []
         if s.mhd:
-            Fmag, Fmag_ani = [], []
+            mcrit_mag, Fmag, Fmag_ani = [], [], []
         for num, core in cores.iterrows():
             rprof = rprofs.sel(num=num)
 
@@ -725,6 +725,7 @@ def lagrangian_property(s, cores, rprofs):
             Fani.append(rprf.Fani.data[()])
             Fgrv.append(rprf.Fgrv.data[()])
             if s.mhd:
+                mcrit_mag.append(rprf.mcrit_mag.data[()])
                 Fmag.append(rprf.Fmag.data[()])
                 Fmag_ani.append(rprf.Fmag_ani.data[()])
     lprops = pd.DataFrame(data = dict(radius=radius,
@@ -744,6 +745,7 @@ def lagrangian_property(s, cores, rprofs):
                                       Fgrv=Fgrv),
                           index = cores.index)
     if s.mhd:
+        lprops['mcrit_mag'] = mcrit_mag
         lprops['Fmag'] = Fmag
         lprops['Fmag_ani'] = Fmag_ani
 
