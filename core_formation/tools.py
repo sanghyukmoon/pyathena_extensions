@@ -12,7 +12,7 @@ from scipy.special import erfcinv, erfc
 from scipy.optimize import brentq, curve_fit
 from scipy.integrate import quad
 from scipy.interpolate import interp1d
-from scipy.ndimage import label
+from scipy.ndimage import label, uniform_filter
 from astropy import units as au
 from pathlib import Path
 from pyathena.util import transform
@@ -1195,6 +1195,19 @@ def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
         except NoIslandFoundError:
             ncrit = None
             rcrit = None
+    elif method == 'quadrant':
+        common_nums = sorted(set(cores.index) & set(rprofs.num.data))
+        if len(common_nums) > 0:
+            rprofs = rprofs.sel(num=common_nums).transpose('t', 'r', ...)
+            force = rprofs['fnet']
+            try:
+                res = critical_time_and_radius_quadrant_fit(force)
+                ncrit = rprofs.t.isel(t=res['critical_time_idx']).num.data[()]
+                rcrit = res['critical_radius']
+            except ValueError as exc:
+                s.logger.warning(f"Quadrant critical-time fit failed for pid = {pid}: {exc}")
+                ncrit = None
+                rcrit = None
 #        for num, core in cores.sort_index(ascending=True).iterrows():
 #            rceil = np.inf
 #            # Other sink particles present within rcrit?
@@ -1241,6 +1254,137 @@ def critical_time(s, pid, method='empirical', perturbation='const_sigma'):
 class NoIslandFoundError(RuntimeError):
     """Raised when no connected region satisfies given condition"""
     pass
+
+
+def critical_time_and_radius_quadrant_fit(
+    force: xr.DataArray,
+    *,
+    eps: float = 0,
+    smooth_time: int = 1,
+    smooth_radius: int = 1,
+    weight_mode: str = "uniform",
+    ignore_uncertain: bool = True,
+):
+    """Fit a two-quadrant model to a net-force spacetime diagram.
+
+    The model assumes the force map is negative only in the upper-left
+    quadrant of the (t, r) plane:
+
+      force < 0  if (t > tcrit) and (r < rcrit)
+      force > 0  otherwise
+
+    Parameters
+    ----------
+    force : xarray.DataArray
+        Force map with dims ('t', 'r') or ('r', 't').
+        `rprofs.Fnet` is the intended input.
+    eps : float, optional
+        Threshold used to mark near-zero cells as uncertain.
+    smooth_time, smooth_radius : int, optional
+        Optional box-filter widths along the time and radius axes.
+    weight_mode : {"abs", "uniform"}, optional
+        Weight by |force| or equally over all certain cells.
+    ignore_uncertain : bool, optional
+        If True, cells with |force| < eps do not contribute to the loss.
+
+    Returns
+    -------
+    dict
+        Dictionary containing the fitted critical time/radius, loss, and
+        diagnostic DataArrays.
+    """
+    if not isinstance(force, xr.DataArray):
+        raise TypeError("force must be an xarray.DataArray.")
+
+    if tuple(force.dims) == ("r", "t"):
+        force = force.transpose("t", "r")
+    if tuple(force.dims) != ("t", "r"):
+        raise ValueError(f"force must have dims ('t', 'r'). Got {force.dims}")
+
+    force = force.astype(float)
+    coords = {"t": force["t"], "r": force["r"]}
+    finite = np.isfinite(force)
+
+    if smooth_time > 1 or smooth_radius > 1:
+        size = (smooth_time, smooth_radius)
+        valid = finite.astype(float).data
+        numerator = uniform_filter(force.where(finite, 0).data, size=size, mode="nearest")
+        denominator = uniform_filter(valid, size=size, mode="nearest")
+        smoothed_np = np.divide(
+            numerator,
+            denominator,
+            out=np.full_like(numerator, np.nan, dtype=float),
+            where=denominator > 0,
+        )
+        smoothed_force = xr.DataArray(smoothed_np, dims=("t", "r"), coords=coords, name=force.name)
+    else:
+        smoothed_force = force.copy()
+
+    finite = np.isfinite(smoothed_force)
+    data_labels = xr.zeros_like(smoothed_force, dtype=np.int8)
+    data_labels = xr.where(smoothed_force <= -eps, -1, data_labels)
+    data_labels = xr.where(smoothed_force >= eps, 1, data_labels)
+    data_labels = data_labels.where(finite, 0).astype(np.int8)
+
+    if weight_mode == "abs":
+        weights = np.abs(smoothed_force)
+    elif weight_mode == "uniform":
+        weights = xr.ones_like(smoothed_force, dtype=float)
+    else:
+        raise ValueError("weight_mode must be 'abs' or 'uniform'.")
+
+    weights = weights.where(finite, 0.0)
+    if ignore_uncertain:
+        weights = weights.where(data_labels != 0, 0.0)
+
+    total_weight = float(weights.sum().data[()])
+    if not np.isfinite(total_weight) or total_weight == 0:
+        raise ValueError("Quadrant fit has no finite, non-zero weights to optimize.")
+
+    def upper_left_sums(arr):
+        prefix = np.pad(arr, ((1, 0), (1, 0)), mode="constant").cumsum(axis=0).cumsum(axis=1)
+        return prefix[-1, :-1][None, :] - prefix[1:, :-1]
+
+    pos_weights = weights.where(data_labels > 0, 0.0).data
+    neg_weights = weights.where(data_labels < 0, 0.0).data
+
+    pos_upper_left = upper_left_sums(pos_weights)
+    neg_upper_left = upper_left_sums(neg_weights)
+    loss_np = neg_weights.sum() + pos_upper_left - neg_upper_left
+
+    best_flat = int(np.argmin(loss_np))
+    crit_t_idx, crit_r_idx = np.unravel_index(best_flat, loss_np.shape)
+    crit_time = force["t"].isel(t=crit_t_idx).data[()]
+    crit_radius = force["r"].isel(r=crit_r_idx).data[()]
+
+    tcoord, rcoord = xr.broadcast(force["t"], force["r"])
+    model_labels = xr.where(
+        (tcoord > crit_time) & (rcoord < crit_radius),
+        -1,
+        1,
+    ).astype(np.int8)
+    quadrant_mask = model_labels == -1
+
+    loss = xr.DataArray(
+        loss_np,
+        dims=("t", "r"),
+        coords=coords,
+        name="quadrant_fit_loss",
+    )
+
+    return {
+        "critical_time": crit_time,
+        "critical_time_idx": crit_t_idx,
+        "critical_radius": crit_radius,
+        "critical_radius_idx": crit_r_idx,
+        "loss": float(loss_np[crit_t_idx, crit_r_idx]),
+        "loss_map": loss,
+        "model_labels": model_labels,
+        "data_labels": data_labels,
+        "smoothed_force": smoothed_force,
+        "weights": weights,
+        "quadrant_mask": quadrant_mask,
+    }
 
 
 def critical_time_and_radius_left_upper_island(
