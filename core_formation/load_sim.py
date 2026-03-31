@@ -143,17 +143,22 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             try:
                 # Load cores
                 savdir = Path(self.savdir, config.CORE_DIR)
-                self.cores = self._load_cores(savdir=savdir, force_override=force_override)
+                self.cores = self._load_cores(savdir=savdir,
+                                              force_override=force_override)
             except FileNotFoundError:
-                self.logger.warning("Failed to load core information")
+                self.logger.warning("Cannot find core files to load.")
                 pass
 
             try:
                 # Load radial profiles
                 savdir = Path(self.savdir, config.RPROF_DIR)
-                self.rprofs = self._load_radial_profiles(savdir=savdir, force_override=force_override)
-            except (AttributeError, FileNotFoundError, KeyError):
-                self.logger.warning("Failed to load radial profiles")
+                self.rprofs = self._load_radial_profiles(savdir=savdir,
+                                                         force_override=force_override)
+            except FileNotFoundError:
+                self.logger.warning("Cannot find radial profile files to load. "
+                                    "Have you run concat_radial_profiles() to "
+                                    "concatenate individual radial profiles "
+                                    "into one file?")
                 pass
 
             # Load derived core informations using various alternative critical times
