@@ -345,11 +345,11 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 Fnet += cores.Fmag + cores.Fmag_ani
             cores['Fnet'] = Fnet / cores.Fgrv
 
-            # Critical radius based on ptot/pmax
+            # Critical radius based on menc/mmax
             rcrit_virial = []
             for num in cores.index:
                 rprf = rprofs.sel(num=num)
-                ratio = rprf.ptot / rprf.pmax_const_sigma
+                ratio = rprf.menc / rprf.mmax
                 try:
                     rcrit_virial.append(float(rprf.r[ratio > 1][0]))
                 except IndexError:
@@ -725,7 +725,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             rgrav = self.gconst*rprofs.menc/self.cs**2
             pgrav = self.cs**8/(4*np.pi*self.gconst**3*rprofs.menc**2)
             sigma_1d_sq = rprofs.Omega_K_kin/(3*rprofs.menc)
-            mach2 = sigma_1d_sq / self.cs**2
             a_grv = rprofs.Omega_G/rprofs.Omega_G0
             a_grv_eff = a_grv.copy()
             if self.mhd:
@@ -737,57 +736,37 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             else:
                 mmag2 = xr.zeros_like(a_grv)
             rprofs['mcrit_mag'] = np.sqrt(mmag2.where(mmag2 >= 0))
-            xi0 = rprofs.r / rgrav
 
-            xi_max = (-9 + np.sqrt(81 + 96*mach2*a_grv_eff.where(a_grv_eff > 0)/xi0)) / (12*mach2/xi0)
-            eta_max = 3*xi_max**-3*(1 + mach2*xi_max/xi0) - a_grv_eff*xi_max**-4
-            rprofs['pmax_const_rsonic'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
-
-            xi_max = 4*a_grv/9
-            eta_max = 3**7/(2**8*a_grv**3)
-            rprofs['pmax_thm'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
-
-            xi_max = 4*a_grv/9/(1 + mach2)
-            eta_max = 3**7/(2**8*a_grv**3)*np.sqrt(1 + mach2)**8
-            rprofs['pmax_thm_trb'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
-
-            xi_max = 4*a_grv_eff/9/(1 + mach2)
-            eta_max = 3**7/(2**8*a_grv_eff**3)*np.sqrt(1 + mach2)**8
-            rprofs['pmax_const_sigma'] = (pgrav*eta_max).where(xi_max > 0, np.nan)
-
-            c_J = np.sqrt(3**7 / (4 * np.pi * 2**8 * a_grv.where(a_grv >= 0)**3))
-            sigma_tot2 = self.cs**2 + sigma_1d_sq
-            a = -3*mmag2 - c_J**2 * sigma_tot2**4 / (self.gconst**3 * rprofs.ptot)
-            b = 3*mmag2**2
-            c = -mmag2**3
-            p = (3*b - a**2) / 3
-            q = (2*a**3 - 9*a*b + 27*c) / 27
-            disc = (q/2)**2 + (p/3)**3
-
-            def safe_cbrt(val):
-                """Sign-safe cube root for xarray DataArrays."""
-                return np.sign(val) * np.abs(val)**(1/3)
-
-            sqrt_disc = np.sqrt(disc.where(disc >= 0))
-            x_cardano = safe_cbrt(-q/2 + sqrt_disc) + safe_cbrt(-q/2 - sqrt_disc) - a/3
-
-            arg = -q/2/np.sqrt(-(p.where(disc < 0)/3)**3)
-            arg_violation = xr.where(disc < 0, np.abs(arg) > 1 + 1e-10, False)
-            if arg_violation.any():
-                max_violation = float((np.abs(arg) - 1).where(arg_violation).max())
-                warnings.warn(
-                    f"arccos argument out of [-1, 1] by up to {max_violation:.2e} in "
-                    f"{int(arg_violation.sum())} cells. Possible numerical issue near disc=0."
-                )
-            phi = np.arccos(arg.where(disc < 0))
-            r = 2*np.sqrt(-p.where(disc < 0)/3)
-            x0 = r*np.cos(phi/3) - a/3
-            x1 = r*np.cos((phi + 2*np.pi)/3) - a/3
-            x2 = r*np.cos((phi + 4*np.pi)/3) - a/3
-            x_three = xr.concat([x0, x1, x2], 'root')
-            x_cardano_disc_neg = x_three.max(dim='root')
-            x = xr.where(disc >= 0, x_cardano, x_cardano_disc_neg)
-            rprofs['mmax_const_sigma'] = np.sqrt(x.where(x >= 0))
+            param_dict = {
+                'mmax': {
+                    'a': a_grv,
+                    'mmag2': mmag2,
+                    'sigma_tot2': self.cs**2 + sigma_1d_sq,
+                },
+                'mmax_fixed_a': {
+                    'a': xr.ones_like(a_grv),
+                    'mmag2': mmag2,
+                    'sigma_tot2': self.cs**2 + sigma_1d_sq,
+                },
+                'mmax_thm': {
+                    'a': a_grv,
+                    'mmag2': xr.zeros_like(mmag2),
+                    'sigma_tot2': self.cs**2,
+                },
+                'mmax_thm_trb': {
+                    'a': a_grv,
+                    'mmag2': xr.zeros_like(mmag2),
+                    'sigma_tot2': self.cs**2 + sigma_1d_sq
+                },
+            }
+            for key, params in param_dict.items():
+                c_J = np.sqrt(3**7 / (4 * np.pi * 2**8 * params['a'].where(params['a'] >= 0)**3))
+                # Cubic coefficients for x^3 + ax^2 + bx + c = 0
+                a = -3*params['mmag2'] - c_J**2 * params['sigma_tot2']**4 / (self.gconst**3 * rprofs.ptot)
+                b = 3*params['mmag2']**2
+                c = -params['mmag2']**3
+                x = cubic_root(a, b, c)
+                rprofs[key] = np.sqrt(x.where(x >= 0))
 
             rprofs = rprofs.merge(tools.radial_acceleration(self, rprofs), compat="no_conflicts")
             if 'num' not in rprofs.indexes:
@@ -881,3 +860,36 @@ class LoadSimAll(object):
             core = cores.loc[num]
             rprf = rprofs.sel(num=num)
             yield s, pid, core, rprf
+
+
+def safe_cbrt(val):
+    """Sign-safe cube root for xarray DataArrays."""
+    return np.sign(val) * np.abs(val)**(1/3)
+
+
+def cubic_root(a, b, c):
+    """Calculate the real root of a cubic equation x^3 + ax^2 + bx + c = 0"""
+    p = (3*b - a**2) / 3
+    q = (2*a**3 - 9*a*b + 27*c) / 27
+    disc = (q/2)**2 + (p/3)**3
+
+    sqrt_disc = np.sqrt(disc.where(disc >= 0))
+    x_cardano = safe_cbrt(-q/2 + sqrt_disc) + safe_cbrt(-q/2 - sqrt_disc) - a/3
+
+    arg = -q/2/np.sqrt(-(p.where(disc < 0)/3)**3)
+    arg_violation = xr.where(disc < 0, np.abs(arg) > 1 + 1e-10, False)
+    if arg_violation.any():
+        max_violation = float((np.abs(arg) - 1).where(arg_violation).max())
+        warnings.warn(
+            f"arccos argument out of [-1, 1] by up to {max_violation:.2e} in "
+            f"{int(arg_violation.sum())} cells. Possible numerical issue near disc=0."
+        )
+    phi = np.arccos(arg.where(disc < 0))
+    r = 2*np.sqrt(-p.where(disc < 0)/3)
+    x0 = r*np.cos(phi/3) - a/3
+    x1 = r*np.cos((phi + 2*np.pi)/3) - a/3
+    x2 = r*np.cos((phi + 4*np.pi)/3) - a/3
+    x_three = xr.concat([x0, x1, x2], 'root')
+    x_cardano_disc_neg = x_three.max(dim='root')
+    x = xr.where(disc >= 0, x_cardano, x_cardano_disc_neg)
+    return x
