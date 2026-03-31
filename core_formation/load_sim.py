@@ -56,7 +56,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         All preimages of t_coll cores.
     """
 
-    def __init__(self, basedir_or_Mach=None, method='empirical', savdir=None,
+    def __init__(self, basedir_or_Mach=None, method='virial', savdir=None,
                  verbose=False, force_override=False):
         """The constructor for LoadSim class for core formation simulations.
 
@@ -298,7 +298,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             rprofs = self.rprofs[pid]
 
             # Find critical time
-            ncrit, rcrit = tools.critical_time(self, pid, method)
+            ncrit, rcrit = tools.critical_time(self, pid, method=method)
             cores.attrs['numcrit'] = ncrit
             if np.isnan(ncrit):
                 cores.attrs['tcrit'] = np.nan
@@ -827,7 +827,7 @@ class LoadSimAll(object):
                 self.models.append(mdl)
                 self.basedirs[mdl] = basedir
 
-    def set_model(self, model, method='empirical', savdir=None,
+    def set_model(self, model, method='virial', savdir=None,
                   verbose=False, reset=False, force_override=False):
         self.model = model
         if reset or force_override:
