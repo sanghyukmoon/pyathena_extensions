@@ -700,6 +700,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Virial terms
             rdotg = rprofs.xgx_mw + rprofs.ygy_mw + rprofs.zgz_mw
             rprofs['Omega_G'] = -(4*np.pi*rprofs.r**2*rprofs.rho*rdotg).cumulative_integrate('r')
+            rdotg_sph = xr.where(rprofs.r > 0,
+                                 -self.gconst*rprofs.menc/rprofs.r.where(rprofs.r > 0),
+                                 0)
+            rprofs['Omega_G_sph'] = -(4*np.pi*rprofs.r**2*rprofs.rho*rdotg_sph).cumulative_integrate('r')
             rprofs['Omega_G0'] = self.gconst*rprofs.menc**2/rprofs.r
             rprofs['Omega_K_thm'] = (4*np.pi*rprofs.r**2*3*self.cs**2*rprofs.rho).cumulative_integrate('r')
             rprofs['Omega_K_kin'] = (4*np.pi*rprofs.r**2*rprofs.rho*(
