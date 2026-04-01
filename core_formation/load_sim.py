@@ -748,26 +748,22 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             param_dict = {
                 'mmax': {
-                    'a': a_grv,
-                    'mmag2': mmag2,
-                    'sigma_tot2': self.cs**2 + sigma_1d_sq,
-                },
-                'mmax_fixed_a': {
-                    'a': xr.ones_like(a_grv),
                     'mmag2': mmag2,
                     'sigma_tot2': self.cs**2 + sigma_1d_sq,
                 },
                 'mmax_thm': {
-                    'a': a_grv,
                     'mmag2': xr.zeros_like(mmag2),
                     'sigma_tot2': self.cs**2,
                 },
                 'mmax_thm_trb': {
-                    'a': a_grv,
                     'mmag2': xr.zeros_like(mmag2),
                     'sigma_tot2': self.cs**2 + sigma_1d_sq
                 },
             }
+            for key in param_dict.copy().keys():
+                param_dict[key]['a'] = a_grv
+                param_dict[f'{key}_fixed_a'] = param_dict[key].copy()
+                param_dict[f'{key}_fixed_a']['a'] = xr.ones_like(a_grv)
             for key, params in param_dict.items():
                 c_J = np.sqrt(3**7 / (4 * np.pi * 2**8 * params['a'].where(params['a'] >= 0)**3))
                 # Cubic coefficients for x^3 + ax^2 + bx + c = 0
