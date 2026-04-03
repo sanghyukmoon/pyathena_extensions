@@ -298,7 +298,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             rprofs = self.rprofs[pid]
 
             # Find critical time
-            ncrit, rcrit = tools.critical_time(self, pid, method=method)
+            ncrit, rcrit = tools.critical_time_old(self, pid, method=method)
             cores.attrs['numcrit'] = ncrit
             if np.isnan(ncrit):
                 cores.attrs['tcrit'] = np.nan

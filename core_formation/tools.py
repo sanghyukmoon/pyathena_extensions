@@ -1075,7 +1075,7 @@ def column_density(rcyl, frho, rmax):
     return dcol
 
 
-def critical_time(s, pid, *, method):
+def critical_time_old(s, pid, *, method):
     cores = s.cores[pid].copy()
     if len(cores) == 0:
         return np.nan

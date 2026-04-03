@@ -255,7 +255,7 @@ class SpaceTimePlotter():
                 continue
             ax.plot(cores.radius, cores.time, ls='-', c='tab:cyan', label=r'$r_M$', lw=3)
             try:
-                numcrit, rcrit = tools.critical_time(s, pid, method='virial')
+                numcrit, rcrit = tools.critical_time_old(s, pid, method='virial')
                 tcrit = cores.loc[numcrit].time
                 ax.plot(rcrit, tcrit, 'o', c='tab:cyan')
             except:
@@ -266,7 +266,7 @@ class SpaceTimePlotter():
             ax.plot(cores.min_dst_to_star, cores.time, ls='--', color='gold', label=r'$D_*$')
             ax.plot(cores.mw_dst_to_star, cores.time, color='gold', label=r'$D_{*,\mathrm{mw}}$')
             try:
-                numcrit, rcrit = tools.critical_time(s, pid, method='empirical')
+                numcrit, rcrit = tools.critical_time_old(s, pid, method='empirical')
                 tcrit = cores.loc[numcrit].time
                 ax.plot(rcrit, tcrit, 'o', c='r')
             except:
