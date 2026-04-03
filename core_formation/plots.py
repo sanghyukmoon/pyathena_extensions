@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from matplotlib.colors import LogNorm
 from matplotlib.markers import MarkerStyle
+from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
+import matplotlib.patheffects as pe
 import numpy as np
 import xarray as xr
 # Bottleneck does not use stable sum.
@@ -19,7 +21,402 @@ xr.set_options(use_bottleneck=False, use_numbagg=False)
 from tesphere import tes
 from grid_dendro import energy
 
-from . import tools
+from . import tools, models, load_sim
+
+
+class SpaceTimePlotter():
+    """Helper class to create space-time plots with a consistent layout and formatting.
+    """
+    def plot_spacetime(self, s, pid, *, size='compact', mtd_crit='virial'):
+        s.select_cores(mtd_crit)
+        cores = s.cores[pid]
+        rprofs = s.rprofs[pid].transpose('t', 'r', ...)
+
+        layout = self.create_layout(size)
+        axs = layout['axs_dict']
+
+        # min-max for mass ratio plots
+        vmin, vmax = 0, 2
+
+        # Net force (cumulative)
+        self.imshow(
+            rprofs.Fnet,
+            axs['Fnet'],
+            vmin=-1,
+            vmax=1,
+            cmap='RdBu_r',
+            label=r'$F_\mathrm{net}/F_\mathrm{grv}$'
+        )
+        # Net force
+        self.imshow(
+            rprofs.fnet,
+            axs['fnet'],
+            vmin=-1,
+            vmax=1,
+            cmap='RdBu_r',
+            label=r'$f_\mathrm{net}/f_\mathrm{grv}$'
+        )
+        # Mass-to-critical mass ratio
+        self.imshow(
+            rprofs.menc / rprofs.mmax,
+            axs['mass_ratio'],
+            vmin=vmin,
+            vmax=vmax,
+            cmap='cmr.watermelon',
+        )
+        # Critical ratio
+        self.imshow(
+            rprofs.fnet,
+            axs['mass_ratio_over_fnet'],
+            vmin=-1,
+            vmax=1,
+            cmap='RdBu_r',
+            label=r'$f_\mathrm{net}/f_\mathrm{grv}$'
+        )
+        if size in ['medium', 'full']:
+            self.imshow(
+                rprofs.menc / rprofs.mmax_fixed_a,
+                axs['mass_ratio_fixed_a'],
+                vmin=vmin,
+                vmax=vmax,
+                cmap='cmr.watermelon',
+                label=r'$M_\mathrm{enc}/M_{\mathrm{max},a=1}$'
+            )
+
+            self.imshow(
+                rprofs.menc / rprofs.mmax_thm,
+                axs['mass_ratio_thm'],
+                vmin=vmin,
+                vmax=vmax,
+                cmap='cmr.watermelon',
+                label=r'$M_\mathrm{enc}/M_{\mathrm{max,thm}}$'
+            )
+
+            self.imshow(
+                rprofs.menc / rprofs.mmax_thm_trb,
+                axs['mass_ratio_thm_trb'],
+                vmin=vmin,
+                vmax=vmax,
+                cmap='cmr.watermelon',
+                label=r'$M_\mathrm{enc}/M_{\mathrm{max,thm+trb}}$'
+            )
+
+            eta_grav = rprofs.Omega_G / rprofs.Omega_G_sph
+            self.imshow(
+                eta_grav,
+                axs['eta_grav'],
+                vmin=0,
+                vmax=1,
+                cmap='cmr.savanna',
+                label=r'$\eta_\mathrm{grav}$'
+            )
+            rtidal = xr.where(eta_grav < 0.8, eta_grav.r, np.nan).min('r')
+            axs['eta_grav'].plot(rtidal, cores.time, color='tab:green', ls='-')
+
+            self.imshow(rprofs.vel1_mw/s.cs, axs['vin'],
+                        vmin=-1, vmax=1, cmap='RdBu_r',
+                        label=r'$\left<v_r\right>_\rho/c_s$')
+        if size == 'full':
+            self.imshow(
+                rprofs.menc / rprofs.mmax_thm_fixed_a,
+                axs['mass_ratio_thm_fixed_a'],
+                vmin=vmin,
+                vmax=vmax,
+                cmap='cmr.watermelon',
+                label=r'$M_\mathrm{enc}/M_{\mathrm{max,thm},a=1}$'
+            )
+
+            self.imshow(
+                rprofs.menc / rprofs.mmax_thm_trb_fixed_a,
+                axs['mass_ratio_thm_trb_fixed_a'],
+                vmin=vmin,
+                vmax=vmax,
+                cmap='cmr.watermelon',
+                label=r'$M_\mathrm{enc}/M_{\mathrm{max,thm+trb},a=1}$'
+            )
+
+            self.imshow(
+                rprofs.Fnet,
+                axs['mass_ratio_over_Fnet'],
+                vmin=-1,
+                vmax=1,
+                cmap='RdBu_r',
+                label=r'$F_\mathrm{net}/F_\mathrm{grv}$'
+            )
+
+            if s.mhd:
+                # Magnetic Surface to volume
+                self.imshow(
+                    (rprofs.Omega_M - rprofs.Omega_S_mag) / rprofs.Omega_M,
+                    axs['net_magnetic_energy_normalized'],
+                    vmin=-1,
+                    vmax=1,
+                    cmap='cmr.watermelon',
+                    label=r'$(\mathcal{B} - \mathcal{B}_0)/\mathcal{B}$'
+                )
+
+                # Gravity to magnetic
+                self.imshow(
+                    np.sqrt(
+                        rprofs.Omega_G
+                        / (rprofs.Omega_M - rprofs.Omega_S_mag)
+                    ),
+                    axs['grav_to_mag_energy'],
+                    vmin=0,
+                    vmax=2,
+                    cmap='cmr.watermelon',
+                    label=r'$\mu_\Phi \equiv (\mathcal{W}/\mathcal{B})^{1/2}$'
+                          r'$ = M/M_\Phi$'
+                )
+
+                # Mass-to-flux ratio
+                brms = np.sqrt(2*rprofs.Omega_M/(4*np.pi*rprofs.r**3/3))
+                bflux = np.pi*rprofs.r**2*brms
+                mucrit = 1/(2*np.pi*np.sqrt(s.gconst))
+                self.imshow(
+                    (rprofs.menc / (bflux * np.sqrt(4*np.pi))) / mucrit,
+                    axs['mass_to_flux'],
+                    vmin=0,
+                    vmax=2,
+                    cmap='cmr.watermelon',
+                    label=r'$\mu_{\Phi,\mathrm{obs}}$'
+                          r'$ \equiv 2\pi \sqrt{G}(M/\Phi)$'
+                )
+
+                # B field strength
+                self.imshow(
+                    brms*s.u.muG,
+                    axs['Brms'],
+                    norm=LogNorm(8e0, 2e2),
+                    cmap='viridis',
+                    label=r'$B_\mathrm{rms}\,[\mu\mathrm{G}]$'
+                )
+            else:
+                axs['net_magnetic_energy_normalized'].remove()
+                axs['grav_to_mag_energy'].remove()
+                axs['mass_to_flux'].remove()
+                axs['Brms'].remove()
+
+
+        # Annotate const-mass lines
+        for ax in [axs['mass_ratio_over_fnet'], axs['mass_ratio_over_Fnet']]:
+            if len(rprofs.t) > 1:
+                cs = rprofs.menc.plot.contour(
+                    ax=ax,
+                    levels=[0.5e-2, 1e-2, 2e-2, 4e-2, 8e-2, 16e-2, 32e-2, 64e-2],
+                    add_labels=False,
+                    colors='cyan',
+                    linewidths=1
+                )
+                cs.set_path_effects([
+                    pe.Stroke(linewidth=2, foreground='k'),
+                    pe.Normal(),
+                ])
+                cs = (rprofs.menc/rprofs.mmax).plot.contour(
+                    ax=ax,
+                    levels=[0.7, 0.8, 0.9, 1.0],
+                    add_labels=False,
+                    colors='k',
+                    linewidths=1.5
+                )
+                cs.set_path_effects([
+                    pe.Stroke(linewidth=3, foreground='white'),
+                    pe.Normal(),
+                ])
+                ax.clabel(cs, fontsize=13)
+
+
+        # Evolution
+        lw=1
+        alpha=0.3
+
+        if s.basedir in models.mach10.values():
+            mdls_parent = models.mach10
+        elif s.basedir in models.M10B2N1024.values():
+            mdls_parent = models.M10B2N1024
+        sa = load_sim.LoadSimAll(mdls_parent, verbose=False)
+        for mdl in mdls_parent:
+            _s = sa.set_model(mdl)
+            _s.select_cores(mtd_crit)
+            for _pid in _s.good_cores(8):
+                cores = _s.cores[_pid]
+                axs['evol_Fnet'].plot(cores.tnorm2, cores.Fnet, 'k-', lw=lw, alpha=alpha)
+                axs['evol_vin'].plot(cores.tnorm2, cores.vinfall/s.cs, 'k-', lw=lw, alpha=alpha)
+                axs['evol_sigma'].plot(cores.tnorm2, cores.sigma_1d/s.cs, 'k-', lw=lw, alpha=alpha)
+                axs['evol_rho'].plot(cores.tnorm2, cores.center_density/s.rho0, 'k-', lw=lw, alpha=alpha)
+        cores = s.cores[pid]
+        axs['evol_Fnet'].plot(cores.tnorm2, cores.Fnet, c='tab:cyan', lw=lw*2)
+        axs['evol_vin'].plot(cores.tnorm2, cores.vinfall/s.cs, c='tab:cyan', lw=lw*2)
+        axs['evol_sigma'].plot(cores.tnorm2, cores.sigma_1d/s.cs, c='tab:cyan', lw=lw*2)
+        axs['evol_rho'].plot(cores.tnorm2, cores.center_density/s.rho0, c='tab:cyan', lw=lw*2)
+
+        for ax in layout['axs_array'].flat:
+            if ax == axs['mass_ratio_over_fnet'] or ax == axs['mass_ratio_over_Fnet']:
+                continue
+            ax.plot(cores.radius, cores.time, ls='-', c='tab:cyan', label=r'$r_M$', lw=3)
+            try:
+                numcrit, rcrit = tools.critical_time(s, pid, method='virial')
+                tcrit = cores.loc[numcrit].time
+                ax.plot(rcrit, tcrit, 'o', c='tab:cyan')
+            except:
+                pass
+            ax.plot(cores.critical_radius, cores.time, ls=':', c='tab:red', label=r'$R_\mathrm{MO}$')
+            ax.plot(cores.leaf_radius, cores.time, ls='-.', c='g', label=r'$r_\mathrm{tidal,avg}$')
+            ax.plot(cores.tidal_radius, cores.time, ls='--', c='g', label=r'$r_\mathrm{tidal,max}$')
+            ax.plot(cores.min_dst_to_star, cores.time, ls='--', color='gold', label=r'$D_*$')
+            ax.plot(cores.mw_dst_to_star, cores.time, color='gold', label=r'$D_{*,\mathrm{mw}}$')
+            try:
+                numcrit, rcrit = tools.critical_time(s, pid, method='empirical')
+                tcrit = cores.loc[numcrit].time
+                ax.plot(rcrit, tcrit, 'o', c='r')
+            except:
+                pass
+
+        for ax in layout['axs_array'][:,0]:
+            ax.set_xscale('log')
+            ax.set_xlim(4e-3, 2e0)
+            if len(cores) > 1:
+                hdt = 0.5*(cores.time.iloc[1] - cores.time.iloc[0])
+                ax.set_ylim(cores.time.iloc[0]-hdt, cores.time.iloc[-1]+hdt)
+            else:
+                pass
+            ax.set_ylabel(r'$t/t_{J,0}$')
+        for ax in layout['axs_array'][-1,:]:
+            ax.set_xlabel(r'$r/L_{J,0}$')
+
+        # Forces
+        axs['evol_Fnet'].axhline(0, lw=1, ls='--', c='k')
+        axs['evol_Fnet'].set_ylim(-1, 1)
+        axs['evol_Fnet'].set_yticks(np.arange(-1, 1.1, 0.5))
+        axs['evol_Fnet'].set_ylabel(r'$\mathcal{F}_\mathrm{imb}\equiv F_\mathrm{net}/|F_\mathrm{grv}|$')
+
+        # Infall velocities
+        axs['evol_vin'].set_ylim(-2, 0)
+        axs['evol_vin'].set_ylabel(r'$\overline{v}_{r,\mathrm{core}}/c_s$')
+        axs['evol_vin'].set_yticks(np.arange(-2, 0.1, 0.5))
+
+        # Velocity dispersion
+        axs['evol_sigma'].set_ylim(0, 2)
+        axs['evol_sigma'].set_ylabel(r'$\sigma_\mathrm{1D}(r_M)/c_s$')
+        axs['evol_sigma'].set_yticks(np.arange(0, 2.1, 0.5))
+
+        # Contrasts
+        axs['evol_rho'].set_yscale('log')
+        axs['evol_rho'].set_ylim(1e1, 1e5)
+        axs['evol_rho'].set_ylabel(r'$\rho_c/\rho_0$')
+
+        layout['axs_evol_array'][-1].set_xticks(np.arange(-1, 1.1, 0.5));
+        layout['axs_evol_array'][-1].set_xlim(-1, 1)
+        layout['axs_evol_array'][-1].set_xlabel(r'$(t - t_\mathrm{crit})/\Delta t_\mathrm{coll}$')
+
+        layout['axs_array'][0,-1].legend(loc='upper left', bbox_to_anchor=(1.35, 1), frameon=True, fontsize=15)
+
+        suptitle = f'Model {s.basename}, pid {pid}'
+        suptitle += f'        M_core = {cores.attrs['mcore']:.3f} M_J0 = {cores.attrs['mcore']*s.u.mass.to('Msun'):.3f}'
+        suptitle += f'        R_core = {cores.attrs['rcore']:.3f} L_J0 = {cores.attrs['rcore'] / s.dx:.1f} dx = {cores.attrs['rcore']*s.u.length.to('pc'):.3f}'
+        layout['fig'].suptitle(suptitle, y=0.9, fontsize=20)
+
+        return layout['fig']
+
+    def format_log(self, cb, base=2.0):
+        cb.locator = ticker.LogLocator(base=base)
+        cb.formatter = ticker.LogFormatterSciNotation(base=base)
+        cb.minorlocator = ticker.NullLocator()
+        try:
+            cb.update_ticks()
+        except:
+            pass
+
+    def imshow(self, da, ax, *, label=None, log_base=None, **kwargs):
+        m = da.plot.imshow(ax=ax, cbar_kwargs=dict(label=label) if label else None, add_labels=False, **kwargs)
+        if log_base is not None:
+            format_log(self, m.colorbar, base=log_base)
+        return m
+
+    def create_layout(self, size):
+        if size == 'compact':
+            nrows = 2
+            ncols = 2
+        elif size == 'medium':
+            nrows = 3
+            ncols = 3
+        elif size == 'full':
+            nrows = 4
+            ncols = 4
+        else:
+            raise ValueError("size must be either compact or full")
+
+        fig = plt.figure(figsize=(8.53*(ncols+1), 6*nrows))
+
+        # Outer layout: left block (large panels) + right block (small stacked panels)
+        outer = GridSpec(
+                1, 2, figure=fig,
+                width_ratios=[4*ncols/2, 1.2],
+                wspace=0.24
+                )
+
+        # Left: 2x2 large axes, with tight vertical spacing for shared x in each column
+        left = GridSpecFromSubplotSpec(
+                nrows, ncols, subplot_spec=outer[0],
+                hspace=0.11, wspace=0.3
+                )
+        axs_spacetime = np.empty([nrows, ncols], dtype=object)
+        for i in range(nrows):
+            for j in range(ncols):
+                if i == 0 and j == 0:
+                    axs_spacetime[i, j] = fig.add_subplot(left[i, j])
+                else:
+                    axs_spacetime[i, j] = fig.add_subplot(
+                            left[i, j],
+                            sharex=axs_spacetime[0, 0],
+                            sharey=axs_spacetime[0, 0]
+                            )
+
+        # Right: 4 stacked small axes, sharing x
+        right = GridSpecFromSubplotSpec(
+                4, 1, subplot_spec=outer[1],
+                hspace=0.1
+                )
+        axs_evolution = np.empty(4, dtype=object)
+        axs_evolution[0] = fig.add_subplot(right[0, 0])
+        axs_evolution[1] = fig.add_subplot(right[1, 0], sharex=axs_evolution[0])
+        axs_evolution[2] = fig.add_subplot(right[2, 0], sharex=axs_evolution[0])
+        axs_evolution[3] = fig.add_subplot(right[3, 0], sharex=axs_evolution[0])
+
+        # Hide lower x tick labels where axes share x
+        for ax in axs_evolution[:3]:
+            ax.tick_params(labelbottom=False)
+
+        if size == 'compact':
+            axs = [
+                    ['Fnet'      , 'fnet'                ],
+                    ['mass_ratio', 'mass_ratio_over_fnet'],
+                    ]
+        if size == 'medium':
+            axs = [
+                    ['Fnet'                     , 'fnet'              , 'vin'               ],
+                    ['mass_ratio_thm'           , 'mass_ratio_thm_trb', 'mass_ratio'        ],
+                    ['mass_ratio_over_fnet'     , 'eta_grav'          , 'mass_ratio_fixed_a'],
+                    ]
+        if size == 'full':
+            axs = [
+                    ['Fnet'                  , 'fnet'                          , 'vin'               , 'Brms'                ],
+                    ['mass_ratio_thm'        , 'mass_ratio_thm_trb'            , 'mass_ratio'        , 'mass_ratio_over_fnet'],
+                    ['mass_ratio_thm_fixed_a', 'mass_ratio_thm_trb_fixed_a'    , 'mass_ratio_fixed_a', 'mass_ratio_over_Fnet'],
+                    ['eta_grav'              , 'net_magnetic_energy_normalized', 'grav_to_mag_energy', 'mass_to_flux'        ],
+                    ]
+        axs = dict(zip(np.array(axs).flatten(), axs_spacetime.flatten()))
+        axs['evol_Fnet'] = axs_evolution[0]
+        axs['evol_vin'] = axs_evolution[1]
+        axs['evol_sigma'] = axs_evolution[2]
+        axs['evol_rho'] = axs_evolution[3]
+        layout = {
+                'fig': fig,
+                'axs_array': axs_spacetime,
+                'axs_evol_array': axs_evolution,
+                'axs_dict': axs
+                }
+        return layout
 
 def plot_projection(s, ds, field='dens', axis='z', op='sum',
                     vmin=1e-1, vmax=2e2, cmap='pink_r', alpha=1,
