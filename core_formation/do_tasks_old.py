@@ -217,7 +217,7 @@ if __name__ == "__main__":
             s = sa.set_model(mdl, force_override=True)
             print(f"draw core evolution plots for model {mdl}")
             for pid in pids:
-                for method in ['empirical', 'predicted']:
+                for method in ['empirical', 'predicted', 'virial']:
                     s.select_cores(method)
                     cores = s.cores[pid]
                     def wrapper(num):
@@ -276,7 +276,7 @@ if __name__ == "__main__":
                                 srcdir])
             prefix = config.PLOT_PREFIX_CORE_EVOLUTION
             for pid in pids:
-                for method in ['empirical', 'predicted']:
+                for method in ['empirical', 'predicted', 'virial']:
                     s.select_cores(method)
                     prf = f"{prefix}.par{pid}.tcrit_{method}"
                     subprocess.run(["make_movie", "-p", prf, "-s", srcdir,
