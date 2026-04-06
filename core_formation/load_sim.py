@@ -347,7 +347,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Net force
             Fnet = cores.Fthm + cores.Ftrb + cores.Fcen + cores.Fani - cores.Fgrv
             if self.mhd:
-                Fnet += cores.Fmag + cores.Fmag_ani
+                Fnet += cores.Fmag
             cores['Fnet'] = Fnet / cores.Fgrv
 
             # Critical radius based on menc/mmax

@@ -652,13 +652,13 @@ def lagrangian_property(s, cores, rprofs):
         vinfall = vcom = sigma_mw = sigma_1d = sigma_1d_trb = sigma_1d_blk = np.nan
         Fthm = Ftrb = Fcen = Fani = Fgrv = np.nan
         if s.mhd:
-            mcrit_mag = Fmag = Fmag_ani = np.nan
+            mcrit_mag = Fmag = np.nan
     else:
         radius, menc_crit, rhoe, rhoavg = [], [], [], []
         vinfall, vcom, sigma_mw, sigma_1d, sigma_1d_trb, sigma_1d_blk = [], [], [], [], [], []
         Fthm, Ftrb, Fcen, Fani, Fgrv = [], [], [], [], []
         if s.mhd:
-            mcrit_mag, Fmag, Fmag_ani = [], [], []
+            mcrit_mag, Fmag = [], []
         for num, core in cores.iterrows():
             rprof = rprofs.sel(num=num)
 
@@ -727,7 +727,6 @@ def lagrangian_property(s, cores, rprofs):
             if s.mhd:
                 mcrit_mag.append(rprf.mcrit_mag.data[()])
                 Fmag.append(rprf.Fmag.data[()])
-                Fmag_ani.append(rprf.Fmag_ani.data[()])
     lprops = pd.DataFrame(data = dict(radius=radius,
                                       menc_crit=menc_crit,
                                       edge_density=rhoe,
@@ -747,7 +746,6 @@ def lagrangian_property(s, cores, rprofs):
     if s.mhd:
         lprops['mcrit_mag'] = mcrit_mag
         lprops['Fmag'] = Fmag
-        lprops['Fmag_ani'] = Fmag_ani
 
     # Attach some attributes
     # Velocity dispersion at t_crit
@@ -867,17 +865,18 @@ def radial_acceleration(s, rprf):
                ani=((rprf.dvel2_sq_mw + rprf.dvel3_sq_mw - 2*rprf.dvel1_sq_mw)
                     / rprf.r).where(rprf.r > 0, other=0))
     if s.mhd:
-        pmag = 0.5*(rprf.b2_sq + rprf.b3_sq - rprf.b1_sq)
-        acc['mag'] = -pmag.differentiate('r') / rprf.rho
-        acc['mag_ani'] = ((2*rprf.b1_sq - rprf.b2_sq - rprf.b3_sq) / rprf.rho
-                          / rprf.r).where(rprf.r > 0, other=0)
+        t_rr = 0.5*(rprf.b1_sq - rprf.b2_sq - rprf.b3_sq)
+        acc['mag'] = (
+            t_rr.differentiate('r')
+            + ((2*rprf.b1_sq - rprf.b2_sq - rprf.b3_sq)
+               / rprf.r).where(rprf.r > 0, other=0)
+        ) / rprf.rho
     else:
         acc['mag'] = rprf.rho*0
-        acc['mag_ani'] = rprf.rho*0
 
     acc = xr.Dataset(acc)
     acc['dvdt_lagrange'] = (acc.thm + acc.trb + acc.mag + acc.grv
-                            + acc.cen + acc.ani + acc.mag_ani)
+                            + acc.cen + acc.ani)
     acc['dvdt_euler'] = acc.dvdt_lagrange - acc.adv
 
     dm = 4*np.pi*rprf.r**2*rprf.rho
@@ -888,13 +887,12 @@ def radial_acceleration(s, rprf):
     acc['Fcen'] = (dm*acc.cen).cumulative_integrate('r')
     acc['Fgrv'] = (-dm*acc.grv).cumulative_integrate('r')
     acc['Fani'] = (dm*acc.ani).cumulative_integrate('r')
-    acc['Fmag_ani'] = (dm*acc.mag_ani).cumulative_integrate('r')
 
     # Net forces
     acc['fnet'] = (acc.thm + acc.trb + acc.cen + acc.ani
-                   + acc.mag + acc.mag_ani + acc.grv) / (-acc.grv)
+                   + acc.mag + acc.grv) / (-acc.grv)
     acc['Fnet'] = (acc.Fthm + acc.Ftrb + acc.Fcen + acc.Fani
-                   + acc.Fmag + acc.Fmag_ani - acc.Fgrv) / acc.Fgrv
+                   + acc.Fmag - acc.Fgrv) / acc.Fgrv
     return acc
 
 
@@ -1120,7 +1118,7 @@ def critical_time_old(s, pid, *, method):
                     fnet = (rprf.Fthm + rprf.Ftrb + rprf.Fcen + rprf.Fani
                             - rprf.Fgrv)
                     if s.mhd:
-                        fnet += (rprf.Fmag + rprf.Fmag_ani)
+                        fnet += rprf.Fmag
                     fnet = fnet.data[()]
                 else:
                     fnet = np.nan

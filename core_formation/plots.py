@@ -611,8 +611,7 @@ def plot_cum_forces(s, rprf, core, ax=None, lw=1):
     fnet = rprf.Fthm + rprf.Ftrb + rprf.Fcen + rprf.Fani - rprf.Fgrv
     if s.mhd:
         plt.plot(rprf.r, rprf.Fmag/rprf.Fgrv, lw=lw, c='tab:red', label=r'$F_\mathrm{mag}$')
-        plt.plot(rprf.r, rprf.Fmag_ani/rprf.Fgrv, lw=lw, c='tab:brown', label=r'$F_\mathrm{mag,ani}$')
-        fnet += (rprf.Fmag + rprf.Fmag_ani)
+        fnet += rprf.Fmag
     plt.plot(rprf.r, fnet/rprf.Fgrv, 'k-', lw=1.5*lw, label=r'$F_\mathrm{net}$')
 
 
@@ -634,8 +633,7 @@ def plot_forces(s, rprf, ax=None, xlim=(0, 0.2), ylim=(-2, 3)):
     fnet = (rprf.thm + rprf.trb + rprf.cen + rprf.ani + rprf.grv)
     if s.mhd:
         (rprf.mag/(-rprf.grv)).plot(lw=1, color='tab:red', label=r'$f_\mathrm{mag}$')
-        (rprf.mag_ani/(-rprf.grv)).plot(lw=1, color='tab:brown', label=r'$f_\mathrm{mag,ani}$')
-        fnet += (rprf.mag + rprf.mag_ani)
+        fnet += rprf.mag
 
     plt.plot(rprf.r, fnet/(-rprf.grv), lw=1.5, color='k', label=r'$f_\mathrm{net}$')
 
