@@ -777,7 +777,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             if 'num' not in rprofs.indexes:
                 rprofs = rprofs.set_xindex('num')
 
-            rprofs_dict[pid] = rprofs.transpose('t', 'r')
+            rprofs_dict[pid] = rprofs.transpose('t', 'r', ...)
 
         return rprofs_dict
 
