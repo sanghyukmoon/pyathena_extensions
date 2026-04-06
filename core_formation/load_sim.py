@@ -321,9 +321,14 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     )
                     self.logger.warning(msg)
                     continue
-                mcore = rprf.menc.interp(r=rcore).data[()]
-                mean_density = mcore / (4*np.pi*rcore**3/3)
-                tff_crit = tools.tfreefall(mean_density, self.gconst)
+                if np.isfinite(rcore):
+                    mcore = rprf.menc.interp(r=rcore).data[()]
+                    mean_density = mcore / (4*np.pi*rcore**3/3)
+                    tff_crit = tools.tfreefall(mean_density, self.gconst)
+                else:
+                    mcore = np.nan
+                    mean_density = np.nan
+                    tff_crit = np.nan
                 cores.attrs['tcrit'] = core.time
                 cores.attrs['rcore'] = rcore
                 cores.attrs['mcore'] = mcore
