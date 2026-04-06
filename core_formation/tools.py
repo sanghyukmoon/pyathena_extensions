@@ -1183,12 +1183,20 @@ def critical_time_old(s, pid, *, method):
                     break
     elif method == 'virial':
         rprofs = rprofs.transpose('t', 'r', ...)
+        eta_crit = 0.7
+        max_fnet = rprofs.fnet.where(rprofs.r > 3*s.dx).cumulative('r').max()
         try:
             dst_to_star = cores.min_dst_to_star.replace(np.nan, np.inf)
-            cond = rprofs.r < xr.DataArray(dst_to_star, coords=dict(t=rprofs.t))
-            #cond = cond & (rprofs.ptot/rprofs.pmax_const_sigma > 1)
-            cond = cond & (rprofs.menc/rprofs.mmax > 1)
-            res = critical_time_and_radius_left_upper_island(cond, critical_radius_stat='mean')
+            dst_to_star = xr.DataArray(dst_to_star, coords=dict(t=rprofs.t))
+            res = critical_time_and_radius_left_upper_island(
+                ((rprofs.r < dst_to_star)
+                 & (rprofs.menc / rprofs.mmax > eta_crit)
+                 & (rprofs.Fnet < 0)
+                 & (rprofs.vel1_mw < 0)
+                 & (max_fnet < 0.2)
+                ),
+                critical_radius_stat='mean'
+            )
             tcrit = res['critical_time']
             ncrit = rprofs.t.isel(t=res['critical_time_idx']).num.data[()]
             rcrit = res['critical_radius']
