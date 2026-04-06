@@ -261,6 +261,7 @@ class SpaceTimePlotter():
             except:
                 pass
             ax.plot(cores.critical_radius, cores.time, ls=':', c='tab:red', label=r'$R_\mathrm{MO}$')
+            ax.plot(cores.virial_rcrit, cores.time, ls='--', c='tab:red', label=r'$r_\mathrm{crit}$')
             ax.plot(cores.leaf_radius, cores.time, ls='-.', c='g', label=r'$r_\mathrm{tidal,avg}$')
             ax.plot(cores.tidal_radius, cores.time, ls='--', c='g', label=r'$r_\mathrm{tidal,max}$')
             ax.plot(cores.min_dst_to_star, cores.time, ls='--', color='gold', label=r'$D_*$')

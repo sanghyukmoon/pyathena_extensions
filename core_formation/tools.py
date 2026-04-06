@@ -1074,6 +1074,15 @@ def column_density(rcyl, frho, rmax):
 
 
 def critical_time_old(s, pid, *, method):
+    """
+    Return
+    ------
+    ncrit : float
+        Critical time in terms of snapshot number.
+    rcrit : float
+        Critical radius at ncrit.
+    """
+
     cores = s.cores[pid].copy()
     if len(cores) == 0:
         return np.nan
@@ -1201,6 +1210,28 @@ def critical_time_old(s, pid, *, method):
         except NoIslandFoundError:
             ncrit = None
             rcrit = None
+    elif method == 'virial_rcrit':
+        for num, core in cores.sort_index(ascending=False).iterrows():
+            rprf = rprofs.sel(num=num)
+            # Net force at the critical radius is negative after the
+            # critical time, throughout the collapse.
+            if np.isfinite(core.virial_rcrit):
+                rprf = rprf.interp(r=core.virial_rcrit)
+                fnet = (rprf.Fthm + rprf.Ftrb + rprf.Fcen + rprf.Fani
+                        - rprf.Fgrv)
+                if s.mhd:
+                    fnet += rprf.Fmag
+                fnet = fnet.data[()]
+            else:
+                fnet = np.nan
+            # Whatever fnet is, if it is not negative, we should break.
+            # That is, when rcrit = NaN or inf, we should break.
+            # However, NaN can be artificial, we can probably impose
+            # the upper limit on p.
+            if not fnet < 0:
+                ncrit = num + 1
+                rcrit = cores.loc[ncrit].virial_rcrit
+                break
     elif method == 'quadrant':
         common_nums = sorted(set(cores.index) & set(rprofs.num.data))
         if len(common_nums) > 0:

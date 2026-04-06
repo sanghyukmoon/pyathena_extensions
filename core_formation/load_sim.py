@@ -163,7 +163,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             # Load derived core informations using various alternative critical times
             self.cores_dict = {}
-            for mtd in ['empirical', 'predicted', 'virial']: # pred_be, pred_xis
+            for mtd in ['empirical', 'predicted', 'virial', 'virial_rcrit']: # pred_be, pred_xis
                 try:
                     # Calculate derived core properties using the predicted critical time
                     savdir = Path(self.savdir, config.CORE_DIR)
@@ -351,15 +351,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             cores['Fnet'] = Fnet / cores.Fgrv
 
             # Critical radius based on menc/mmax
-            rcrit_virial = []
-            for num in cores.index:
-                rprf = rprofs.sel(num=num)
-                ratio = rprf.menc / rprf.mmax
-                try:
-                    rcrit_virial.append(float(rprf.r[ratio > 1][0]))
-                except IndexError:
-                    rcrit_virial.append(np.nan)
-            cores['rcrit_virial'] = rcrit_virial
+            cores['virial_rcrit'] = (rprofs.menc/rprofs.mmax).idxmax('r')
 
             mcore = cores.attrs['mcore']
             rcore = cores.attrs['rcore']
