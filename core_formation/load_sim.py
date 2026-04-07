@@ -272,7 +272,14 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         """List of resolved and isolated cores"""
         good_cores = []
         for pid, cores in self.cores.items():
-            if cores.attrs['isolated'] and tools.test_resolved_core(self, cores, nres):
+            if not cores.attrs['isolated']:
+                # Exclude non-isolated cores
+                continue
+            if len(cores) == 1 and cores.index[0] == cores.attrs['numcoll']:
+                # Exclude cores that failed to be tracked before collapse.
+                continue
+            if tools.test_resolved_core(self, cores, nres):
+                # Exclude cores that are not resolved at the critical time.
                 good_cores.append(pid)
         return good_cores
 
@@ -295,6 +302,18 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         core_dict = {}
         for pid in self.pids:
             cores = self.cores[pid].copy()
+            if not cores.attrs['isolated']:
+                self.logger.warning(f"{self.basename}: Core {pid} not isolated. "
+                                    "Skipping core property update.")
+                core_dict[pid] = cores
+                continue
+            if len(cores) == 1 and cores.index[0] == cores.attrs['numcoll']:
+                self.logger.warning(f"{self.basename}: Core {pid} failed to be"
+                                    " tracked before collapse. "
+                                    " Skipping core property update.")
+                core_dict[pid] = cores
+                continue
+
             rprofs = self.rprofs[pid]
 
             # Critical radius based on menc/mmax, restricted to

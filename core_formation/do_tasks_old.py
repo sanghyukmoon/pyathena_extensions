@@ -75,6 +75,12 @@ if __name__ == "__main__":
         if args.pids:
             pids = args.pids
         pids = sorted(list(set(s.pids) & set(pids)))
+        isolated_pids = [
+            pid for pid in s.pids
+            if s.cores[pid].attrs['isolated'] and len(s.cores[pid]) > 1
+            # Note that this is different from good_cores, which additionally
+            # checks resolvedness
+        ]
 
         # Combine output files.
         if args.combine_partab:
@@ -148,7 +154,7 @@ if __name__ == "__main__":
                         tasks.lagrangian_props(s, pid, method=method, overwrite=args.overwrite)
             print(f"Calculate Lagrangian properties for model {mdl}")
             with Pool(args.np) as p:
-                p.map(wrapper, pids)
+                p.map(wrapper, isolated_pids)
 
         # Calculate radial profiles of t_coll cores and pickle them.
         if args.projections:
