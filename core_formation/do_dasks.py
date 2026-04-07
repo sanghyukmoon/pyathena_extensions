@@ -44,8 +44,7 @@ if __name__ == "__main__":
                 if args.track_cores:
                     s = sa.set_model(mdl, force_override=True)
                     print(f"Perform core tracking for model {mdl}")
-                    for pid in s.pids:
-                        tasks.core_tracking(s, pid, overwrite=args.overwrite)
+                    tasks.core_tracking(s, overwrite=args.overwrite)
 
                 if args.radial_profile:
                     s = sa.set_model(mdl, force_override=True)
