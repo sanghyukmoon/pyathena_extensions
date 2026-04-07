@@ -516,8 +516,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             v1[pid] = phst.v1
             v2[pid] = phst.v2
             v3[pid] = phst.v3
-            time[pid] = phst.time
-            num[pid] = np.floor(phst.time / dt_output['hdf5']).astype('int')
+            time[pid] = phst.time - phst.age
+            num[pid] = np.floor(time[pid] / dt_output['hdf5']).astype('int')
         tcoll_cores = pd.DataFrame(
             dict(x1=x1, x2=x2, x3=x3,
                  v1=v1, v2=v2, v3=v3,
