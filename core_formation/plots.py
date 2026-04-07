@@ -255,7 +255,7 @@ class SpaceTimePlotter():
                 continue
             ax.plot(cores.radius, cores.time, ls='-', c='tab:cyan', label=r'$r_M$', lw=3)
             try:
-                numcrit, rcrit = tools.critical_time_old(s, pid, method='virial')
+                numcrit, rcrit = tools.critical_time_old(s, pid, method=mtd_crit)
                 tcrit = cores.loc[numcrit].time
                 ax.plot(rcrit, tcrit, 'o', c='tab:cyan')
             except:
