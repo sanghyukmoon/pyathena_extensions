@@ -1230,7 +1230,11 @@ def critical_time_old(s, pid, *, method):
             # the upper limit on p.
             if not fnet < 0:
                 ncrit = num + 1
-                rcrit = cores.loc[ncrit].virial_rcrit
+                if ncrit == cores.index[-1] + 1:
+                    s.logger.warning(f"Net force is positive at t_coll! pid = {pid}")
+                    rcrit = np.nan
+                else:
+                    rcrit = cores.loc[ncrit].virial_rcrit
                 break
     elif method == 'quadrant':
         common_nums = sorted(set(cores.index) & set(rprofs.num.data))

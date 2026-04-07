@@ -169,7 +169,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     savdir = Path(self.savdir, config.CORE_DIR)
                     self.cores_dict[mtd] = self.update_core_props(method=mtd, prefix=f'cores_tcrit_{mtd}',
                                                                   savdir=savdir, force_override=force_override)
-                except (AttributeError, KeyError):
+                except KeyError:
                     self.logger.warning(f"Failed to update core properties for model {self.basename}, method {mtd}")
 
             try:
@@ -297,6 +297,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             cores = self.cores[pid].copy()
             rprofs = self.rprofs[pid]
 
+            # Critical radius based on menc/mmax
+            # TODO Where should I put this??
+            self.cores[pid]['virial_rcrit'] = (rprofs.menc/rprofs.mmax).idxmax('r')
+
             # Find critical time
             ncrit, rcrit = tools.critical_time_old(self, pid, method=method)
             cores.attrs['numcrit'] = ncrit
@@ -349,14 +353,11 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 # Reattach attributes
                 cores.attrs = attrs
 
-            # Net force
-            Fnet = cores.Fthm + cores.Ftrb + cores.Fcen + cores.Fani - cores.Fgrv
-            if self.mhd:
-                Fnet += cores.Fmag
-            cores['Fnet'] = Fnet / cores.Fgrv
-
-            # Critical radius based on menc/mmax
-            cores['virial_rcrit'] = (rprofs.menc/rprofs.mmax).idxmax('r')
+                # Net force
+                Fnet = cores.Fthm + cores.Ftrb + cores.Fcen + cores.Fani - cores.Fgrv
+                if self.mhd:
+                    Fnet += cores.Fmag
+                cores['Fnet'] = Fnet / cores.Fgrv
 
             mcore = cores.attrs['mcore']
             rcore = cores.attrs['rcore']
