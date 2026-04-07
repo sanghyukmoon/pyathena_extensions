@@ -297,9 +297,15 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             cores = self.cores[pid].copy()
             rprofs = self.rprofs[pid]
 
-            # Critical radius based on menc/mmax
-            # TODO Where should I put this??
-            self.cores[pid]['virial_rcrit'] = (rprofs.menc/rprofs.mmax).idxmax('r')
+            # Critical radius based on menc/mmax, restricted to
+            # 0 <= r <= min_dst_to_star for each snapshot.
+            ratio = rprofs.menc / rprofs.mmax
+            dst_to_star = cores.min_dst_to_star.replace(np.nan, np.inf)
+            dst_to_star = xr.DataArray(dst_to_star.to_numpy(), coords=dict(t=rprofs.t), dims='t')
+            within_cut = (rprofs.r >= 0) & (rprofs.r <= dst_to_star)
+            virial_rcrit = ratio.where(within_cut).idxmax('r')
+            self.cores[pid]['virial_rcrit'] = pd.Series(virial_rcrit.data,
+                                                        index=rprofs.num.data)
 
             # Find critical time
             ncrit, rcrit = tools.critical_time_old(self, pid, method=method)
