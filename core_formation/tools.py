@@ -1215,23 +1215,26 @@ def critical_time_old(s, pid, *, method):
             rprf = rprofs.sel(num=num)
             # Net force at the critical radius is negative after the
             # critical time, throughout the collapse.
-            if np.isfinite(core.virial_rcrit):
-                rprf = rprf.interp(r=core.virial_rcrit)
-                fnet = (rprf.Fthm + rprf.Ftrb + rprf.Fcen + rprf.Fani
-                        - rprf.Fgrv)
-                if s.mhd:
-                    fnet += rprf.Fmag
-                fnet = fnet.data[()]
-            else:
-                fnet = np.nan
+            if np.isnan(core.virial_rcrit):
+                raise Exception(f"{s.basename}: virial_rcrit is NaN at num = {num} for pid = {pid}. Cannot calculate net force at r_crit.")
+            rprf = rprf.interp(r=core.virial_rcrit)
+            fnet = (rprf.Fthm + rprf.Ftrb + rprf.Fcen + rprf.Fani
+                    - rprf.Fgrv)
+            if s.mhd:
+                fnet += rprf.Fmag
+            fnet = fnet.data[()]
             # Whatever fnet is, if it is not negative, we should break.
             # That is, when rcrit = NaN or inf, we should break.
             # However, NaN can be artificial, we can probably impose
             # the upper limit on p.
-            if not fnet < 0:
+            if core.virial_rcrit <= 3*s.dx:
+                max_fnet = 0
+            else:
+                max_fnet = rprofs.fnet.sel(num=num, r=slice(3*s.dx, core.virial_rcrit)).max().data[()]
+            if fnet > 0 or max_fnet > 0.2:
                 ncrit = num + 1
                 if ncrit == cores.index[-1] + 1:
-                    s.logger.warning(f"Net force is positive at t_coll! pid = {pid}")
+                    s.logger.warning(f"{s.basename}: Net force is positive at t_coll! pid = {pid}")
                     rcrit = np.nan
                 else:
                     rcrit = cores.loc[ncrit].virial_rcrit
