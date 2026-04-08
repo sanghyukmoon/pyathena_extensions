@@ -620,7 +620,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
 
         if len(pids_not_found) > 0:
-            msg = f"Some critical TES files are missing for pid {pids_not_found}"
+            msg = f"{self.basename}: Some critical TES files are missing for pid {pids_not_found}"
             self.logger.warning(msg)
         return cores_dict
 
@@ -799,6 +799,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             rprofs = rprofs.merge(tools.radial_acceleration(self, rprofs), compat="no_conflicts")
             if 'num' not in rprofs.indexes:
                 rprofs = rprofs.set_xindex('num')
+            rprofs = rprofs.sel(num=self.cores[pid].index)
 
             rprofs_dict[pid] = rprofs.transpose('t', 'r', ...)
 
