@@ -37,7 +37,6 @@ if __name__ == "__main__":
             for mdl in args.models:
                 if args.save_minima:
                     s = sa.set_model(mdl, force_override=True)
-                    print(f"calculate and save radial profiles for model {mdl}")
                     print(f"Find minimas and save to pickle for model {mdl}")
                     tasks.save_minima(s, overwrite=args.overwrite)
 
@@ -49,12 +48,10 @@ if __name__ == "__main__":
                 if args.radial_profile:
                     s = sa.set_model(mdl, force_override=True)
                     print(f"calculate and save radial profiles for model {mdl}")
-                    for num in s.nums:
-                        tasks.radial_profile(s, num, s.pids, overwrite=args.overwrite,
-                                             full_radius=True, days_overwrite=0)
+                    tasks.radial_profile(s, overwrite=args.overwrite,
+                                         full_radius=True)
 
                 if args.power_spectrum:
                     s = sa.set_model(mdl, force_override=True)
                     print(f"calculate power spectrum for model {mdl}")
-                    for num in s.nums:
-                        tasks.power_spectrum(s, num, overwrite=args.overwrite)
+                    tasks.power_spectrum(s, overwrite=args.overwrite)
