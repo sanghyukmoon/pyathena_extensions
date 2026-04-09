@@ -870,20 +870,22 @@ class LoadSimAll(object):
 
         return self.sim
 
-    def itercore(self, models=None, nres=8, force_override=False):
+    def itercore(self, models=None, method='virial', nres=8, force_override=False):
         if models is None:
             models = self.models
         for mdl in models:
-            s = self.set_model(mdl, force_override=force_override)
+            s = self.set_model(mdl, method=method, force_override=force_override)
             for pid in s.good_cores(nres):
                 cores = s.cores[pid]
                 rprofs = s.rprofs[pid]
                 yield s, pid, cores, rprofs
 
-    def itercritcore(self, models=None, nres=8, force_override=False):
+    def itercritcore(self, models=None, method='virial', nres=8, force_override=False):
         if models is None:
             models = self.models
-        for s, pid, cores, rprofs in self.itercore(models=models, nres=nres,
+        for s, pid, cores, rprofs in self.itercore(models=models,
+                                                   method=method,
+                                                   nres=nres,
                                                    force_override=force_override):
             num = cores.attrs['numcrit']
             core = cores.loc[num]
