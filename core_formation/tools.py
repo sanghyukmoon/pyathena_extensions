@@ -1073,7 +1073,7 @@ def column_density(rcyl, frho, rmax):
     return dcol
 
 
-def critical_time_old(s, pid, *, method):
+def critical_time_old(s, cores, rprofs, *, method):
     """
     Return
     ------
@@ -1082,12 +1082,10 @@ def critical_time_old(s, pid, *, method):
     rcrit : float
         Critical radius at ncrit.
     """
-
-    cores = s.cores[pid].copy()
     if len(cores) == 0:
         return np.nan
     cores = cores.loc[:cores.attrs['numcoll']]
-    rprofs = s.rprofs[pid]
+    pid = cores.attrs['pid']
 
     ncrit = None
     rcrit = None
@@ -1218,20 +1216,15 @@ def critical_time_old(s, pid, *, method):
             if np.isnan(core.virial_rcrit):
                 raise Exception(f"{s.basename}: virial_rcrit is NaN at num = {num} for pid = {pid}. Cannot calculate net force at r_crit.")
             rprf = rprf.interp(r=core.virial_rcrit)
-            fnet = (rprf.Fthm + rprf.Ftrb + rprf.Fcen + rprf.Fani
-                    - rprf.Fgrv)
-            if s.mhd:
-                fnet += rprf.Fmag
-            fnet = fnet.data[()]
             # Whatever fnet is, if it is not negative, we should break.
             # That is, when rcrit = NaN or inf, we should break.
             # However, NaN can be artificial, we can probably impose
             # the upper limit on p.
             if core.virial_rcrit <= 3*s.dx:
-                max_fnet = 0
+                fnet_std = 0
             else:
-                max_fnet = rprofs.fnet.sel(num=num, r=slice(3*s.dx, core.virial_rcrit)).max().data[()]
-            if fnet > 0 or max_fnet > 0.2:
+                fnet_std = rprofs.fnet.sel(num=num, r=slice(3*s.dx, core.virial_rcrit)).std().data[()]
+            if rprf.Fnet > 0 or fnet_std > 0.3:
                 ncrit = num + 1
                 if ncrit == cores.index[-1] + 1:
                     s.logger.warning(f"{s.basename}: Net force is positive at t_coll! pid = {pid}")
