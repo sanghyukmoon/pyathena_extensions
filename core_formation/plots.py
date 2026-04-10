@@ -105,9 +105,9 @@ class SpaceTimePlotter():
             self.imshow(
                 eta_grav,
                 axs['eta_grav'],
-                vmin=0,
-                vmax=1,
-                cmap='cmr.savanna',
+                vmin=0.5,
+                vmax=1.5,
+                cmap='cmr.seaweed',
                 label=r'$\eta_\mathrm{grav}$'
             )
             rtidal = xr.where(eta_grav < 0.8, eta_grav.r, np.nan).min('r')
@@ -255,7 +255,7 @@ class SpaceTimePlotter():
                 continue
             ax.plot(cores.radius, cores.time, ls='-', c='tab:cyan', label=r'$r_M$', lw=3)
             try:
-                numcrit, rcrit = tools.critical_time_old(s, pid, method=mtd_crit)
+                numcrit, rcrit = tools.critical_time_old(s, cores, rprofs, method=mtd_crit)
                 tcrit = cores.loc[numcrit].time
                 ax.plot(rcrit, tcrit, 'o', c='tab:cyan')
             except:
@@ -265,9 +265,10 @@ class SpaceTimePlotter():
             ax.plot(cores.leaf_radius, cores.time, ls='-.', c='g', label=r'$r_\mathrm{tidal,avg}$')
             ax.plot(cores.tidal_radius, cores.time, ls='--', c='g', label=r'$r_\mathrm{tidal,max}$')
             ax.plot(cores.min_dst_to_star, cores.time, ls='--', color='gold', label=r'$D_*$')
+            ax.plot(cores.min_dst_to_pscore, cores.time, ls=':', color='gold', label=r'$D_*$')
             ax.plot(cores.mw_dst_to_star, cores.time, color='gold', label=r'$D_{*,\mathrm{mw}}$')
             try:
-                numcrit, rcrit = tools.critical_time_old(s, pid, method='empirical')
+                numcrit, rcrit = tools.critical_time_old(s, cores, rprofs, method='empirical')
                 tcrit = cores.loc[numcrit].time
                 ax.plot(rcrit, tcrit, 'o', c='r')
             except:

@@ -316,6 +316,37 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             rprofs = self.rprofs[pid]
 
+            min_dst, mw_dst, min_dst_to_core = [], [], []
+            for num in cores.index:
+                pds = self.load_par(num)
+                core = cores.loc[num]
+                dst, mass = [], []
+                if len(pds) == 0:
+                    min_dst.append(np.nan)
+                    mw_dst.append(np.nan)
+                else:
+                    for _, par in pds.iterrows():
+                        dst.append(self.distance_between(core.leaf_id,
+                                                         self.cartesian_to_flatindex(par.x1, par.x2, par.x3))[()])
+                        mass.append(par.mass)
+                    min_dst.append(min(dst))
+                    mw_dst.append(np.average(dst, weights=mass))
+                for cid in self.pids:
+                    other_cores = self.cores[cid]
+                    if num not in other_cores.index:
+                        continue
+                    other_core = other_cores.loc[num]
+                    if other_core.leaf_id == core.leaf_id:
+                        continue
+                    dst.append(self.distance_between(core.leaf_id, other_core.leaf_id))
+                if len(dst) == 0:
+                    min_dst_to_core.append(np.inf)
+                else:
+                    min_dst_to_core.append(min(dst))
+            cores['min_dst_to_star'] = min_dst
+            cores['mw_dst_to_star'] = mw_dst
+            cores['min_dst_to_pscore'] = min_dst_to_core
+
             # Critical radius based on menc/mmax, restricted to
             # 0 <= r <= min_dst_to_star for each snapshot.
             ratio = rprofs.menc / rprofs.mmax
@@ -323,11 +354,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             dst_to_star = xr.DataArray(dst_to_star.to_numpy(), coords=dict(t=rprofs.t), dims='t')
             within_cut = (rprofs.r >= 0) & (rprofs.r <= dst_to_star)
             virial_rcrit = ratio.where(within_cut).idxmax('r')
-            self.cores[pid]['virial_rcrit'] = pd.Series(virial_rcrit.data,
-                                                        index=rprofs.num.data)
+            cores['virial_rcrit'] = pd.Series(virial_rcrit.data,
+                                              index=rprofs.num.data)
 
             # Find critical time
-            ncrit, rcrit = tools.critical_time_old(self, pid, method=method)
+            ncrit, rcrit = tools.critical_time_old(self, cores.copy(),
+                                                   rprofs.copy(), method=method)
             cores.attrs['numcrit'] = ncrit
             if np.isnan(ncrit):
                 cores.attrs['tcrit'] = np.nan
@@ -593,24 +625,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             # Find collapse time
             cores.attrs['tcoll'] = self.tcoll_cores.loc[pid].time
-
-            min_dst, mw_dst = [], []
-            for num in cores.index:
-                pds = self.load_par(num)
-                core = cores.loc[num]
-                dst, mass = [], []
-                if len(pds) == 0:
-                    min_dst.append(np.nan)
-                    mw_dst.append(np.nan)
-                else:
-                    for _, par in pds.iterrows():
-                        dst.append(self.distance_between(core.leaf_id,
-                                                         self.cartesian_to_flatindex(par.x1, par.x2, par.x3))[()])
-                        mass.append(par.mass)
-                    min_dst.append(min(dst))
-                    mw_dst.append(np.average(dst, weights=mass))
-            cores['min_dst_to_star'] = min_dst
-            cores['mw_dst_to_star'] = mw_dst
 
             # Sort attributes
             cores.attrs = {k: cores.attrs[k] for k in sorted(cores.attrs)}
