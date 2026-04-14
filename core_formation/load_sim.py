@@ -11,6 +11,7 @@ import numpy as np
 from pathlib import Path
 import pickle
 from scipy.interpolate import interp1d
+from scipy import signal
 from astropy import units as au
 from astropy import constants as ac
 from pyathena.load_sim import LoadSim as LoadSimBase
@@ -347,15 +348,30 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             cores['mw_dst_to_star'] = mw_dst
             cores['min_dst_to_pscore'] = min_dst_to_core
 
-            # Critical radius based on menc/mmax, restricted to
-            # 0 <= r <= min_dst_to_star for each snapshot.
-            ratio = rprofs.menc / rprofs.mmax
-            dst_to_star = cores.min_dst_to_star.replace(np.nan, np.inf)
-            dst_to_star = xr.DataArray(dst_to_star.to_numpy(), coords=dict(t=rprofs.t), dims='t')
-            within_cut = (rprofs.r >= 0) & (rprofs.r <= dst_to_star)
-            virial_rcrit = ratio.where(within_cut).idxmax('r')
-            cores['virial_rcrit'] = pd.Series(virial_rcrit.data,
-                                              index=rprofs.num.data)
+#            # Critical radius based on menc/mmax, restricted to
+#            # 0 <= r <= min_dst_to_star for each snapshot.
+#            ratio = rprofs.menc / rprofs.mmax
+#            dst_to_star = cores.min_dst_to_star.replace(np.nan, np.inf)
+#            dst_to_star = xr.DataArray(dst_to_star.to_numpy(), coords=dict(t=rprofs.t), dims='t')
+#            within_cut = (rprofs.r >= 0) & (rprofs.r <= dst_to_star)
+#            virial_rcrit = ratio.where(within_cut).idxmax('r')
+#            cores['virial_rcrit'] = pd.Series(virial_rcrit.data,
+#                                              index=rprofs.num.data)
+
+            r = rprofs.r.to_numpy()
+            virial_rcrit = []
+            for num in cores.index:
+                rprf = rprofs.sel(num=num)
+                x = (rprf.menc/rprf.mmax).to_numpy()
+                x[0] = 0  # Avoid NaN
+                # order=4 means that a point is considered a local maximum
+                # if it is greater than its 4 neighbors on each side.
+                peaks, = signal.argrelextrema(x, np.greater, order=4)
+                if len(peaks) > 0:
+                    virial_rcrit.append(r[peaks][0])
+                else:
+                    virial_rcrit.append(np.nan)
+            cores['virial_rcrit'] = pd.Series(virial_rcrit, index=cores.index)
 
             # Find critical time
             ncrit, rcrit = tools.critical_time_old(self, cores.copy(),
