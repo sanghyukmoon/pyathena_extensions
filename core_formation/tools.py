@@ -119,6 +119,7 @@ def find_tcoll_core(s, pid):
 
 # TODO Can we predict the new sink position using the mean velocity inside the core?
 # But that would require loading the hdf5 snapshot, making the core tracking more expensive.
+# TODO: Let's experiment core tracking without dendrogram
 def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
     """Perform reverse core tracking
 
@@ -171,6 +172,8 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
     tcoll_resolved = True if gd.len(lid) >= ncells_min else False
 
     # Test if any star particle is contained inside t_coll core.
+    # TODO: This requires dendrogram construction; We should change algorithm
+    # for usage in AthenaK
     pds = s.load_par(num)
     cells_in_core = gd.nodes[lid]
     isolated = not np.any([s.cartesian_to_flatindex(x, y, z) in cells_in_core
