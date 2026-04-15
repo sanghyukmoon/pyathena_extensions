@@ -613,8 +613,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             fname = Path(savdir, f'cores.par{pid}.p')
             cores = pd.read_pickle(fname).sort_index()
 
-            prestellar_cores = cores.loc[:cores.attrs['numcoll']]
-
             # Read critical TES info and concatenate to self.cores
             # Try reading critical TES pickles
             tes_crit = []
