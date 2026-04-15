@@ -507,12 +507,10 @@ def radial_profile(s, ds, origin, rmax=None, newz=None):
             )
         else:
             rprf = xr.concat([rprf_c, rprf], dim='r')
-        # TODO: In a future subcell method, replace the r=0 shell volume
-        # with the corresponding subcell-based effective volume.
-        bin_cnt = xr.concat([xr.DataArray([1], coords=dict(r=[0]), dims='r',
-                                          name='bin_count'),
-                             bin_cnt], dim='r')
-        return rprf, bin_cnt*s.dV
+        center_vshell = xr.DataArray([4*np.pi*ledge**3/3], coords=dict(r=[0]),
+                                     dims='r', name='vshell')
+        vshell = xr.concat([center_vshell, bin_cnt*s.dV], dim='r')
+        return rprf, vshell
 
     # Volume-weighted averages
     rprofs['rho'], rprofs['vshell'] = rprf_incl_center(ds['rho'])
