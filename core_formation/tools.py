@@ -439,6 +439,7 @@ def radial_profile(s, ds, origin, rmax=None, newz=None):
     gacc1_mw : Mass-weighted mean gravitational acceleration.
     frac_neg_gacc1 : Fraction of cells in each radial bin with inward
         radial gravitational acceleration (g_r < 0).
+    vshell : Effective shell volume under the current discrete radial binning.
     phi_mw : Mass-weighted mean gravitational potential.
     """
     # Sometimes, tidal radius is so small that the angular momentum vector
@@ -490,10 +491,11 @@ def radial_profile(s, ds, origin, rmax=None, newz=None):
         This function assumes that rprofs['rho'] is already calculated.
         """
         rprf_c = qty.sel(x=origin[0], y=origin[1], z=origin[2]).drop_vars(['x', 'y', 'z'])
+        dat = ds.rho*qty if mass_weighted else qty
+        rprf, bin_cnt = transform.groupby_bins(dat, 'r', nbin, (ledge, redge),
+                                               return_count=True)
         if mass_weighted:
-            rprf = transform.groupby_bins(ds.rho*qty, 'r', nbin, (ledge, redge)) / rprofs['rho']
-        else:
-            rprf = transform.groupby_bins(qty, 'r', nbin, (ledge, redge))
+            rprf = rprf / rprofs['rho']
         if dask.is_dask_collection(rprf):
             rprf = xr.DataArray(
                 data=da.concatenate([np.atleast_1d(rprf_c.data), rprf.data]
@@ -505,27 +507,32 @@ def radial_profile(s, ds, origin, rmax=None, newz=None):
             )
         else:
             rprf = xr.concat([rprf_c, rprf], dim='r')
-        return rprf
+        # TODO: In a future subcell method, replace the r=0 shell volume
+        # with the corresponding subcell-based effective volume.
+        bin_cnt = xr.concat([xr.DataArray([1], coords=dict(r=[0]), dims='r',
+                                          name='bin_count'),
+                             bin_cnt], dim='r')
+        return rprf, bin_cnt*s.dV
 
     # Volume-weighted averages
-    rprofs['rho'] = rprf_incl_center(ds['rho'])
-    rprofs['frac_neg_gacc1'] = rprf_incl_center(ds['frac_neg_gacc1'])
+    rprofs['rho'], rprofs['vshell'] = rprf_incl_center(ds['rho'])
+    rprofs['frac_neg_gacc1'], _ = rprf_incl_center(ds['frac_neg_gacc1'])
     # Mass-weighted averages
     for k in ['gacc1', 'velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3', 'phi']:
-        rprofs[k+'_mw'] = rprf_incl_center(ds[k], mass_weighted=True)
+        rprofs[k+'_mw'], _ = rprf_incl_center(ds[k], mass_weighted=True)
 
     # virial terms
-    rprofs['xgx_mw'] = rprf_incl_center((ds.x - origin[0])*gacc['x'], mass_weighted=True)
-    rprofs['ygy_mw'] = rprf_incl_center((ds.y - origin[1])*gacc['y'], mass_weighted=True)
-    rprofs['zgz_mw'] = rprf_incl_center((ds.z - origin[2])*gacc['z'], mass_weighted=True)
+    rprofs['xgx_mw'], _ = rprf_incl_center((ds.x - origin[0])*gacc['x'], mass_weighted=True)
+    rprofs['ygy_mw'], _ = rprf_incl_center((ds.y - origin[1])*gacc['y'], mass_weighted=True)
+    rprofs['zgz_mw'], _ = rprf_incl_center((ds.z - origin[2])*gacc['z'], mass_weighted=True)
 
     # Mass-weighted squared averages
     for k in ['velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3']:
-        rprofs[k+'_sq_mw'] = rprf_incl_center(ds[k]**2, mass_weighted=True)
+        rprofs[k+'_sq_mw'], _ = rprf_incl_center(ds[k]**2, mass_weighted=True)
     if s.mhd:
         for k in ['bx', 'by', 'bz', 'b1', 'b2', 'b3']:
-            rprofs[k] = rprf_incl_center(ds[k])
-            rprofs[k+'_sq'] = rprf_incl_center(ds[k]**2)
+            rprofs[k], _ = rprf_incl_center(ds[k])
+            rprofs[k+'_sq'], _ = rprf_incl_center(ds[k]**2)
     rprofs = xr.Dataset(rprofs)
 
     # Drop theta and phi coordinates
