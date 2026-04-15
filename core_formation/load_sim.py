@@ -304,14 +304,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         for pid in self.pids:
             cores = self.cores[pid].copy()
             if not cores.attrs['isolated']:
-                self.logger.warning(f"{self.basename}: Core {pid} not isolated. "
-                                    "Skipping core property update.")
                 core_dict[pid] = cores
                 continue
             if cores.attrs['track_failed']:
-                self.logger.warning(f"{self.basename}: Core {pid} failed to be"
-                                    " tracked before collapse. "
-                                    " Skipping core property update.")
                 core_dict[pid] = cores
                 continue
 
