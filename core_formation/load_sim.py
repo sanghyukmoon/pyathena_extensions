@@ -276,7 +276,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             if not cores.attrs['isolated']:
                 # Exclude non-isolated cores
                 continue
-            if len(cores) == 1 and cores.index[0] == cores.attrs['numcoll']:
+            if cores.attrs['track_failed']:
                 # Exclude cores that failed to be tracked before collapse.
                 continue
             if tools.test_resolved_core(self, cores, nres):
@@ -308,7 +308,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                                     "Skipping core property update.")
                 core_dict[pid] = cores
                 continue
-            if len(cores) == 1 and cores.index[0] == cores.attrs['numcoll']:
+            if cores.attrs['track_failed']:
                 self.logger.warning(f"{self.basename}: Core {pid} failed to be"
                                     " tracked before collapse. "
                                     " Skipping core property update.")
@@ -640,12 +640,16 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Find collapse time
             cores.attrs['tcoll'] = self.tcoll_cores.loc[pid].time
 
+            # Add attributes
+            if len(cores) == 1 and cores.index[0] == cores.attrs['numcoll']:
+                cores.attrs['track_failed'] = True
+            else:
+                cores.attrs['track_failed'] = False
+
             # Sort attributes
             cores.attrs = {k: cores.attrs[k] for k in sorted(cores.attrs)}
 
             cores_dict[pid] = cores
-
-
 
         if len(pids_not_found) > 0:
             msg = f"{self.basename}: Some critical TES files are missing for pid {pids_not_found}"
