@@ -437,6 +437,8 @@ def radial_profile(s, ds, origin, rmax=None, newz=None):
     vel1, vel2, vel3 : Mass-weighted mean velocities (v_r, v_theta, v_phi).
     vel1_sq_mw, vel2_sq_mw, vel3_sq_mw : Mass-weighted variance of the velocities.
     gacc1_mw : Mass-weighted mean gravitational acceleration.
+    frac_neg_gacc1 : Fraction of cells in each radial bin with inward
+        radial gravitational acceleration (g_r < 0).
     phi_mw : Mass-weighted mean gravitational potential.
     """
     # Sometimes, tidal radius is so small that the angular momentum vector
@@ -477,6 +479,7 @@ def radial_profile(s, ds, origin, rmax=None, newz=None):
             = transform.to_spherical((ds.bx, ds.by, ds.bz), origin, newz)
     _, (ds['gacc1'], _, _)\
         = transform.to_spherical(gacc.values(), origin, newz)
+    ds['frac_neg_gacc1'] = xr.where(ds.gacc1 < 0, 1.0, 0.0)
 
     # Perform radial binnings
     rprofs = {}
@@ -506,6 +509,7 @@ def radial_profile(s, ds, origin, rmax=None, newz=None):
 
     # Volume-weighted averages
     rprofs['rho'] = rprf_incl_center(ds['rho'])
+    rprofs['frac_neg_gacc1'] = rprf_incl_center(ds['frac_neg_gacc1'])
     # Mass-weighted averages
     for k in ['gacc1', 'velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3', 'phi']:
         rprofs[k+'_mw'] = rprf_incl_center(ds[k], mass_weighted=True)
