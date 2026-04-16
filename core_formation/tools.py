@@ -408,7 +408,7 @@ def critical_tes_property(s, rprf, core):
     return res
 
 
-def radial_profile(s, ds, origin, rmax=None, newz=None):
+def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
     """Calculates radial profiles of various properties at selected position
 
     This function returns lazy Dataset if the inputs are dask array.
@@ -426,6 +426,8 @@ def radial_profile(s, ds, origin, rmax=None, newz=None):
     newz : array, optional
         (x, y, z) vector components of the new z axis. If None, z axis is
         assumed to be the native z axis.
+    nsub : int, optional
+        Number of subcells per cell for subcell correction. Default to 4.
 
     Returns
     -------
@@ -455,7 +457,7 @@ def radial_profile(s, ds, origin, rmax=None, newz=None):
 
     # Slice data
     nbin = int(np.ceil(rmax/s.dx))
-    ledge = 0.5*s.dx
+    hdx = 0.5*s.dx
     redge = (nbin + 0.5)*s.dx
     ds = ds.sel(x=slice(origin[0] - redge, origin[0] + redge),
                 y=slice(origin[1] - redge, origin[1] + redge),
@@ -484,53 +486,101 @@ def radial_profile(s, ds, origin, rmax=None, newz=None):
 
     # Perform radial binnings
     rprofs = {}
+    nbin_sub = min(4, nbin)
+    if nbin_sub == 0:
+        raise ValueError('radial_profile requires at least one radial bin')
 
-    def rprf_incl_center(qty, mass_weighted=False):
+    if nbin_sub > 0:
+        redge_sub = (nbin_sub + 0.5)*s.dx
+        sel_patch = dict(x=slice(origin[0] - redge_sub, origin[0] + redge_sub),
+                         y=slice(origin[1] - redge_sub, origin[1] + redge_sub),
+                         z=slice(origin[2] - redge_sub, origin[2] + redge_sub))
+        ds_patch = ds.sel(**sel_patch)
+
+        subcell_dx = s.dx/nsub
+        offsets = xr.DataArray(-0.5*s.dx + (np.arange(nsub) + 0.5)*subcell_dx, dims='sub')
+        xsub = (ds_patch.x - origin[0]) + offsets.rename(sub='subx')
+        ysub = (ds_patch.y - origin[1]) + offsets.rename(sub='suby')
+        zsub = (ds_patch.z - origin[2]) + offsets.rename(sub='subz')
+        rsub = np.sqrt(xsub**2 + ysub**2 + zsub**2)
+        rsub = rsub.stack(cell=('z', 'y', 'x'), subcell=('subz', 'suby', 'subx'))
+        rsub = rsub.transpose('subcell', 'cell')
+        ibin = np.floor((rsub + hdx)/s.dx).astype(int)
+
+        # Fraction of each parent cell assigned to the central sphere and the
+        # first few nonzero radial shells.
+        subcell_frac = xr.concat([xr.where(ibin == i, 1.0, 0.0).mean('subcell')
+                                for i in range(nbin_sub + 1)], dim='r')
+        subcell_frac = subcell_frac.assign_coords(r=np.arange(nbin_sub + 1)*s.dx)
+        shell_volume = (subcell_frac*s.dV).sum('cell').rename('vshell')
+        rho_patch = ds_patch.rho.transpose('z', 'y', 'x').stack(cell=('z', 'y', 'x'))
+        shell_mass = (rho_patch*subcell_frac*s.dV).sum('cell').rename('mshell')
+
+    def _radial_binning(qty, mass_weighted=False):
         """Inner wrapper function for radial binning
 
-        This function assumes that rprofs['rho'] is already calculated.
+        Central sphere and the first few nonzero radial bins are corrected with
+        subcell method, while the rest of the bins are calculated with simple
+        binning. The number of subcell bins is determined by nbin_sub, which is
+        set to 4 by default.
+
+        Parameters
+        ----------
+        qty : xarray.DataArray
+            Quantity to be binned.
+        mass_weighted : bool, optional
+            Whether to calculate mass-weighted average. Default to False.
+
+        Returns
+        -------
+        rprf : xarray.DataArray
+            Radial profile of the quantity.
+        vshell : xarray.DataArray
+            Effective shell volume under the current discrete radial binning.
+
+        Notes
+        -----
+        mass_weighted=True assumes that rprofs['rho'] is already calculated.
         """
-        rprf_c = qty.sel(x=origin[0], y=origin[1], z=origin[2]).drop_vars(['x', 'y', 'z'])
         dat = ds.rho*qty if mass_weighted else qty
-        rprf, bin_cnt = transform.groupby_bins(dat, 'r', nbin, (ledge, redge),
+        rprf, bin_cnt = transform.groupby_bins(dat, 'r', nbin, (hdx, redge),
                                                return_count=True)
         if mass_weighted:
             rprf = rprf / rprofs['rho']
-        if dask.is_dask_collection(rprf):
-            rprf = xr.DataArray(
-                data=da.concatenate([np.atleast_1d(rprf_c.data), rprf.data]
-                                    ).rechunk(rprf.chunksizes['r'][0] + 1),
-                coords=dict(r=np.insert(rprf.r.data, 0, 0)),
-                dims='r',
-                name=rprf.name,
-                attrs=rprf.attrs
-            )
+        # Overwrite the central sphere and first few nonzero bins with
+        # subcell corrected values.
+        vshell = (bin_cnt*s.dV).rename('vshell')
+        qty_patch = qty.sel(**sel_patch).transpose('z', 'y', 'x').stack(cell=('z', 'y', 'x'))
+        if mass_weighted:
+            numer = (rho_patch*qty_patch*subcell_frac*s.dV).sum('cell')
+            denom = shell_mass
         else:
-            rprf = xr.concat([rprf_c, rprf], dim='r')
-        center_vshell = xr.DataArray([4*np.pi*ledge**3/3], coords=dict(r=[0]),
-                                     dims='r', name='vshell')
-        vshell = xr.concat([center_vshell, bin_cnt*s.dV], dim='r')
+            numer = (qty_patch*subcell_frac*s.dV).sum('cell')
+            denom = shell_volume
+        rprf_patch = numer/denom
+        rprf = xr.concat([rprf_patch, rprf.isel(r=slice(nbin_sub, None))], dim='r')
+        vshell = xr.concat([shell_volume, vshell.isel(r=slice(nbin_sub, None))], dim='r')
         return rprf, vshell
 
     # Volume-weighted averages
-    rprofs['rho'], rprofs['vshell'] = rprf_incl_center(ds['rho'])
-    rprofs['frac_neg_gacc1'], _ = rprf_incl_center(ds['frac_neg_gacc1'])
+    rprofs['rho'], rprofs['vshell'] = _radial_binning(ds['rho'])
+    rprofs['frac_neg_gacc1'], _ = _radial_binning(ds['frac_neg_gacc1'])
     # Mass-weighted averages
     for k in ['gacc1', 'velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3', 'phi']:
-        rprofs[k+'_mw'], _ = rprf_incl_center(ds[k], mass_weighted=True)
+        rprofs[k+'_mw'], _ = _radial_binning(ds[k], mass_weighted=True)
 
     # virial terms
-    rprofs['xgx_mw'], _ = rprf_incl_center((ds.x - origin[0])*gacc['x'], mass_weighted=True)
-    rprofs['ygy_mw'], _ = rprf_incl_center((ds.y - origin[1])*gacc['y'], mass_weighted=True)
-    rprofs['zgz_mw'], _ = rprf_incl_center((ds.z - origin[2])*gacc['z'], mass_weighted=True)
+    rprofs['xgx_mw'], _ = _radial_binning((ds.x - origin[0])*gacc['x'], mass_weighted=True)
+    rprofs['ygy_mw'], _ = _radial_binning((ds.y - origin[1])*gacc['y'], mass_weighted=True)
+    rprofs['zgz_mw'], _ = _radial_binning((ds.z - origin[2])*gacc['z'], mass_weighted=True)
 
     # Mass-weighted squared averages
     for k in ['velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3']:
-        rprofs[k+'_sq_mw'], _ = rprf_incl_center(ds[k]**2, mass_weighted=True)
+        rprofs[k+'_sq_mw'], _ = _radial_binning(ds[k]**2, mass_weighted=True)
     if s.mhd:
         for k in ['bx', 'by', 'bz', 'b1', 'b2', 'b3']:
-            rprofs[k], _ = rprf_incl_center(ds[k])
-            rprofs[k+'_sq'], _ = rprf_incl_center(ds[k]**2)
+            rprofs[k], _ = _radial_binning(ds[k])
+            rprofs[k+'_sq'], _ = _radial_binning(ds[k]**2)
     rprofs = xr.Dataset(rprofs)
 
     # Drop theta and phi coordinates
@@ -575,14 +625,18 @@ def radial_profile_projected(s, num, origin):
 
     # Calculate surface density radial profiles
     rprofs = {}
-    ledge = 0.5*s.dx
+    hdx = 0.5*s.dx
     nbin = s.domain['Nx'][0]//2 - 1
     redge = (nbin + 0.5)*s.dx
 
-    def rprf_incl_center(qty, ax, mass_weighted=False, rms=False):
+    def _rprf_incl_center(qty, ax, mass_weighted=False, rms=False):
         """Inner wrapper function for radial binning
+        TODO
+        ----
+        make this function consistent with radial_binning
+        used in volumetric radial_profile function.
 
-        This function assumes that rprofs['rho'] is already calculated.
+        mass_weighted=True assumes that rprofs['rho'] is already calculated.
         """
         x1, x2 = xycoordnames[ax]
         x1c, x2c = xycenters[ax]
@@ -598,36 +652,36 @@ def radial_profile_projected(s, num, origin):
             w.coords['R'] = np.sqrt((w.coords[x1] - new_center[x1])**2
                                     + (w.coords[x2] - new_center[x2])**2)
             if rms:
-                rprf = np.sqrt(transform.groupby_bins(ds**2*w, 'R', nbin, (ledge, redge), skipna=True)
-                               / transform.groupby_bins(w, 'R', nbin, (ledge, redge), skipna=True))
+                rprf = np.sqrt(transform.groupby_bins(ds**2*w, 'R', nbin, (hdx, redge), skipna=True)
+                               / transform.groupby_bins(w, 'R', nbin, (hdx, redge), skipna=True))
             else:
-                rprf = (transform.groupby_bins(ds*w, 'R', nbin, (ledge, redge), skipna=True)
-                        / transform.groupby_bins(w, 'R', nbin, (ledge, redge), skipna=True))
+                rprf = (transform.groupby_bins(ds*w, 'R', nbin, (hdx, redge), skipna=True)
+                        / transform.groupby_bins(w, 'R', nbin, (hdx, redge), skipna=True))
         else:
             if rms:
-                rprf = np.sqrt(transform.groupby_bins(ds**2, 'R', nbin, (ledge, redge), skipna=True))
+                rprf = np.sqrt(transform.groupby_bins(ds**2, 'R', nbin, (hdx, redge), skipna=True))
             else:
-                rprf = transform.groupby_bins(ds, 'R', nbin, (ledge, redge), skipna=True)
+                rprf = transform.groupby_bins(ds, 'R', nbin, (hdx, redge), skipna=True)
         rprf = xr.concat([rprf_c, rprf], dim='R')
         return rprf
 
     for i, ax in enumerate(['x', 'y', 'z']):
         # Volume-weighted averages
         for qty in [k for k in prj[ax].keys() if k.startswith('Sigma_gas')]:
-            rprofs[f'{ax}_{qty}'] = rprf_incl_center(qty, ax)
+            rprofs[f'{ax}_{qty}'] = _rprf_incl_center(qty, ax)
 
         # Mass-weighted averages
         for qty in [k for k in prj[ax].keys() if k.startswith('vel_mtd')]:
-            rprofs[f'{ax}_{qty}_mw'] = rprf_incl_center(qty, ax, mass_weighted=True)
+            rprofs[f'{ax}_{qty}_mw'] = _rprf_incl_center(qty, ax, mass_weighted=True)
 
         for qty in [k for k in prj[ax].keys() if k.startswith('veldisp_mtd')]:
-            rprofs[f'{ax}_{qty}'] = rprf_incl_center(qty, ax)
-            rprofs[f'{ax}_{qty}_mw'] = rprf_incl_center(qty, ax, mass_weighted=True)
+            rprofs[f'{ax}_{qty}'] = _rprf_incl_center(qty, ax)
+            rprofs[f'{ax}_{qty}_mw'] = _rprf_incl_center(qty, ax, mass_weighted=True)
 
         # RMS averages
         for qty in [k for k in prj[ax].keys() if k.startswith('veldisp_mtd')]:
-            rprofs[f'{ax}_{qty}_rms'] = rprf_incl_center(qty, ax, rms=True)
-            rprofs[f'{ax}_{qty}_rms_mw'] = rprf_incl_center(qty, ax, mass_weighted=True, rms=True)
+            rprofs[f'{ax}_{qty}_rms'] = _rprf_incl_center(qty, ax, rms=True)
+            rprofs[f'{ax}_{qty}_rms_mw'] = _rprf_incl_center(qty, ax, mass_weighted=True, rms=True)
 
     rprofs = xr.Dataset(rprofs)
 
