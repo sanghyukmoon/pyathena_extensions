@@ -1212,6 +1212,12 @@ def critical_time_old(s, cores, rprofs, *, method):
                         rcrit = np.nan
                     else:
                         rcrit = cores.loc[ncrit].critical_radius
+                    if not np.isfinite(rcrit):
+                        msg = (f"Critical radius at ncrit = {ncrit} is not "
+                               f"finite for par {pid}: "
+                               f"method={method}, rcrit={cores.loc[ncrit].critical_radius}.")
+                        s.logger.warning(msg)
+                        ncrit = np.nan
                     break
         if ncrit == cores.attrs['numcoll'] and np.isnan(cores.loc[ncrit].critical_radius):
             # If ncrit is ncoll at which critical radius was nan, set ncrit to NaN.
