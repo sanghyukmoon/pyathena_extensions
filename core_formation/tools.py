@@ -1182,8 +1182,15 @@ def critical_time_old(s, cores, rprofs, *, method):
                                " Continuing...")
                         s.logger.warning(msg)
                         continue
+                    if np.isinf(core.critical_radius):
+                        n2coll = cores.attrs['numcoll'] - num
+                        msg = (f"Critical radius at t_coll - {n2coll}"
+                               f" is inf for par {pid}, method {method}."
+                               " This may have been caused by very small rsonic"
+                               " Continuing...")
+                        s.logger.warning(msg)
+                        continue
                 rprf = rprofs.sel(num=num)
-
                 # Net force at the critical radius is negative after the
                 # critical time, throughout the collapse.
                 if np.isfinite(core.critical_radius):
