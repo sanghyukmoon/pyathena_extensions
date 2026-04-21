@@ -384,7 +384,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 rcore = rcrit
                 if np.isnan(rcore) and cores.attrs['isolated']:
                     raise ValueError("Critical radius at t_crit is NaN even though core is isolated: "
-                                     f"Model {self.basename}, par {pid}, ncrit = {ncrit}")
+                                     f"Model {self.basename}, par {pid}, ncrit = {ncrit}"
+                                     f" crit_method {method}")
                 if rcore > rprf.r.max()[()]:
                     msg = (
                         f"Core radius exceeds the maximum rprof radius for "
@@ -746,22 +747,40 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 rprofs[f'dvel{axis}_sq_mw'] = (rprofs[f'vel{axis}_sq_mw']
                                              - rprofs[f'vel{axis}_mw']**2)
 
-            #TODO
-            # Replace this to (rprofs.rho*rprofs.vshell).cumsum('r')
-            rprofs['menc'] = (4*np.pi*rprofs.r**2*rprofs.rho
-                              ).cumulative_integrate('r')
+            dr = rprofs.r.data[1] - rprofs.r.data[0]
+            rc = np.append(rprofs.r.data, rprofs.r.data[-1] + dr)
+            rf = 0.5*(rc[1:] + rc[:-1])
+            vf = np.insert(4*np.pi*rf**3/3, 0, 0)
+            rprofs['vshell_exact'] = xr.DataArray(
+                vf[1:] - vf[:-1],
+                dims='r',
+                coords=dict(r=rprofs.r)
+            )
+            rprofs['menc'] = (rprofs.rho * rprofs.vshell_exact).cumsum('r')
+
             # Virial terms
             rdotg = rprofs.xgx_mw + rprofs.ygy_mw + rprofs.zgz_mw
-            rprofs['Omega_G'] = -(4*np.pi*rprofs.r**2*rprofs.rho*rdotg).cumulative_integrate('r')
-            rdotg_sph = xr.where(rprofs.r > 0,
-                                 -self.gconst*rprofs.menc/rprofs.r.where(rprofs.r > 0),
-                                 0)
-            rprofs['Omega_G_sph'] = -(4*np.pi*rprofs.r**2*rprofs.rho*rdotg_sph).cumulative_integrate('r')
-            rprofs['Omega_G0'] = self.gconst*rprofs.menc**2/rprofs.r
-            rprofs['Omega_K_thm'] = (4*np.pi*rprofs.r**2*3*self.cs**2*rprofs.rho).cumulative_integrate('r')
-            rprofs['Omega_K_kin'] = (4*np.pi*rprofs.r**2*rprofs.rho*(
-                rprofs.vel1_sq_mw + rprofs.vel2_sq_mw + rprofs.vel3_sq_mw)
-            ).cumulative_integrate('r')
+
+            rprofs['Omega_G'] = -(rprofs.rho*rdotg*rprofs.vshell_exact).cumsum('r')
+
+            rdotg_sph = xr.where(
+                rprofs.r > 0,
+                -self.gconst * rprofs.menc / rprofs.r,
+                0
+            )
+            rprofs['Omega_G_sph'] = -(rprofs.rho*rdotg_sph*rprofs.vshell_exact).cumsum('r')
+
+            rprofs['Omega_G0'] = xr.where(
+                rprofs.r > 0,
+                self.gconst * rprofs.menc**2 / rprofs.r,
+                0
+            )
+
+            rprofs['Omega_K_thm'] = (3*self.cs**2*rprofs.rho*rprofs.vshell_exact).cumsum('r')
+
+            vsq = (rprofs.vel1_sq_mw + rprofs.vel2_sq_mw + rprofs.vel3_sq_mw)
+            rprofs['Omega_K_kin'] = (rprofs.rho*vsq*rprofs.vshell_exact).cumsum('r')
+
             rprofs['Omega_K'] = rprofs['Omega_K_thm'] + rprofs['Omega_K_kin']
             rprofs['Omega_S_thm'] = 4*np.pi*rprofs.r**3*self.cs**2*rprofs.rho
             rprofs['Omega_S_kin'] = 4*np.pi*rprofs.r**3*rprofs.rho*rprofs.vel1_sq_mw
@@ -769,7 +788,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             rprofs['alpha_vir'] = rprofs['Omega_K'] / rprofs['Omega_G']
             if self.mhd:
                 magnetic_energy_density = (rprofs.b1_sq + rprofs.b2_sq + rprofs.b3_sq)/2
-                rprofs['Omega_M'] = (4*np.pi*rprofs.r**2*magnetic_energy_density).cumulative_integrate('r')
+                rprofs['Omega_M'] = (magnetic_energy_density*rprofs.vshell_exact).cumsum('r')
                 t_rr = rprofs.b1_sq - magnetic_energy_density
                 rprofs['Omega_S_mag'] = -4*np.pi*rprofs.r**3*t_rr
                 rprofs['Omega_S'] += rprofs['Omega_S_mag']
@@ -818,7 +837,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 param_dict[f'{key}_fixed_a'] = param_dict[key].copy()
                 param_dict[f'{key}_fixed_a']['a'] = xr.ones_like(a_grv)
             for key, params in param_dict.items():
-                c_J = np.sqrt(3**7 / (4 * np.pi * 2**8 * params['a'].where(params['a'] >= 0)**3))
+                c_J = np.sqrt(3**7 / (4 * np.pi * 2**8 * params['a'].where(params['a'] > 0)**3))
                 # Cubic coefficients for x^3 + ax^2 + bx + c = 0
                 a = -3*params['mmag2'] - c_J**2 * params['sigma_tot2']**4 / (self.gconst**3 * rprofs.ptot)
                 b = 3*params['mmag2']**2
