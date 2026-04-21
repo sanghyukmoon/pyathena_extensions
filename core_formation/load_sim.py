@@ -748,27 +748,36 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                                              - rprofs[f'vel{axis}_mw']**2)
 
             dr = rprofs.r.data[1] - rprofs.r.data[0]
-            rc = np.append(rprofs.r.data, rprofs.r.data[-1] + dr)
-            rf = 0.5*(rc[1:] + rc[:-1])
-            vf = np.insert(4*np.pi*rf**3/3, 0, 0)
-            rprofs['vshell_exact'] = xr.DataArray(
-                vf[1:] - vf[:-1],
+            rc = rprofs.r.data
+            rf = np.insert(0.5*(rc[1:] + rc[:-1]), 0, 0)
+            rf = np.append(rf, rf[-1]+dr)
+            vshell_full = 4*np.pi/3*(rf[1:]**3 - rf[:-1]**3)
+            vshell_half = 4*np.pi/3*(rf[1:]**3 - rc**3)
+
+            rprofs['vshell_full'] = xr.DataArray(
+                vshell_full,
                 dims='r',
                 coords=dict(r=rprofs.r)
             )
-            rprofs['menc'] = (rprofs.rho * rprofs.vshell_exact).cumsum('r')
+            rprofs['vshell_half'] = xr.DataArray(
+                vshell_half,
+                dims='r',
+                coords=dict(r=rprofs.r)
+            )
+
+            rprofs['menc'] = rprof_cumsum_r(rprofs, rprofs.rho)
 
             # Virial terms
             rdotg = rprofs.xgx_mw + rprofs.ygy_mw + rprofs.zgz_mw
 
-            rprofs['Omega_G'] = -(rprofs.rho*rdotg*rprofs.vshell_exact).cumsum('r')
+            rprofs['Omega_G'] = -rprof_cumsum_r(rprofs, rprofs.rho*rdotg)
 
             rdotg_sph = xr.where(
                 rprofs.r > 0,
                 -self.gconst * rprofs.menc / rprofs.r,
                 0
             )
-            rprofs['Omega_G_sph'] = -(rprofs.rho*rdotg_sph*rprofs.vshell_exact).cumsum('r')
+            rprofs['Omega_G_sph'] = -rprof_cumsum_r(rprofs, rprofs.rho*rdotg_sph)
 
             rprofs['Omega_G0'] = xr.where(
                 rprofs.r > 0,
@@ -776,10 +785,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 0
             )
 
-            rprofs['Omega_K_thm'] = (3*self.cs**2*rprofs.rho*rprofs.vshell_exact).cumsum('r')
+            rprofs['Omega_K_thm'] = rprof_cumsum_r(rprofs, 3*self.cs**2*rprofs.rho)
 
             vsq = (rprofs.vel1_sq_mw + rprofs.vel2_sq_mw + rprofs.vel3_sq_mw)
-            rprofs['Omega_K_kin'] = (rprofs.rho*vsq*rprofs.vshell_exact).cumsum('r')
+            rprofs['Omega_K_kin'] = rprof_cumsum_r(rprofs, rprofs.rho*vsq)
 
             rprofs['Omega_K'] = rprofs['Omega_K_thm'] + rprofs['Omega_K_kin']
             rprofs['Omega_S_thm'] = 4*np.pi*rprofs.r**3*self.cs**2*rprofs.rho
@@ -788,7 +797,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             rprofs['alpha_vir'] = rprofs['Omega_K'] / rprofs['Omega_G']
             if self.mhd:
                 magnetic_energy_density = (rprofs.b1_sq + rprofs.b2_sq + rprofs.b3_sq)/2
-                rprofs['Omega_M'] = (magnetic_energy_density*rprofs.vshell_exact).cumsum('r')
+                rprofs['Omega_M'] = rprof_cumsum_r(rprofs, magnetic_energy_density)
                 t_rr = rprofs.b1_sq - magnetic_energy_density
                 rprofs['Omega_S_mag'] = -4*np.pi*rprofs.r**3*t_rr
                 rprofs['Omega_S'] += rprofs['Omega_S_mag']
@@ -973,3 +982,10 @@ def cubic_root(a, b, c):
     x_cardano_disc_neg = x_three.max(dim='root')
     x = xr.where(disc >= 0, x_cardano, x_cardano_disc_neg)
     return x
+
+def rprof_cumsum_r(rprofs, rprf_var):
+#    res = (4*np.pi*rprofs.r**2*rprf_var).cumulative_integrate('r')
+    res = (rprf_var*rprofs.vshell_full).cumsum('r')
+    # correct for outer half of the shell
+    res -= rprf_var*rprofs.vshell_half
+    return res
