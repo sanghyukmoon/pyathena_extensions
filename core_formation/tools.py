@@ -480,9 +480,11 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
     if s.mhd:
         _, (ds['b1'], ds['b2'], ds['b3'])\
             = transform.to_spherical((ds.bx, ds.by, ds.bz), origin, newz)
-    _, (ds['gacc1'], _, _)\
+    _, (ds['gacc1'], ds['gacc2'], ds['gacc3'])\
         = transform.to_spherical(gacc.values(), origin, newz)
     ds['frac_neg_gacc1'] = xr.where(ds.gacc1 < 0, 1.0, 0.0)
+    angular_gacc = np.sqrt(ds.gacc2**2 + ds.gacc3**2)
+    ds['frac_inward_gacc'] = xr.where(ds.gacc1 < -angular_gacc, 1.0, 0.0)
 
     # Perform radial binnings
     rprofs = {}
@@ -564,7 +566,9 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
 
     # Volume-weighted averages
     rprofs['rho'], rprofs['vshell'] = _radial_binning(ds['rho'])
+    rprofs['gacc1'], _ = _radial_binning(ds['gacc1'])
     rprofs['frac_neg_gacc1'], _ = _radial_binning(ds['frac_neg_gacc1'])
+    rprofs['frac_inward_gacc'], _ = _radial_binning(ds['frac_inward_gacc'])
     # Mass-weighted averages
     for k in ['gacc1', 'velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3', 'phi']:
         rprofs[k+'_mw'], _ = _radial_binning(ds[k], mass_weighted=True)
