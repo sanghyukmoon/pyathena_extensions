@@ -570,16 +570,16 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
         return rprf, vshell
 
     def _plane_basis(normal):
-        normal = np.asarray(normal, dtype=float)
+        normal = np.array(normal, dtype=float)
         normal /= np.sqrt((normal**2).sum())
         ref = np.array([1.0, 0.0, 0.0]) if abs(normal[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
         e1 = np.cross(normal, ref)
         e1 /= np.sqrt((e1**2).sum())
         e2 = np.cross(normal, e1)
-        return e1, e2
+        return e1, e2, normal
 
     def _magnetic_flux(radius, normal):
-        e1, e2 = _plane_basis(normal)
+        e1, e2, normal = _plane_basis(normal)
         q = np.arange(-radius, radius + hdx, s.dx)
         u = xr.DataArray(q, dims='u', coords=dict(u=q))
         v = xr.DataArray(q, dims='v', coords=dict(v=q))
@@ -642,11 +642,12 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
             + rprofs.bhat_z*rprofs.lhat_z
         )
 
+        radii = rprofs.r.values
+        bhat_x = rprofs.bhat_x.compute().data
+        bhat_y = rprofs.bhat_y.compute().data
+        bhat_z = rprofs.bhat_z.compute().data
         phi_B = []
-        for radius, nx, ny, nz in zip(rprofs.r.data,
-                                      rprofs.bhat_x.data,
-                                      rprofs.bhat_y.data,
-                                      rprofs.bhat_z.data):
+        for radius, nx, ny, nz in zip(radii, bhat_x, bhat_y, bhat_z):
             phi_B.append(_magnetic_flux(radius, (nx, ny, nz)))
         rprofs['phi_B'] = xr.concat(phi_B, dim='r').assign_coords(r=rprofs.r)
 
