@@ -443,6 +443,8 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
         radial gravitational acceleration (g_r < 0).
     vshell : Effective shell volume under the current discrete radial binning.
     phi_mw : Mass-weighted mean gravitational potential.
+    phi_B : Magnetic flux through a circular aperture of radius r whose normal
+        follows the enclosed mean magnetic field direction.
     """
     # Sometimes, tidal radius is so small that the angular momentum vector
     # Cannot be computed. In this case, fall back to default behavior.
@@ -485,6 +487,9 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
     ds['frac_neg_gacc1'] = xr.where(ds.gacc1 < 0, 1.0, 0.0)
     angular_gacc = np.sqrt(ds.gacc2**2 + ds.gacc3**2)
     ds['frac_inward_gacc'] = xr.where(ds.gacc1 < -angular_gacc, 1.0, 0.0)
+    ds['Ldens_x'] = ds.rho*((ds.y - origin[1])*ds.velz - (ds.z - origin[2])*ds.vely)
+    ds['Ldens_y'] = ds.rho*((ds.z - origin[2])*ds.velx - (ds.x - origin[0])*ds.velz)
+    ds['Ldens_z'] = ds.rho*((ds.x - origin[0])*ds.vely - (ds.y - origin[1])*ds.velx)
 
     # Perform radial binnings
     rprofs = {}
@@ -564,6 +569,28 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
         vshell = xr.concat([shell_volume, vshell.isel(r=slice(nbin_sub, None))], dim='r')
         return rprf, vshell
 
+    def _plane_basis(normal):
+        normal = np.asarray(normal, dtype=float)
+        normal /= np.sqrt((normal**2).sum())
+        ref = np.array([1.0, 0.0, 0.0]) if abs(normal[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+        e1 = np.cross(normal, ref)
+        e1 /= np.sqrt((e1**2).sum())
+        e2 = np.cross(normal, e1)
+        return e1, e2
+
+    def _magnetic_flux(radius, normal):
+        e1, e2 = _plane_basis(normal)
+        q = np.arange(-radius, radius + hdx, s.dx)
+        u = xr.DataArray(q, dims='u', coords=dict(u=q))
+        v = xr.DataArray(q, dims='v', coords=dict(v=q))
+        xq = origin[0] + u*e1[0] + v*e2[0]
+        yq = origin[1] + u*e1[1] + v*e2[1]
+        zq = origin[2] + u*e1[2] + v*e2[2]
+        R = np.sqrt(u**2 + v**2)
+        bnorm = ds.bx*normal[0] + ds.by*normal[1] + ds.bz*normal[2]
+        plane = bnorm.interp(x=xq, y=yq, z=zq, method='linear')
+        return (plane.where(R <= radius).sum(('u', 'v')) * s.dx**2).rename('phi_B')
+
     # Volume-weighted averages
     rprofs['rho'], rprofs['vshell'] = _radial_binning(ds['rho'])
     rprofs['gacc1'], _ = _radial_binning(ds['gacc1'])
@@ -581,11 +608,47 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
     # Mass-weighted squared averages
     for k in ['velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3']:
         rprofs[k+'_sq_mw'], _ = _radial_binning(ds[k]**2, mass_weighted=True)
+    for k in ['Ldens_x', 'Ldens_y', 'Ldens_z']:
+        rprofs[k], _ = _radial_binning(ds[k])
     if s.mhd:
         for k in ['bx', 'by', 'bz', 'b1', 'b2', 'b3']:
             rprofs[k], _ = _radial_binning(ds[k])
             rprofs[k+'_sq'], _ = _radial_binning(ds[k]**2)
     rprofs = xr.Dataset(rprofs)
+
+    Lshell_x = rprofs.Ldens_x * rprofs.vshell
+    Lshell_y = rprofs.Ldens_y * rprofs.vshell
+    Lshell_z = rprofs.Ldens_z * rprofs.vshell
+    rprofs['Lx_enc'] = Lshell_x.cumsum('r')
+    rprofs['Ly_enc'] = Lshell_y.cumsum('r')
+    rprofs['Lz_enc'] = Lshell_z.cumsum('r')
+    Lnorm = np.sqrt(rprofs.Lx_enc**2 + rprofs.Ly_enc**2 + rprofs.Lz_enc**2)
+    rprofs['lhat_x'] = rprofs.Lx_enc / Lnorm
+    rprofs['lhat_y'] = rprofs.Ly_enc / Lnorm
+    rprofs['lhat_z'] = rprofs.Lz_enc / Lnorm
+
+    if s.mhd:
+        venc = rprofs.vshell.cumsum('r')
+        rprofs['bmean_x'] = (rprofs.bx * rprofs.vshell).cumsum('r') / venc
+        rprofs['bmean_y'] = (rprofs.by * rprofs.vshell).cumsum('r') / venc
+        rprofs['bmean_z'] = (rprofs.bz * rprofs.vshell).cumsum('r') / venc
+        bmean_norm = np.sqrt(rprofs.bmean_x**2 + rprofs.bmean_y**2 + rprofs.bmean_z**2)
+        rprofs['bhat_x'] = rprofs.bmean_x / bmean_norm
+        rprofs['bhat_y'] = rprofs.bmean_y / bmean_norm
+        rprofs['bhat_z'] = rprofs.bmean_z / bmean_norm
+        rprofs['costh_BL'] = (
+            rprofs.bhat_x*rprofs.lhat_x
+            + rprofs.bhat_y*rprofs.lhat_y
+            + rprofs.bhat_z*rprofs.lhat_z
+        )
+
+        phi_B = []
+        for radius, nx, ny, nz in zip(rprofs.r.data,
+                                      rprofs.bhat_x.data,
+                                      rprofs.bhat_y.data,
+                                      rprofs.bhat_z.data):
+            phi_B.append(_magnetic_flux(radius, (nx, ny, nz)))
+        rprofs['phi_B'] = xr.concat(phi_B, dim='r').assign_coords(r=rprofs.r)
 
     # Drop theta and phi coordinates
     for k in ['th', 'ph']:
