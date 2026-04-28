@@ -782,121 +782,89 @@ def lagrangian_property(s, cores, rprofs):
     mcore = cores.attrs['mcore']
 
     if np.isnan(ncrit) or np.isnan(rcore):
-        radius = menc_crit = rhoe = rhoavg = np.nan
-        vinfall = vcom = sigma_mw = sigma_1d = sigma_1d_trb = sigma_1d_blk = np.nan
-        Fthm = Ftrb = Fcen = Fani = Fgrv = np.nan
-        if s.mhd:
-            mcrit_mag = Fmag = np.nan
+        raise ValueError('ncrit and rcore must be defined to calculate Lagrangian properties')
     else:
-        radius, menc_crit, rhoe, rhoavg = [], [], [], []
-        vinfall, vcom, sigma_mw, sigma_1d, sigma_1d_trb, sigma_1d_blk = [], [], [], [], [], []
-        Fthm, Ftrb, Fcen, Fani, Fgrv = [], [], [], [], []
+        rprofs = rprofs.sel(num=common_indices)
+
+        idx_hi = (rprofs.menc >= mcore).argmax('r')
+        if np.any(idx_hi == 0):
+            raise ValueError('mcore is smaller than the smallest enclosed mass in the radial profile')
+        idx_lo = idx_hi - 1
+
+        m_lo = rprofs.menc.isel(r=idx_lo)
+        m_hi = rprofs.menc.isel(r=idx_hi)
+        r_lo = rprofs.r.isel(r=idx_lo)
+        r_hi = rprofs.r.isel(r=idx_hi)
+        r_M = r_lo + (r_hi - r_lo) / (m_hi - m_lo) * (mcore - m_lo)
+
+
+        critical_radius = xr.DataArray(cores.critical_radius.to_numpy(),
+                                       dims='t',
+                                       coords=dict(t=rprofs.t))
+        menc_crit = rprofs.menc.interp(r=critical_radius)
+        menc_crit = menc_crit.where(np.isfinite(critical_radius))
+
+        within_r_M = rprofs.r <= r_M
+        w = rprofs.r**2*rprofs.rho
+        denom = w.where(within_r_M).sum('r')
+        def mw_mean(da):
+            num = (da.where(within_r_M)*w).sum('r')
+            return num / denom
+
+        # Mass-weighted infall speed
+        vinfall = mw_mean(rprofs.vel1_mw)
+
+        # Mass-weighted velocity dispersion
+        sigma_mw = np.sqrt(mw_mean(rprofs.dvel1_sq_mw))
+
+        vx_com = mw_mean(rprofs.velx_mw)
+        vy_com = mw_mean(rprofs.vely_mw)
+        vz_com = mw_mean(rprofs.velz_mw)
+        vcom = np.sqrt(vx_com**2 + vy_com**2 + vz_com**2)
+
+        sigma_1d = np.sqrt((mw_mean(rprofs.velx_sq_mw)
+                            + mw_mean(rprofs.vely_sq_mw)
+                            + mw_mean(rprofs.velz_sq_mw)
+                            - vx_com**2 - vy_com**2 - vz_com**2) / 3)
+
+        sigma_1d_trb = np.sqrt((mw_mean(rprofs.dvel1_sq_mw)
+                                + mw_mean(rprofs.dvel2_sq_mw)
+                                + mw_mean(rprofs.dvel3_sq_mw)) / 3)
+
+        sigma_1d_blk = np.sqrt((mw_mean(rprofs.vel1_mw**2)
+                                + mw_mean(rprofs.vel2_mw**2)
+                                + mw_mean(rprofs.vel3_mw**2)) / 3)
+
+        rprf = rprofs.interp(r=r_M)
+        rhoavg = mcore / (4*np.pi*r_M**3/3)
+
+        lprops = pd.DataFrame(data = dict(radius=r_M.to_numpy(),
+                                          menc_crit=menc_crit.to_numpy(),
+                                          edge_density=rprf.rho.to_numpy(),
+                                          mean_density=rhoavg.to_numpy(),
+                                          vinfall=vinfall.to_numpy(),
+                                          vcom=vcom.to_numpy(),
+                                          sigma_mw=sigma_mw.to_numpy(),
+                                          sigma_1d=sigma_1d.to_numpy(),
+                                          sigma_1d_trb=sigma_1d_trb.to_numpy(),
+                                          sigma_1d_blk=sigma_1d_blk.to_numpy(),
+                                          Fthm=rprf.Fthm.to_numpy(),
+                                          Ftrb=rprf.Ftrb.to_numpy(),
+                                          Fcen=rprf.Fcen.to_numpy(),
+                                          Fani=rprf.Fani.to_numpy(),
+                                          Fgrv=rprf.Fgrv.to_numpy()),
+                              index = cores.index)
         if s.mhd:
-            mcrit_mag, Fmag = [], []
-        for num, core in cores.iterrows():
-            rprof = rprofs.sel(num=num)
-
-            # Find radius which encloses mcore.
-            if rprof.menc.isel(r=-1) < mcore:
-                # In this case, no radius up to maximum tidal radius encloses
-                # mcore. This means we are safe to set rcore = Rtidal.
-                r_M = np.inf
-            else:
-                r_M = brentq(lambda x: rprof.menc.interp(r=x) - mcore,
-                             rprof.r.isel(r=0), rprof.r.isel(r=-1))
-            radius.append(r_M)
-
-            # enclosed mass within the critical radius
-            if np.isnan(core.critical_radius):
-                menc_crit.append(np.nan)
-            else:
-                menc_crit.append(rprof.menc.interp(r=core.critical_radius).data[()])
-
-
-            # Mass-weighted infall speed
-            rprf = rprof.sel(r=slice(0, r_M))
-            vin = rprf.vel1_mw.weighted(rprf.r**2*rprf.rho).mean().data[()]
-            vinfall.append(vin)
-
-            # Mass-weighted velocity dispersion
-            rprf = rprof.sel(r=slice(0, r_M))
-
-            sigmw = np.sqrt(rprf.dvel1_sq_mw.weighted(rprf.r**2*rprf.rho).mean().data[()])
-            sigma_mw.append(sigmw)
-
-            vx_com = rprf.velx_mw.weighted(rprf.r**2*rprf.rho).mean()
-            vy_com = rprf.vely_mw.weighted(rprf.r**2*rprf.rho).mean()
-            vz_com = rprf.velz_mw.weighted(rprf.r**2*rprf.rho).mean()
-            vcom.append(np.sqrt(vx_com**2 + vy_com**2 + vz_com**2).data[()])
-
-
-            # Mass-weighted 1D velocity dispersion from 3D average
-            sig1d = np.sqrt((rprf.velx_sq_mw.weighted(rprf.r**2*rprf.rho).mean()
-                           + rprf.vely_sq_mw.weighted(rprf.r**2*rprf.rho).mean()
-                           + rprf.velz_sq_mw.weighted(rprf.r**2*rprf.rho).mean()
-                           - vx_com**2 - vy_com**2 - vz_com**2).data[()]/3)
-            sigma_1d.append(sig1d)
-
-            # turbulent component of 1D velocity dispersion
-            sig1d = np.sqrt((rprf.dvel1_sq_mw.weighted(rprf.r**2*rprf.rho).mean()
-                           + rprf.dvel2_sq_mw.weighted(rprf.r**2*rprf.rho).mean()
-                           + rprf.dvel3_sq_mw.weighted(rprf.r**2*rprf.rho).mean()).data[()]/3)
-            sigma_1d_trb.append(sig1d)
-
-            # bulk component of 1D velocity dispersion
-            sig1d = np.sqrt(((rprf.vel1_mw**2).weighted(rprf.r**2*rprf.rho).mean()
-                           + (rprf.vel2_mw**2).weighted(rprf.r**2*rprf.rho).mean()
-                           + (rprf.vel3_mw**2).weighted(rprf.r**2*rprf.rho).mean()).data[()]/3)
-            sigma_1d_blk.append(sig1d)
-
-            # select r = r_M
-            rprf = rprof.interp(r=r_M)
-            rhoe.append(rprf.rho.data[()])
-            rhoavg.append(mcore / (4*np.pi*r_M**3/3))
-            Fthm.append(rprf.Fthm.data[()])
-            Ftrb.append(rprf.Ftrb.data[()])
-            Fcen.append(rprf.Fcen.data[()])
-            Fani.append(rprf.Fani.data[()])
-            Fgrv.append(rprf.Fgrv.data[()])
-            if s.mhd:
-                mcrit_mag.append(rprf.mcrit_mag.data[()])
-                Fmag.append(rprf.Fmag.data[()])
-    lprops = pd.DataFrame(data = dict(radius=radius,
-                                      menc_crit=menc_crit,
-                                      edge_density=rhoe,
-                                      mean_density=rhoavg,
-                                      vinfall=vinfall,
-                                      vcom=vcom,
-                                      sigma_mw=sigma_mw,
-                                      sigma_1d=sigma_1d,
-                                      sigma_1d_trb=sigma_1d_trb,
-                                      sigma_1d_blk=sigma_1d_blk,
-                                      Fthm=Fthm,
-                                      Ftrb=Ftrb,
-                                      Fcen=Fcen,
-                                      Fani=Fani,
-                                      Fgrv=Fgrv),
-                          index = cores.index)
-    if s.mhd:
-        lprops['mcrit_mag'] = mcrit_mag
-        lprops['Fmag'] = Fmag
+            lprops['mcrit_mag'] = rprf.mcrit_mag.to_numpy()
+            lprops['Fmag'] = rprf.Fmag.to_numpy()
 
     # Attach some attributes
     # Velocity dispersion at t_crit
-    if np.isnan(ncrit):
-        vcom = np.nan
-        sigma_r = np.nan
-        sigma_1d = np.nan
-        sigma_1d_trb = np.nan
-    else:
-        vcom = lprops.loc[ncrit].vcom
-        sigma_r = lprops.loc[ncrit].sigma_mw
-        sigma_1d = lprops.loc[ncrit].sigma_1d
-        sigma_1d_trb = lprops.loc[ncrit].sigma_1d_trb
-    lprops.attrs['vcom'] = vcom
-    lprops.attrs['sigma_r'] = sigma_r
-    lprops.attrs['sigma_1d'] = sigma_1d
-    lprops.attrs['sigma_1d_trb'] = sigma_1d_trb
+    lprp = lprops.loc[ncrit]
+    lprops.attrs['vcom'] = lprp.vcom
+    lprops.attrs['sigma_r'] = lprp.sigma_mw
+    lprops.attrs['sigma_1d'] = lprp.sigma_1d
+    lprops.attrs['sigma_1d_trb'] = lprp.sigma_1d_trb
 
     # Free-fall time at t_coll
     lprops.attrs['tff_coll'] = tfreefall(lprops.loc[ncoll].mean_density, s.gconst)
@@ -1277,15 +1245,16 @@ def critical_time_old(s, cores, rprofs, *, method):
                 if not fnet < 0:
                     ncrit = num + 1
                     if ncrit == cores.index[-1] + 1:
+                        ncrit = np.nan
                         rcrit = np.nan
                     else:
                         rcrit = cores.loc[ncrit].critical_radius
-                    if not np.isfinite(rcrit):
-                        msg = (f"Critical radius at ncrit = {ncrit} is not "
-                               f"finite for par {pid}: "
-                               f"method={method}, rcrit={cores.loc[ncrit].critical_radius}.")
-                        s.logger.warning(msg)
-                        ncrit = np.nan
+                        if not np.isfinite(rcrit):
+                            msg = (f"Critical radius at ncrit = {ncrit} is not "
+                                   f"finite for par {pid}: "
+                                   f"method={method}, rcrit={cores.loc[ncrit].critical_radius}.")
+                            s.logger.warning(msg)
+                            ncrit = np.nan
                     break
         if ncrit == cores.attrs['numcoll'] and np.isnan(cores.loc[ncrit].critical_radius):
             # If ncrit is ncoll at which critical radius was nan, set ncrit to NaN.
