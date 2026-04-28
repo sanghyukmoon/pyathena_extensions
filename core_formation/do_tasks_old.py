@@ -146,11 +146,10 @@ if __name__ == "__main__":
         if args.lagrangian_props:
             s = sa.set_model(mdl, force_override=True)
             def wrapper(pid):
-#                method_list = ['empirical', 'predicted', 'virial'] # pred_be, pred_xis
-                method_list = ['virial', 'virial_rcrit'] # pred_be, pred_xis
+                method_list = ['empirical', 'predicted', 'virial_rcrit'] # virial, pred_be, pred_xis
                 for method in method_list:
                     s.select_cores(method)
-                    if pid in s.cores:
+                    if pid in s.good_cores(0):
                         tasks.lagrangian_props(s, pid, method=method, overwrite=args.overwrite)
             print(f"Calculate Lagrangian properties for model {mdl}")
             with Pool(args.np) as p:
