@@ -57,7 +57,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         All preimages of t_coll cores.
     """
 
-    def __init__(self, basedir_or_Mach=None, method='virial', savdir=None,
+    def __init__(self, basedir_or_Mach=None, method='virial_rcrit', savdir=None,
                  verbose=False, force_override=False):
         """The constructor for LoadSim class for core formation simulations.
 
@@ -164,15 +164,11 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             # Load derived core informations using various alternative critical times
             self.cores_dict = {}
-            for mtd in ['empirical', 'predicted', 'virial', 'virial_rcrit']: # pred_be, pred_xis
-                try:
-                    # Calculate derived core properties using the predicted critical time
-                    savdir = Path(self.savdir, config.CORE_DIR)
-                    self.cores_dict[mtd] = self.update_core_props(method=mtd, prefix=f'cores_tcrit_{mtd}',
+            for mtd in ['empirical', 'predicted', 'virial_rcrit']: # pred_be, pred_xis
+                # Calculate derived core properties using the predicted critical time
+                savdir = Path(self.savdir, config.CORE_DIR)
+                self.cores_dict[mtd] = self.update_core_props(method=mtd, prefix=f'cores_tcrit_{mtd}',
                                                                   savdir=savdir, force_override=force_override)
-                except KeyError:
-                    self.logger.warning(f"Failed to update core properties for model {self.basename}, method {mtd}")
-
             try:
                 self.select_cores(method)
             except KeyError:
@@ -921,7 +917,7 @@ class LoadSimAll(object):
                 self.models.append(mdl)
                 self.basedirs[mdl] = basedir
 
-    def set_model(self, model, method='virial', savdir=None,
+    def set_model(self, model, method='virial_rcrit', savdir=None,
                   verbose=False, reset=False, force_override=False):
         self.model = model
         if reset or force_override:
@@ -944,7 +940,7 @@ class LoadSimAll(object):
 
         return self.sim
 
-    def itercore(self, models=None, method='virial', nres=8, force_override=False):
+    def itercore(self, models=None, method='virial_rcrit', nres=8, force_override=False):
         if models is None:
             models = self.models
         for mdl in models:
@@ -954,7 +950,7 @@ class LoadSimAll(object):
                 rprofs = s.rprofs[pid]
                 yield s, pid, cores, rprofs
 
-    def itercritcore(self, models=None, method='virial', nres=8, force_override=False):
+    def itercritcore(self, models=None, method='virial_rcrit', nres=8, force_override=False):
         if models is None:
             models = self.models
         for s, pid, cores, rprofs in self.itercore(models=models,
