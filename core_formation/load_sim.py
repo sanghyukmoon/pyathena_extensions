@@ -836,9 +836,25 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     'mmag2': xr.zeros_like(mmag2),
                     'sigma_tot2': self.cs**2,
                 },
+                'mmax_trb': {
+                    'mmag2': xr.zeros_like(mmag2),
+                    'sigma_tot2': sigma_1d_sq,
+                },
+                'mmax_mag': {
+                    'mmag2': mmag2,
+                    'sigma_tot2': 0,
+                },
                 'mmax_thm_trb': {
                     'mmag2': xr.zeros_like(mmag2),
                     'sigma_tot2': self.cs**2 + sigma_1d_sq
+                },
+                'mmax_thm_mag': {
+                    'mmag2': mmag2,
+                    'sigma_tot2': self.cs**2
+                },
+                'mmax_trb_mag': {
+                    'mmag2': mmag2,
+                    'sigma_tot2': sigma_1d_sq
                 },
             }
             for key in param_dict.copy().keys():
