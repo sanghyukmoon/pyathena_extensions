@@ -20,7 +20,7 @@ def write_slurm_script(model, tasks, overwrite):
 #SBATCH --nodes=1
 #SBATCH --ntasks=32
 #SBATCH --cpus-per-task=3
-#SBATCH --mem=740G
+#SBATCH --mem-per-cpu=7800
 #SBATCH --time=24:00:00
 #SBATCH --output={model}_%j.out
 #SBATCH --error={model}_%j.err

@@ -523,7 +523,7 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
         rho_patch = ds_patch.rho.transpose('z', 'y', 'x').stack(cell=('z', 'y', 'x'))
         shell_mass = (rho_patch*subcell_frac*s.dV).sum('cell').rename('mshell')
 
-    def _radial_binning(qty, mass_weighted=False):
+    def _radial_binning(qty, mass_weighted=False, gravity_weighted=False):
         """Inner wrapper function for radial binning
 
         Central sphere and the first few nonzero radial bins are corrected with
@@ -549,11 +549,22 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
         -----
         mass_weighted=True assumes that rprofs['rho'] is already calculated.
         """
-        dat = ds.rho*qty if mass_weighted else qty
+        gacc = None
+        if mass_weighted:
+            dat = ds.rho*qty
+        elif gravity_weighted:
+            gacc = np.sqrt(ds.phi.differentiate('x')**2
+                           + ds.phi.differentiate('y')**2
+                           + ds.phi.differentiate('z')**2)
+            dat = gacc*qty
+        else:
+            dat = qty
         rprf, bin_cnt = transform.groupby_bins(dat, 'r', nbin, (hdx, redge),
                                                return_count=True)
         if mass_weighted:
             rprf = rprf / rprofs['rho']
+        elif gravity_weighted:
+            rprf = rprf / transform.groupby_bins(gacc, 'r', nbin, (hdx, redge))
         # Overwrite the central sphere and first few nonzero bins with
         # subcell corrected values.
         vshell = (bin_cnt*s.dV).rename('vshell')
@@ -561,6 +572,11 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
         if mass_weighted:
             numer = (rho_patch*qty_patch*subcell_frac*s.dV).sum('cell')
             denom = shell_mass
+        elif gravity_weighted:
+            gacc_patch = gacc.sel(**sel_patch).transpose('z', 'y', 'x').stack(cell=('z', 'y', 'x'))
+            shell_gravity = (gacc_patch*subcell_frac*s.dV).sum('cell').rename('shell_gravity')
+            numer = (gacc_patch*qty_patch*subcell_frac*s.dV).sum('cell')
+            denom = shell_gravity
         else:
             numer = (qty_patch*subcell_frac*s.dV).sum('cell')
             denom = shell_volume
@@ -597,8 +613,11 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
     rprofs['frac_neg_gacc1'], _ = _radial_binning(ds['frac_neg_gacc1'])
     rprofs['frac_inward_gacc'], _ = _radial_binning(ds['frac_inward_gacc'])
     # Mass-weighted averages
-    for k in ['gacc1', 'velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3', 'phi']:
+    for k in ['gacc1', 'velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3', 'phi',
+              'frac_neg_gacc1', 'frac_inward_gacc']:
         rprofs[k+'_mw'], _ = _radial_binning(ds[k], mass_weighted=True)
+    rprofs['frac_neg_gacc1_gw'], _ = _radial_binning(ds['frac_neg_gacc1'], gravity_weighted=True)
+    rprofs['frac_inward_gacc_gw'], _ = _radial_binning(ds['frac_inward_gacc'], gravity_weighted=True)
 
     # virial terms
     rprofs['xgx_mw'], _ = _radial_binning((ds.x - origin[0])*gacc['x'], mass_weighted=True)
