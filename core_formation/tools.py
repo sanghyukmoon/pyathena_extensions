@@ -443,8 +443,14 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
         radial gravitational acceleration (g_r < 0).
     vshell : Effective shell volume under the current discrete radial binning.
     phi_mw : Mass-weighted mean gravitational potential.
+    mdot_x, mdot_y, mdot_z : Contributions from the Cartesian velocity
+        components to the signed mass flux through the spherical surface at
+        radius r, with positive values corresponding to inward flux.
     phi_B : Magnetic flux through a circular aperture of radius r whose normal
         follows the enclosed mean magnetic field direction.
+    mdot_b, mdot_bperp1, mdot_bperp2 : Contributions from the velocity
+        components along the orthonormal basis defined by the enclosed mean
+        magnetic field direction and the two perpendicular directions.
     """
     # Sometimes, tidal radius is so small that the angular momentum vector
     # Cannot be computed. In this case, fall back to default behavior.
@@ -587,7 +593,11 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
 
     def _plane_basis(normal):
         normal = np.array(normal, dtype=float)
-        normal /= np.sqrt((normal**2).sum())
+        norm = np.sqrt((normal**2).sum())
+        if not np.isfinite(norm) or norm == 0:
+            normal = np.array([0.0, 0.0, 1.0])
+        else:
+            normal /= norm
         ref = np.array([1.0, 0.0, 0.0]) if abs(normal[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
         e1 = np.cross(normal, ref)
         e1 /= np.sqrt((e1**2).sum())
@@ -646,6 +656,21 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
     rprofs['lhat_y'] = rprofs.Ly_enc / Lnorm
     rprofs['lhat_z'] = rprofs.Lz_enc / Lnorm
 
+    rhat = {
+        'x': xr.where(ds.r > 0, (ds.x - origin[0])/ds.r, 0.0),
+        'y': xr.where(ds.r > 0, (ds.y - origin[1])/ds.r, 0.0),
+        'z': xr.where(ds.r > 0, (ds.z - origin[2])/ds.r, 0.0)
+    }
+    flux_tensor = {} # < rho v_i rhat_j > for i,j in {x,y,z}
+    for i in ['x', 'y', 'z']:
+        for j in ['x', 'y', 'z']:
+            flux_tensor[(i, j)], _ = _radial_binning(ds.rho*ds[f'vel{i}']*rhat[j])
+    mdot_scale = -4*np.pi*rprofs.r**2
+    # For Cartesian directions, mdot is simply the diagonal components.
+    # For MHD, we also calculate mdot along the field direction.
+    for i in ['x', 'y', 'z']:
+        rprofs[f'mdot_{i}'] = mdot_scale*flux_tensor[(i, i)]
+
     if s.mhd:
         venc = rprofs.vshell.cumsum('r')
         rprofs['bmean_x'] = (rprofs.bx * rprofs.vshell).cumsum('r') / venc
@@ -665,10 +690,36 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
         bhat_x = rprofs.bhat_x.compute().data
         bhat_y = rprofs.bhat_y.compute().data
         bhat_z = rprofs.bhat_z.compute().data
+        bperp1_x, bperp1_y, bperp1_z = [], [], []
+        bperp2_x, bperp2_y, bperp2_z = [], [], []
         phi_B = []
         for radius, nx, ny, nz in zip(radii, bhat_x, bhat_y, bhat_z):
-            phi_B.append(_magnetic_flux(radius, (nx, ny, nz)))
+            bperp1, bperp2, bhat = _plane_basis((nx, ny, nz))
+            bperp1_x.append(bperp1[0])
+            bperp1_y.append(bperp1[1])
+            bperp1_z.append(bperp1[2])
+            bperp2_x.append(bperp2[0])
+            bperp2_y.append(bperp2[1])
+            bperp2_z.append(bperp2[2])
+            phi_B.append(_magnetic_flux(radius, bhat))
+        rprofs['bperp1_x'] = xr.DataArray(bperp1_x, dims='r', coords=dict(r=rprofs.r))
+        rprofs['bperp1_y'] = xr.DataArray(bperp1_y, dims='r', coords=dict(r=rprofs.r))
+        rprofs['bperp1_z'] = xr.DataArray(bperp1_z, dims='r', coords=dict(r=rprofs.r))
+        rprofs['bperp2_x'] = xr.DataArray(bperp2_x, dims='r', coords=dict(r=rprofs.r))
+        rprofs['bperp2_y'] = xr.DataArray(bperp2_y, dims='r', coords=dict(r=rprofs.r))
+        rprofs['bperp2_z'] = xr.DataArray(bperp2_z, dims='r', coords=dict(r=rprofs.r))
         rprofs['phi_B'] = xr.concat(phi_B, dim='r').assign_coords(r=rprofs.r)
+
+        for basis, prefix in [
+            (dict(x=rprofs.bhat_x, y=rprofs.bhat_y, z=rprofs.bhat_z), 'mdot_b'),
+            (dict(x=rprofs.bperp1_x, y=rprofs.bperp1_y, z=rprofs.bperp1_z), 'mdot_bperp1'),
+            (dict(x=rprofs.bperp2_x, y=rprofs.bperp2_y, z=rprofs.bperp2_z), 'mdot_bperp2'),
+        ]:
+            mdot = 0
+            for i in ['x', 'y', 'z']:
+                for j in ['x', 'y', 'z']:
+                    mdot = mdot + basis[i]*basis[j]*flux_tensor[(i, j)]
+            rprofs[prefix] = mdot_scale*mdot
 
     # Drop theta and phi coordinates
     for k in ['th', 'ph']:
