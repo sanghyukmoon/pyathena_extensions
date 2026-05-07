@@ -475,28 +475,40 @@ def plot_projection(s, ds, field='dens', axis='z', op='sum',
     extent = dict(zip(('x', 'y', 'z'), ((ymin, ymax, zmin, zmax),
                                         (zmin, zmax, xmin, xmax),
                                         (xmin, xmax, ymin, ymax))))
-    permutations = dict(z=('y', 'x'), y=('x', 'z'), x=('z', 'y'))
+    permutations = dict(z=('x', 'y'), y=('z', 'x'), x=('y', 'z'))
     field_dict_pyathena = dict(dens='dens', mask='mask')
-
-    fld = field_dict_pyathena[field]
-    if op == 'sum':
-        prj = ds[fld].integrate(axis).transpose(*permutations[axis])
-    elif op == 'max':
-        prj = ds[fld].max(axis).transpose(*permutations[axis])
-    if noplot:
-        return prj
-    else:
-        prj = prj.to_numpy()
 
     if ax is None:
         ax = plt.gca()
-    if transpose:
-        prj = prj.T
-        extent = {k: v[2:] + v[0:2] for k, v in extent.items()}
-    img = ax.imshow(prj, norm=LogNorm(vmin, vmax), origin='lower',
-                    extent=extent[axis], cmap=cmap, alpha=alpha)
-    if add_colorbar:
-        plt.colorbar(cax=cax)
+
+    if field=='b_stream':
+        ds = ds.rename(dict(Bcc1='bx', Bcc2='by', Bcc3='bz'))
+        b1 = ds[f'b{permutations[axis][0]}'].weighted(ds.dens).mean(axis)
+        b2 = ds[f'b{permutations[axis][1]}'].weighted(ds.dens).mean(axis)
+        b1 = b1.transpose(*permutations[axis]).to_numpy()
+        b2 = b2.transpose(*permutations[axis]).to_numpy()
+        x1 = ds.coords[permutations[axis][0]].to_numpy()
+        x2 = ds.coords[permutations[axis][1]].to_numpy()
+        img = ax.streamplot(x1, x2, b1, b2, linewidth=1, color='tab:gray', density=1, arrowsize=0.5)
+    else:
+        fld = field_dict_pyathena[field]
+        if op == 'sum':
+            prj = ds[fld].integrate(axis).transpose(*permutations[axis])
+        elif op == 'max':
+            prj = ds[fld].max(axis).transpose(*permutations[axis])
+        if noplot:
+            return prj
+        else:
+            prj = prj.to_numpy()
+
+        prj = prj.T # Required for imshow to be consistent with the extent definition.
+        if transpose:
+            prj = prj.T
+            extent = {k: v[2:] + v[0:2] for k, v in extent.items()}
+        img = ax.imshow(prj, norm=LogNorm(vmin, vmax), origin='lower',
+                        extent=extent[axis], cmap=cmap, alpha=alpha)
+        if add_colorbar:
+            plt.colorbar(cax=cax)
     return img
 
 
@@ -755,7 +767,10 @@ def plot_core_evolution(s, pid, num, rmax=None):
     hw = 1.1*rmax
 
     # Load data
-    ds = s.load_hdf5(num, quantities=['dens'], load_method='xarray')
+    if s.mhd:
+        ds = s.load_hdf5(num, quantities=['dens', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
+    else:
+        ds = s.load_hdf5(num, quantities=['dens'], load_method='xarray')
 #    gd = s.load_dendro(num)
     core = s.cores[pid].loc[num]
     core_tcrit_pred = s.cores_dict['predicted'][pid].loc[num]
@@ -816,15 +831,20 @@ def plot_core_evolution(s, pid, num, rmax=None):
         # 1. Projections
         plt.sca(axs['proj'][i])
         plot_projection(s, ds, axis=prj_axis, add_colorbar=False)
+        plot_projection(s, ds, 'b_stream', axis=prj_axis, add_colorbar=False)
         rec = plt.Rectangle((xlim[prj_axis][0], ylim[prj_axis][0]),
                             2*hw, 2*hw, fill=False, ec='r')
         plt.gca().add_artist(rec)
+
+        plt.xlim(-s.Lbox/2, s.Lbox/2)
+        plt.ylim(-s.Lbox/2, s.Lbox/2)
         plt.xlabel(xlabel[prj_axis])
         plt.ylabel(ylabel[prj_axis])
 
         # 2. Zoom-in projections
         plt.sca(axs['zoom'][i])
         plot_projection(s, d, axis=prj_axis, add_colorbar=False)
+        plot_projection(s, d, 'b_stream', axis=prj_axis, add_colorbar=False)
 #        if core.leaf_id not in gd.leaves:
 #            # Due to path-dependent nature of dendrogram pruning, some ids
 #            # may not match in global dendrogram and local dendrogram.
