@@ -18,9 +18,9 @@ def write_slurm_script(model, tasks, overwrite):
     slurm_script = f"""#!/bin/bash
 #SBATCH --job-name={jobname}
 #SBATCH --nodes=1
-#SBATCH --ntasks=32
+#SBATCH --ntasks-per-node=32
 #SBATCH --cpus-per-task=3
-#SBATCH --mem-per-cpu=7800
+#SBATCH --mem=742G
 #SBATCH --time=24:00:00
 #SBATCH --output={model}_%j.out
 #SBATCH --error={model}_%j.err
@@ -57,7 +57,10 @@ if __name__ == "__main__":
                 client.wait_for_workers(runner.n_workers)
 
                 for task in args.tasks:
-                    s = sa.set_model(args.model, force_override=True)
+                    if task == 'radial_profile':
+                        s = sa.set_model(args.model, override_cores=True)
+                    else:
+                        s = sa.set_model(args.model, force_override=True)
                     tasks.__dict__[task](s, overwrite=args.overwrite)
     else:
         write_slurm_script(args.model, args.tasks, args.overwrite)
