@@ -113,9 +113,27 @@ class SpaceTimePlotter():
             rtidal = xr.where(eta_grav < 0.8, eta_grav.r, np.nan).min('r')
             axs['eta_grav'].plot(rtidal, cores.time, color='tab:green', ls='-')
 
-            self.imshow(rprofs.vel1_mw/s.cs, axs['vin'],
-                        vmin=-1, vmax=1, cmap='RdBu_r',
-                        label=r'$\left<v_r\right>_\rho/c_s$')
+            self.imshow(
+                rprofs.vel1_mw,
+                axs['vin'],
+                vmin=-1,
+                vmax=1,
+                cmap='RdBu_r',
+                label=r'$\left<v_r\right>_\rho/c_s$'
+            )
+            vr = rprofs.vel1_mw
+            dvdt = vr.differentiate('t')
+            dvdt += vr*vr.differentiate('r')
+            self.imshow(
+#                dvdt/(-rprofs.grv),
+                dvdt,
+                axs['dvdt'],
+                vmin=-30,
+                vmax=30,
+                cmap='RdBu_r',
+                label=r'$(\partial \left<v_r\right>_\rho / \partial t)/f_\mathrm{grv}$'
+            )
+
         if size == 'full':
             self.imshow(
                 rprofs.menc / rprofs.mmax_thm_fixed_a,
@@ -183,19 +201,19 @@ class SpaceTimePlotter():
                           r'$ \equiv 2\pi \sqrt{G}(M/\Phi)$'
                 )
 
-                # B field strength
-                self.imshow(
-                    brms*s.u.muG,
-                    axs['Brms'],
-                    norm=LogNorm(8e0, 2e2),
-                    cmap='viridis',
-                    label=r'$B_\mathrm{rms}\,[\mu\mathrm{G}]$'
-                )
+#                # B field strength
+#                self.imshow(
+#                    brms*s.u.muG,
+#                    axs['Brms'],
+#                    norm=LogNorm(8e0, 2e2),
+#                    cmap='viridis',
+#                    label=r'$B_\mathrm{rms}\,[\mu\mathrm{G}]$'
+#                )
             else:
                 axs['net_magnetic_energy_normalized'].remove()
                 axs['grav_to_mag_energy'].remove()
                 axs['mass_to_flux'].remove()
-                axs['Brms'].remove()
+#                axs['Brms'].remove()
 
 
         # Annotate const-mass lines
@@ -402,7 +420,7 @@ class SpaceTimePlotter():
                     ]
         if size == 'full':
             axs = [
-                    ['Fnet'                  , 'fnet'                          , 'vin'               , 'Brms'                ],
+                    ['Fnet'                  , 'fnet'                          , 'vin'               , 'dvdt'                ],
                     ['mass_ratio_thm'        , 'mass_ratio_thm_trb'            , 'mass_ratio'        , 'mass_ratio_over_fnet'],
                     ['mass_ratio_thm_fixed_a', 'mass_ratio_thm_trb_fixed_a'    , 'mass_ratio_fixed_a', 'mass_ratio_over_Fnet'],
                     ['eta_grav'              , 'net_magnetic_energy_normalized', 'grav_to_mag_energy', 'mass_to_flux'        ],
