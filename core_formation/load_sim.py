@@ -58,7 +58,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
     """
 
     def __init__(self, basedir_or_Mach=None, method='virial_rcrit', savdir=None,
-                 verbose=False, force_override=False):
+                 verbose=False, force_override=False, override_cores=False,
+                 override_rprofs=False, override_derived_cores=False):
         """The constructor for LoadSim class for core formation simulations.
 
         Parameters
@@ -87,6 +88,11 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         self.gconst = np.pi
         self.tff0 = tools.tfreefall(self.rho0, self.gconst)
 
+        if force_override==True:
+            override_cores = True
+            override_rprofs = True
+            override_derived_cores = True
+
         if isinstance(basedir_or_Mach, (Path, str)):
             basedir = basedir_or_Mach
             super().__init__(basedir, savdir=savdir, load_method='xarray',
@@ -111,7 +117,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             TimingReader.__init__(self, self.basedir, self.problem_id)
 
             # Set nums dictionary (when hdf5 is stored in elsewhere for storage reasons)
-            if self.nums is None:
+            if not hasattr(self, 'nums'):
                 if hasattr(self, 'nums_parbin'):
                     self.nums = self.nums_parbin['par0']
                 elif hasattr(self, 'nums_partab'):
@@ -132,7 +138,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Find the collapse time and corresponding snapshot numbers
             self.tcoll_cores = self._load_tcoll_cores(
                 savdir=Path(self.savdir, config.CORE_DIR),
-                force_override=force_override
+                force_override=override_cores
             )
             try:
                 fname = Path(self.savdir, 'GRID', 'minima.p')
@@ -145,7 +151,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 # Load cores
                 savdir = Path(self.savdir, config.CORE_DIR)
                 self.cores = self._load_cores(savdir=savdir,
-                                              force_override=force_override)
+                                              force_override=override_cores)
             except FileNotFoundError:
                 self.logger.warning("Cannot find core files to load.")
                 pass
@@ -153,8 +159,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             try:
                 # Load radial profiles
                 savdir = Path(self.savdir, config.RPROF_DIR)
-                self.rprofs = self._load_radial_profiles(savdir=savdir,
-                                                         force_override=force_override)
+                self.rprofs = self._load_radial_profiles(
+                    savdir = savdir,
+                    force_override = override_rprofs
+                )
             except FileNotFoundError:
                 self.logger.warning("Cannot find radial profile files to load. "
                                     "Have you run concat_radial_profiles() to "
@@ -167,8 +175,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             for mtd in ['empirical', 'predicted', 'virial_rcrit']: # pred_be, pred_xis
                 # Calculate derived core properties using the predicted critical time
                 savdir = Path(self.savdir, config.CORE_DIR)
-                self.cores_dict[mtd] = self.update_core_props(method=mtd, prefix=f'cores_tcrit_{mtd}',
-                                                                  savdir=savdir, force_override=force_override)
+                self.cores_dict[mtd] = self.update_core_props(
+                    method = mtd,
+                    prefix = f'cores_tcrit_{mtd}',
+                    savdir = savdir,
+                    force_override = override_derived_cores
+                )
             try:
                 self.select_cores(method)
             except KeyError:
@@ -917,46 +929,35 @@ class LoadSimAll(object):
                 self.models.append(mdl)
                 self.basedirs[mdl] = basedir
 
-    def set_model(self, model, method='virial_rcrit', savdir=None,
-                  verbose=False, reset=False, force_override=False):
+    def set_model(self, model, reset=False, **kwargs):
         self.model = model
-        if reset or force_override:
-            self.sim = LoadSim(self.basedirs[model],
-                               method=method,
-                               savdir=savdir,
-                               verbose=verbose,
-                               force_override=force_override)
+        if reset or 'force_override' in kwargs and kwargs['force_override']:
+            self.sim = LoadSim(self.basedirs[model], **kwargs)
             self.simdict[model] = self.sim
         else:
             try:
                 self.sim = self.simdict[model]
             except KeyError:
-                self.sim = LoadSim(self.basedirs[model],
-                                   method=method,
-                                   savdir=savdir,
-                                   verbose=verbose,
-                                   force_override=force_override)
+                self.sim = LoadSim(self.basedirs[model], **kwargs)
                 self.simdict[model] = self.sim
 
         return self.sim
 
-    def itercore(self, models=None, method='virial_rcrit', nres=8, force_override=False):
+    def itercore(self, models=None, nres=8, **kwargs):
         if models is None:
             models = self.models
         for mdl in models:
-            s = self.set_model(mdl, method=method, force_override=force_override)
+            s = self.set_model(mdl, **kwargs)
             for pid in s.good_cores(nres):
                 cores = s.cores[pid]
                 rprofs = s.rprofs[pid]
                 yield s, pid, cores, rprofs
 
-    def itercritcore(self, models=None, method='virial_rcrit', nres=8, force_override=False):
+    def itercritcore(self, models=None, nres=8, **kwargs):
         if models is None:
             models = self.models
-        for s, pid, cores, rprofs in self.itercore(models=models,
-                                                   method=method,
-                                                   nres=nres,
-                                                   force_override=force_override):
+        for s, pid, cores, rprofs in self.itercore(models=models, nres=nres,
+                                                   **kwargs):
             num = cores.attrs['numcrit']
             core = cores.loc[num]
             rprf = rprofs.sel(num=num)
