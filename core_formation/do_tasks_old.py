@@ -75,12 +75,6 @@ if __name__ == "__main__":
         if args.pids:
             pids = args.pids
         pids = sorted(list(set(s.pids) & set(pids)))
-        isolated_pids = [
-            pid for pid in s.pids
-            if s.cores[pid].attrs['isolated'] and len(s.cores[pid]) > 1
-            # Note that this is different from good_cores, which additionally
-            # checks resolvedness
-        ]
 
         # Combine output files.
         if args.combine_partab:
@@ -113,7 +107,7 @@ if __name__ == "__main__":
         if args.track_cores:
             s = sa.set_model(mdl, force_override=True)
             def wrapper(pid):
-                tasks.core_tracking(s, pid, overwrite=args.overwrite)
+                tasks.core_tracking(s, [pid,], overwrite=args.overwrite)
             print(f"Perform core tracking for model {mdl}")
             with Pool(args.np) as p:
                 p.map(wrapper, pids)
@@ -145,6 +139,12 @@ if __name__ == "__main__":
         # Calculate Lagrangian properties
         if args.lagrangian_props:
             s = sa.set_model(mdl, force_override=True)
+            isolated_pids = [
+                pid for pid in s.pids
+                if s.cores[pid].attrs['isolated'] and len(s.cores[pid]) > 1
+                # Note that this is different from good_cores, which additionally
+                # checks resolvedness
+            ]
             def wrapper(pid):
                 method_list = ['empirical', 'predicted', 'virial_rcrit'] # virial, pred_be, pred_xis
                 for method in method_list:

@@ -496,7 +496,7 @@ def observables(s, pid, num, overwrite=False):
 
 
 def save_minima(s, overwrite=False):
-    """Run GRID-dendro
+    """Save indices of the potential minima
 
     Parameters
     ----------
