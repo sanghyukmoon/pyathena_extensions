@@ -156,35 +156,37 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 self.logger.warning("Cannot find core files to load.")
                 pass
 
-            try:
-                # Load radial profiles
-                savdir = Path(self.savdir, config.RPROF_DIR)
-                self.rprofs = self._load_radial_profiles(
-                    savdir = savdir,
-                    force_override = override_rprofs
-                )
-            except FileNotFoundError:
-                self.logger.warning("Cannot find radial profile files to load. "
-                                    "Have you run concat_radial_profiles() to "
-                                    "concatenate individual radial profiles "
-                                    "into one file?")
-                pass
+            if hasattr(self, 'cores'):
+                try:
+                    # Load radial profiles
+                    savdir = Path(self.savdir, config.RPROF_DIR)
+                    self.rprofs = self._load_radial_profiles(
+                        savdir = savdir,
+                        force_override = override_rprofs
+                    )
+                except FileNotFoundError:
+                    self.logger.warning("Cannot find radial profile files to load. "
+                                        "Have you run concat_radial_profiles() to "
+                                        "concatenate individual radial profiles "
+                                        "into one file?")
+                    pass
 
             # Load derived core informations using various alternative critical times
-            self.cores_dict = {}
-            for mtd in ['empirical', 'predicted', 'virial_rcrit']: # pred_be, pred_xis
-                # Calculate derived core properties using the predicted critical time
-                savdir = Path(self.savdir, config.CORE_DIR)
-                self.cores_dict[mtd] = self.update_core_props(
-                    method = mtd,
-                    prefix = f'cores_tcrit_{mtd}',
-                    savdir = savdir,
-                    force_override = override_derived_cores
-                )
-            try:
-                self.select_cores(method)
-            except KeyError:
-                self.logger.warning(f"Failed to select core with method {method} for model {self.basename}")
+            if hasattr(self, 'cores') and hasattr(self, 'rprofs'):
+                self.cores_dict = {}
+                for mtd in ['empirical', 'predicted', 'virial_rcrit']: # pred_be, pred_xis
+                    # Calculate derived core properties using the predicted critical time
+                    savdir = Path(self.savdir, config.CORE_DIR)
+                    self.cores_dict[mtd] = self.update_core_props(
+                        method = mtd,
+                        prefix = f'cores_tcrit_{mtd}',
+                        savdir = savdir,
+                        force_override = override_derived_cores
+                    )
+                try:
+                    self.select_cores(method)
+                except KeyError:
+                    self.logger.warning(f"Failed to select core with method {method} for model {self.basename}")
         elif isinstance(basedir_or_Mach, (float, int)):
             self.Mach = basedir_or_Mach
             tools.LognormalPDF.__init__(self, self.Mach)
@@ -881,7 +883,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             rprofs = rprofs.merge(tools.radial_acceleration(self, rprofs), compat="no_conflicts")
             if 'num' not in rprofs.indexes:
                 rprofs = rprofs.set_xindex('num')
-            rprofs = rprofs.sel(num=self.cores[pid].index)
 
             rprofs_dict[pid] = rprofs.transpose('t', 'r', ...)
 
