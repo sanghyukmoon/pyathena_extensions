@@ -311,7 +311,8 @@ def radial_profile(s, nums=None, pids=None, overwrite=False):
             ds, center, _ = tools.recenter_dataset(ds0, center)
 
             # Calculate radial profile
-            rprf = tools.radial_profile(s, ds, list(center.values()))
+            rprf = tools.radial_profile(s, ds, list(center.values()),
+                                        compute_flux=True)
             rprf = rprf.expand_dims(dict(t=[ds.Time,]))
 
             # write to file

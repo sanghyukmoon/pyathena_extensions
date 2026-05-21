@@ -336,7 +336,7 @@ def critical_tes_property(s, rprf, core):
     return res
 
 
-def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
+def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4, compute_flux=False):
     """Calculates radial profiles of various properties at selected position
 
     This function returns lazy Dataset if the inputs are dask array.
@@ -612,9 +612,8 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
         bhat_z = rprofs.bhat_z.compute().data
         bperp1_x, bperp1_y, bperp1_z = [], [], []
         bperp2_x, bperp2_y, bperp2_z = [], [], []
-        # TODO Temporarily disable very expensive B flux calculation.
-        # The result has been stored in radia_profile directories.
-#        phi_B = []
+        if compute_flux:
+            phi_B = []
         for radius, nx, ny, nz in zip(radii, bhat_x, bhat_y, bhat_z):
             bperp1, bperp2, bhat = _plane_basis((nx, ny, nz))
             bperp1_x.append(bperp1[0])
@@ -623,14 +622,16 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
             bperp2_x.append(bperp2[0])
             bperp2_y.append(bperp2[1])
             bperp2_z.append(bperp2[2])
-#            phi_B.append(_magnetic_flux(radius, bhat))
+            if compute_flux:
+                phi_B.append(_magnetic_flux(radius, bhat))
         rprofs['bperp1_x'] = xr.DataArray(bperp1_x, dims='r', coords=dict(r=rprofs.r))
         rprofs['bperp1_y'] = xr.DataArray(bperp1_y, dims='r', coords=dict(r=rprofs.r))
         rprofs['bperp1_z'] = xr.DataArray(bperp1_z, dims='r', coords=dict(r=rprofs.r))
         rprofs['bperp2_x'] = xr.DataArray(bperp2_x, dims='r', coords=dict(r=rprofs.r))
         rprofs['bperp2_y'] = xr.DataArray(bperp2_y, dims='r', coords=dict(r=rprofs.r))
         rprofs['bperp2_z'] = xr.DataArray(bperp2_z, dims='r', coords=dict(r=rprofs.r))
-#        rprofs['phi_B'] = xr.concat(phi_B, dim='r').assign_coords(r=rprofs.r)
+        if compute_flux:
+            rprofs['phi_B'] = xr.concat(phi_B, dim='r').assign_coords(r=rprofs.r)
 
         for basis, prefix in [
             (dict(x=rprofs.bhat_x, y=rprofs.bhat_y, z=rprofs.bhat_z), 'mdot_b'),
