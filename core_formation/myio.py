@@ -1,6 +1,11 @@
 import h5py
 import numpy as np
 import xarray as xr
+# Bottleneck does not use stable sum.
+# See xarray #1346, #7344 and bottleneck #193, #462 and more.
+# Let's disable third party softwares to go conservative.
+# Accuracy is more important than performance.
+xr.set_options(use_bottleneck=False, use_numbagg=False)
 import dask.array as da
 
 def read_sparse_hdf5(filename, chunks=(128, 128, 128)):
