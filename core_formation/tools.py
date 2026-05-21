@@ -380,14 +380,6 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4):
         components along the orthonormal basis defined by the enclosed mean
         magnetic field direction and the two perpendicular directions.
     """
-    # Sometimes, tidal radius is so small that the angular momentum vector
-    # Cannot be computed. In this case, fall back to default behavior.
-    # (to_spherical will assume z axis as the polar axis).
-    # 2025-02-14: This does not happen anymore. Let's comment this out
-    # to avoid eager evaluation of newz.
-#    if newz is not None and (np.array(newz)**2).sum() == 0:
-#        newz = None
-
     if rmax is None:
         rmax = s.Lbox/2
 
