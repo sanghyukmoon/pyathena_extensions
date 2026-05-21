@@ -113,6 +113,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 else:
                     self.mhd = False
 
+            self.dt_output = {}
+            for k, v in self.par.items():
+                if k.startswith('output'):
+                    self.dt_output[v['file_type']] = v['dt']
+
+
             tools.LognormalPDF.__init__(self, self.Mach)
             TimingReader.__init__(self, self.basedir, self.problem_id)
 
@@ -556,6 +562,52 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         pos2 = self.flatindex_to_cartesian(idx2)
         return tools.periodic_distance(pos1, pos2, self.Lbox)
 
+    def core_trajectory(self, pid, fmul=5):
+        """Return the backward core trajectory as a continuous path.
+
+        The trajectory is traversed from the collapse time to the past. When
+        the path crosses a periodic boundary, coordinates are unwrapped so the
+        returned path remains continuous.
+
+        Parameters
+        ----------
+        pid : int
+            Core particle id.
+        fmul : float, optional
+            Maximum allowed displacement factor between consecutive snapshots.
+            Tracking stops when the periodic distance exceeds
+            ``fmul * dt_output * Mach``.
+
+        Returns
+        -------
+        xv, yv, zv : np.ndarray
+            Unwrapped trajectory coordinates from future to past.
+        """
+        cores = self.cores[pid].sort_index(ascending=False)
+        widths = np.asarray(self.domain['re']) - np.asarray(self.domain['le'])
+        dl_max = fmul*self.dt_output['hdf5']*self.Mach
+
+        pos0 = np.asarray(self.flatindex_to_cartesian(cores.iloc[0].leaf_id),
+                          dtype=float)
+        pos_prev_wrapped = pos0.copy()
+        pos_prev_unwrapped = pos0.copy()
+
+        trajectory = [pos0.copy()]
+        for _, core in cores.iloc[1:].iterrows():
+            pos_wrapped = np.asarray(self.flatindex_to_cartesian(core.leaf_id),
+                                     dtype=float)
+            displacement = np.array([
+                tools.periodic_operator(delta, -0.5*width, 0.5*width)
+                for delta, width in zip(pos_wrapped - pos_prev_wrapped, widths)
+            ])
+            if np.linalg.norm(displacement) > dl_max:
+                break
+            trajectory.append(pos_prev_unwrapped + displacement)
+            pos_prev_unwrapped = trajectory[-1]
+            pos_prev_wrapped = pos_wrapped
+        trajectory = np.asarray(trajectory)
+        return trajectory[:, 0], trajectory[:, 1], trajectory[:, 2]
+
     def apply_periodic_bc(self, x, y, z):
         """Apply periodic boundary conditions"""
         x = tools.sawtooth(x, self.domain['le'][0], self.domain['re'][0],
@@ -573,12 +625,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         Additionally store their mass, position, velocity at the time of
         collapse.
         """
-        # find collapse time and the snapshot numbers at the time of collapse
-        dt_output = {}
-        for k, v in self.par.items():
-            if k.startswith('output'):
-                dt_output[v['file_type']] = v['dt']
-
         x1, x2, x3, v1, v2, v3 = {}, {}, {}, {}, {}, {}
         time, num = {}, {}
         for pid in self.pids:
@@ -590,7 +636,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             v2[pid] = phst.v2
             v3[pid] = phst.v3
             time[pid] = phst.time - phst.age
-            num[pid] = np.floor(time[pid] / dt_output['hdf5']).astype('int')
+            num[pid] = np.floor(time[pid] / self.dt_output['hdf5']).astype('int')
         tcoll_cores = pd.DataFrame(
             dict(x1=x1, x2=x2, x3=x3,
                  v1=v1, v2=v2, v3=v3,
