@@ -411,8 +411,6 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4, compute_flux=Fal
     _, (ds['gacc1'], ds['gacc2'], ds['gacc3'])\
         = transform.to_spherical(gacc.values(), origin, newz)
     ds['frac_neg_gacc1'] = xr.where(ds.gacc1 < 0, 1.0, 0.0)
-    angular_gacc = np.sqrt(ds.gacc2**2 + ds.gacc3**2)
-    ds['frac_inward_gacc'] = xr.where(ds.gacc1 < -angular_gacc, 1.0, 0.0)
     ds['Ldens_x'] = ds.rho*((ds.y - origin[1])*ds.velz - (ds.z - origin[2])*ds.vely)
     ds['Ldens_y'] = ds.rho*((ds.z - origin[2])*ds.velx - (ds.x - origin[0])*ds.velz)
     ds['Ldens_z'] = ds.rho*((ds.x - origin[0])*ds.vely - (ds.y - origin[1])*ds.velx)
@@ -541,13 +539,10 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4, compute_flux=Fal
     rprofs['rho'], rprofs['vshell'] = _radial_binning(ds['rho'])
     rprofs['gacc1'], _ = _radial_binning(ds['gacc1'])
     rprofs['frac_neg_gacc1'], _ = _radial_binning(ds['frac_neg_gacc1'])
-    rprofs['frac_inward_gacc'], _ = _radial_binning(ds['frac_inward_gacc'])
     # Mass-weighted averages
-    for k in ['gacc1', 'velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3', 'phi',
-              'frac_neg_gacc1', 'frac_inward_gacc']:
+    for k in ['gacc1', 'velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3', 'phi']:
         rprofs[k+'_mw'], _ = _radial_binning(ds[k], mass_weighted=True)
     rprofs['frac_neg_gacc1_gw'], _ = _radial_binning(ds['frac_neg_gacc1'], gravity_weighted=True)
-    rprofs['frac_inward_gacc_gw'], _ = _radial_binning(ds['frac_inward_gacc'], gravity_weighted=True)
 
     # virial terms
     rprofs['xgx_mw'], _ = _radial_binning((ds.x - origin[0])*gacc['x'], mass_weighted=True)
