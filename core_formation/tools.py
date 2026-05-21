@@ -1665,7 +1665,7 @@ def periodic_distance1d(x1, x2, w):
     x1 : array_like
         (array of) First coordinate
     x2 : array_like
-        (array of) First coordinate
+        (array of) Second coordinate
     w : scalar
         The period.
     """
@@ -1696,12 +1696,11 @@ def periodic_distance(x1, x2, w, return_axis_distance=False):
         assert len(w) == ndim
         w = np.array(w)
 
-    hw = 0.5*w
     axis_distance = []
-    for x1_, x2_, hw_ in zip(x1, x2, hw):
+    for x1_, x2_, w_ in zip(x1, x2, w):
         x1v = np.atleast_1d(x1_)
         x2v = np.atleast_1d(x2_)
-        axis_distance.append(periodic_distance1d(x1v, x2v, hw_))
+        axis_distance.append(periodic_distance1d(x1v, x2v, w_))
     axis_distance = np.array(axis_distance)
     pdst = np.sqrt((axis_distance**2).sum(axis=0))
     if return_axis_distance:
