@@ -116,11 +116,7 @@ def find_tcoll_core(s, pid):
     # return the flat index of the center of the t_coll core.
     return lid
 
-
-# TODO Can we predict the new sink position using the mean velocity inside the core?
-# But that would require loading the hdf5 snapshot, making the core tracking more expensive.
-# TODO: Let's experiment core tracking without dendrogram
-def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
+def track_cores(s, pid):
     """Perform reverse core tracking
 
     Parameters
@@ -129,8 +125,6 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
     pid : int
     ncells_min : int, optional
         Minimum number of cells in a leaf. Default to 27.
-    local_dendro_hw : float, optional
-        Half width of the local dendrogram domain. Default to 0.5.
 
     Returns
     -------
@@ -150,34 +144,9 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
 
     lid = find_tcoll_core(s, pid)
 
-    # Load data and construct local dendrogram
-    ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
-
-    # Here, the dendrogram is intentionally not pruned. If the core collapse
-    # is well resolved, the progenitor core snapshot at t_coll should not be
-    # a bud node.
-    gd = local_dendrogram(ds.phi, s.flatindex_to_cartesian(lid),
-                          s.domain['le'], s.domain['dx'],
-                          prune=False, hw=local_dendro_hw)
-
-    # Calculate effective radius of this leaf
-    _rleaf = reff_sph(gd.len(lid)*s.dV)
-
-    # Calculate tidal radius
-    # Note that even if the progenitor core is resolved, there could exist
-    # neighboring bud nodes which have not been pruned, and these will affect
-    # the tidal radius here.
-    _rtidal = tidal_radius(s, gd, lid, lid)
-
-    tcoll_resolved = True if gd.len(lid) >= ncells_min else False
-
     # Test if any star particle is contained inside t_coll core.
     # TODO: This requires dendrogram construction; We should change algorithm
     # for usage in AthenaK
-    pds = s.load_par(num)
-    cells_in_core = gd.nodes[lid]
-    isolated = not np.any([s.cartesian_to_flatindex(x, y, z) in cells_in_core
-                           for (x, y, z) in zip(pds.x1, pds.x2, pds.x3)])
 
     assert s.par['output2']['file_type'] == 'hdf5' and s.par['output2']['variable'] == 'cons'
     dt_hdf5 = s.par['output2']['dt']
@@ -185,67 +154,26 @@ def track_cores(s, pid, ncells_min=27, local_dendro_hw=0.5):
     nums_track = [num,]
     time = [s.num_to_time(num),]
     leaf_id = [lid,]
-    rleaf = [_rleaf,]
-    rtidal = [_rtidal,]
     for num in nums[1:]:
         print(f'[track_cores] processing model {s.basename} pid {pid} num {num}')
-        ds_old = ds
+        minima = s.minima[num]
         lid_old = lid
-        rtidal_old = _rtidal
-
-        # Set the tracking info from previous (future) snapshot
-        # First order prediction; x(t-dt) = x(t) - v(t)dt
-        x0, y0, z0 = s.flatindex_to_cartesian(lid_old)
-        vx, vy, vz = (ds_old.mom1/ds_old.dens,
-                      ds_old.mom2/ds_old.dens,
-                      ds_old.mom3/ds_old.dens)
-        sel = dict(x=x0, y=y0, z=z0)
-        vx, vy, vz = vx.sel(sel), vy.sel(sel), vz.sel(sel)
-        dx, dy, dz = dask.compute(-vx*dt_hdf5, -vy*dt_hdf5, -vz*dt_hdf5)
-        dx, dy, dz = dx.data[()], dy.data[()], dz.data[()]
-        x0, y0, z0 = s.flatindex_to_cartesian(lid_old) + np.array([dx, dy, dz])
-        x0, y0, z0 = s.apply_periodic_bc(x0, y0, z0)
-        lid_predicted = s.cartesian_to_flatindex(x0, y0, z0)
-        distance_threshold = rtidal_old
-
-        ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
-        gd = local_dendrogram(ds.phi, s.flatindex_to_cartesian(lid_predicted),
-                              s.domain['le'], s.domain['dx'], hw=local_dendro_hw)
 
         # find closeast leaf to the previous preimage
-        lid = find_closest_leaf(s, gd, lid_old)
-        _rleaf = reff_sph(gd.len(lid)*s.dV)
-        if set(gd.nodes.keys()) == {lid}:
-            # If there is no other nodes, set tidal radius to
-            # half of the local box size.
-            _rtidal = local_dendro_hw
-        else:
-            _rtidal = tidal_radius(s, gd, lid, lid)
-
-        # If the center has moved more than the future tidal radius, stop tracking.
-        # Note that the current tidal radius can become suddenly very large, and
-        # thus using max(rtidal, rtidal[-1]) will keep track core which is undesirable.
-        if s.distance_between(lid, lid_predicted) > distance_threshold:
-            break
+        dst = [s.distance_between(lid, lid_old) for lid in minima]
+        lid = minima[np.argmin(dst)]
 
         nums_track.append(num)
         time.append(s.num_to_time(num))
         leaf_id.append(lid)
-        rleaf.append(_rleaf)
-        rtidal.append(_rtidal)
     # SMOON: Using dtype=object is to prevent automatic upcasting from int to float
     # when indexing a single row. Maybe there is a better approach.
-    cores = pd.DataFrame(dict(time=time,
-                              leaf_id=leaf_id,
-                              leaf_radius=rleaf,
-                              tidal_radius=rtidal),
+    cores = pd.DataFrame(dict(time=time, leaf_id=leaf_id),
                          index=nums_track, dtype=object).sort_index()
 
     # Set attributes
     cores.attrs['pid'] = pid
     cores.attrs['numcoll'] = numcoll
-    cores.attrs['tcoll_resolved'] = tcoll_resolved
-    cores.attrs['isolated'] = isolated
 
     return cores
 
