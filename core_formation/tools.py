@@ -602,9 +602,12 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4, compute_flux=Fal
         )
 
         radii = rprofs.r.values
-        bhat_x = rprofs.bhat_x.compute().data
-        bhat_y = rprofs.bhat_y.compute().data
-        bhat_z = rprofs.bhat_z.compute().data
+        bhat_x, bhat_y, bhat_z = dask.compute(
+            rprofs.bhat_x, rprofs.bhat_y, rprofs.bhat_z
+        )
+        bhat_x = bhat_x.data
+        bhat_y = bhat_y.data
+        bhat_z = bhat_z.data
         bperp1_x, bperp1_y, bperp1_z = [], [], []
         bperp2_x, bperp2_y, bperp2_z = [], [], []
         if compute_flux:
