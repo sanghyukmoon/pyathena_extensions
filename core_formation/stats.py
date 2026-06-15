@@ -1,4 +1,5 @@
 from dask.array import fft
+from scipy import fft as spfft
 import numpy as np
 import xarray as xr
 # Bottleneck does not use stable sum.
@@ -8,7 +9,7 @@ import xarray as xr
 xr.set_options(use_bottleneck=False, use_numbagg=False)
 from pyathena.util import transform
 
-def fftn(arr):
+def dask_fftn(arr):
     assert len(np.unique(arr.chunksizes['x'])) == 1
     assert len(np.unique(arr.chunksizes['y'])) == 1
     assert len(np.unique(arr.chunksizes['z'])) == 1
@@ -25,22 +26,50 @@ def fftn(arr):
     arr = arr.rechunk(chunksizes)
     return arr
 
-def power_spectrum(arr, nx, lbox, nbin=50):
-    # Perform FFT and calculate power spectrum
-    arr_k = (lbox/nx)**3*fftn(arr)
-    pspec = np.abs(arr_k)**2 / lbox**3
-    kx = 2*np.pi*fft.fftfreq(nx, d=lbox/nx)
-    pspec = xr.DataArray(pspec, coords=dict(kz=kx, ky=kx, kx=kx))
+def power_spectrum(arr, lx, nbin=50):
+    """ Perform FFT and calculate power spectrum
+
+    The order of the input array does not matter as long as the physical box
+    size is given in the same order. The power spectrum is averaged in bins of
+    wavenumber magnitude.
+
+    Parameters
+    ----------
+    arr : numpy array
+    lx : tuple-like
+        Physical box size in each dimension
+    nbin : int, optional
+        Number of bins for averaging the power spectrum, by default 50
+    Returns
+    -------
+    xarray.DataArray
+        Binned power spectrum as a function of wavenumber magnitude
+    """
+
+    nx = np.array(arr.shape)
+    lx = np.array(lx)
+    if arr.chunks is None:
+        arr_k = spfft.fftn(arr)/nx.prod()
+    else:
+        arr_k = dask_fftn(arr)/nx.prod()
+    pspec = np.abs(arr_k)**2
+    # Note that although this is named as kx, ky, kz, they are not necessarily
+    # in the order of x, y, z depending on the order of the input array.
+    # However, the order does not matter for calculating the angle-averaged
+    # power spectrum.
+    kx = 2*np.pi*fft.fftfreq(nx[0], d=lx[0]/nx[0])
+    ky = 2*np.pi*fft.fftfreq(nx[1], d=lx[1]/nx[1])
+    kz = 2*np.pi*fft.fftfreq(nx[2], d=lx[2]/nx[2])
+    pspec = xr.DataArray(pspec, coords=dict(kx=kx, ky=ky, kz=kz))
     kx, ky, kz = transform._chunk_like(pspec.kx, pspec.ky, pspec.kz, chunks=pspec.chunksizes)
-    pspec.coords['kmag'] = np.sqrt(kz**2 + ky**2 + kx**2)
-    kmin = 2*np.pi/lbox
-    kmax = np.pi/(lbox/nx)
+    pspec.coords['kmag'] = np.sqrt(kx**2 + ky**2 + kz**2)
+    kmin = 2*np.pi/min(lx)
+    kmax = np.pi/max(lx/nx)
     pspec_avg = transform.groupby_bins(pspec, 'kmag', nbin, (kmin, kmax))
     return pspec_avg
 
 def generate_grf(nx, lbox, mean, varience, power_index):
     from scipy.stats import gumbel_r
-    from scipy import fft as spfft
     # Create wavenumber grid
     kx = 2*np.pi*spfft.fftfreq(nx, d=lbox/nx)
     kmag = np.sqrt(kx[:, None, None]**2 + kx[None, :, None]**2 + kx[None, None, :]**2)
