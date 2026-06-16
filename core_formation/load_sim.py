@@ -425,7 +425,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 cores.attrs['tff_crit'] = tff_crit
 
             # Load Lagrangian props
-            fname = Path(self.savdir, config.CORE_DIR, f'lprops_tcrit_{method}.par{pid}.p')
+            fname = Path(savdir, f'lprops_tcrit_{method}.par{pid}.p')
             if fname.exists():
                 lprops = pd.read_pickle(fname).sort_index()
                 if set(lprops.columns).issubset(cores.columns):
@@ -486,9 +486,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 prestellar_cores = cores.loc[:cores.attrs['numcoll']]
                 oprops = []
                 for num, core in prestellar_cores.iterrows():
-                    fname = Path(self.savdir, config.CORE_DIR,
-                                 'observables.par{}.{:05d}.p'
-                                 .format(pid, num))
+                    fname = Path(savdir, 'observables.par{}.{:05d}.p'.format(pid, num))
                     if fname.exists():
                         oprops.append(pd.read_pickle(fname))
                 if len(oprops) > 0:
@@ -670,8 +668,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             tes_crit = []
             for num in cores.index:
                 try:
-                    fname = Path(self.savdir, config.CORE_DIR,
-                                 f'critical_tes.par{pid}.{num:05d}.p')
+                    fname = Path(savdir, f'critical_tes.par{pid}.{num:05d}.p')
                     tes_crit.append(pd.read_pickle(fname))
                 except FileNotFoundError:
                     pids_not_found.append(pid)
@@ -787,7 +784,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         KeyError
             If `cores` has not been initialized (due to missing files, etc.)
         """
-        savdir = Path(self.savdir, config.RPROF_DIR)
         fname_concat = savdir / 'radial_profile.concatenated.p'
 
         if not fname_concat.exists():
