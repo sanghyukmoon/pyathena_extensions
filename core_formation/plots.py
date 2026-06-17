@@ -849,7 +849,8 @@ def plot_core_evolution(s, pid, num, rmax=None):
         # 1. Projections
         plt.sca(axs['proj'][i])
         plot_projection(s, ds, axis=prj_axis, add_colorbar=False)
-        plot_projection(s, ds, 'b_stream', axis=prj_axis, add_colorbar=False)
+        if s.mhd:
+            plot_projection(s, ds, 'b_stream', axis=prj_axis, add_colorbar=False)
         rec = plt.Rectangle((xlim[prj_axis][0], ylim[prj_axis][0]),
                             2*hw, 2*hw, fill=False, ec='r')
         plt.gca().add_artist(rec)
@@ -862,7 +863,8 @@ def plot_core_evolution(s, pid, num, rmax=None):
         # 2. Zoom-in projections
         plt.sca(axs['zoom'][i])
         plot_projection(s, d, axis=prj_axis, add_colorbar=False)
-        plot_projection(s, d, 'b_stream', axis=prj_axis, add_colorbar=False)
+        if s.mhd:
+            plot_projection(s, d, 'b_stream', axis=prj_axis, add_colorbar=False)
 #        if core.leaf_id not in gd.leaves:
 #            # Due to path-dependent nature of dendrogram pruning, some ids
 #            # may not match in global dendrogram and local dendrogram.
