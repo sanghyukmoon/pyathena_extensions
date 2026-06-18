@@ -560,7 +560,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         pos2 = self.flatindex_to_cartesian(idx2)
         return tools.periodic_distance(pos1, pos2, self.Lbox)
 
-    def core_trajectory(self, pid, fmul=5):
+    def core_trajectory(self, pid, fmul=5, return_nums=False):
         """Return the backward core trajectory as a continuous path.
 
         The trajectory is traversed from the collapse time to the past. When
@@ -575,11 +575,17 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             Maximum allowed displacement factor between consecutive snapshots.
             Tracking stops when the periodic distance exceeds
             ``fmul * dt_output * Mach``.
+        return_nums : bool, optional
+            If True, also return the snapshot numbers associated with the
+            tracked trajectory.
 
         Returns
         -------
         xv, yv, zv : np.ndarray
             Unwrapped trajectory coordinates from future to past.
+        nums : np.ndarray, optional
+            Snapshot numbers from past to future. Returned only when
+            ``return_nums`` is True.
         """
         cores = self.cores[pid].sort_index(ascending=False)
         widths = np.asarray(self.domain['re']) - np.asarray(self.domain['le'])
@@ -590,8 +596,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         pos_prev_wrapped = pos0.copy()
         pos_prev_unwrapped = pos0.copy()
 
+        nums = [cores.index[0]]
         trajectory = [pos0.copy()]
-        for _, core in cores.iloc[1:].iterrows():
+        for num, core in cores.iloc[1:].iterrows():
             pos_wrapped = np.asarray(self.flatindex_to_cartesian(core.leaf_id),
                                      dtype=float)
             displacement = np.array([
@@ -600,11 +607,15 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             ])
             if np.linalg.norm(displacement) > dl_max:
                 break
+            nums.append(num)
             trajectory.append(pos_prev_unwrapped + displacement)
             pos_prev_unwrapped = trajectory[-1]
             pos_prev_wrapped = pos_wrapped
         trajectory = np.asarray(trajectory)
-        return trajectory[:, 0], trajectory[:, 1], trajectory[:, 2]
+        if return_nums:
+            nums = np.asarray(nums)
+            return nums[::-1], trajectory[::-1, 0], trajectory[::-1, 1], trajectory[::-1, 2]
+        return trajectory[::-1, 0], trajectory[::-1, 1], trajectory[::-1, 2]
 
     def apply_periodic_bc(self, x, y, z):
         """Apply periodic boundary conditions"""
