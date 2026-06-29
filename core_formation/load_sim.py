@@ -183,12 +183,17 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 for mtd in ['empirical', 'predicted', 'virial_rcrit']: # pred_be, pred_xis
                     # Calculate derived core properties using the predicted critical time
                     savdir = Path(self.savdir, config.CORE_DIR)
-                    self.cores_dict[mtd] = self.update_core_props(
-                        method = mtd,
-                        prefix = f'cores_tcrit_{mtd}',
-                        savdir = savdir,
-                        force_override = override_derived_cores
-                    )
+                    try:
+                        self.cores_dict[mtd] = self.update_core_props(
+                            method = mtd,
+                            prefix = f'cores_tcrit_{mtd}',
+                            savdir = savdir,
+                            force_override = override_derived_cores
+                        )
+                    except KeyError:
+                        self.logger.warning(
+                            f"Failed to update core propfs for method {method}, model {self.basename}"
+                        )
                 try:
                     self.select_cores(method)
                 except KeyError:
@@ -560,7 +565,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         pos2 = self.flatindex_to_cartesian(idx2)
         return tools.periodic_distance(pos1, pos2, self.Lbox)
 
-    def core_trajectory(self, pid, fmul=5, return_nums=False):
+    def core_trajectory(self, cores, fmul=5, return_nums=False):
         """Return the backward core trajectory as a continuous path.
 
         The trajectory is traversed from the collapse time to the past. When
@@ -569,8 +574,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
         Parameters
         ----------
-        pid : int
-            Core particle id.
+        cores : pandas.DataFrame
+            DataFrame containing the core information for a given pid.
         fmul : float, optional
             Maximum allowed displacement factor between consecutive snapshots.
             Tracking stops when the periodic distance exceeds
@@ -587,7 +592,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             Snapshot numbers from past to future. Returned only when
             ``return_nums`` is True.
         """
-        cores = self.cores[pid].sort_index(ascending=False)
+        cores = cores.sort_index(ascending=False)
         widths = np.asarray(self.domain['re']) - np.asarray(self.domain['le'])
         dl_max = fmul*self.dt_output['hdf5']*self.Mach
 
@@ -673,6 +678,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         for pid in self.pids:
             fname = Path(savdir, f'cores.par{pid}.p')
             cores = pd.read_pickle(fname).sort_index()
+            nums = self.core_trajectory(cores, return_nums=True)[0]
+            cores = cores.loc[nums]
 
             # Read critical TES info and concatenate to self.cores
             # Try reading critical TES pickles

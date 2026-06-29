@@ -253,16 +253,11 @@ def radial_profile(s, nums=None, pids=None, overwrite=False):
     if nums is None:
         nums = s.nums
 
-    tracked_nums = {
-        pid: set(s.core_trajectory(pid, return_nums=True)[0])
-        for pid in pids
-    }
-
     for num in nums:
         pids_skip = []
         for pid in pids:
             cores = s.cores[pid]
-            if num not in tracked_nums[pid]:
+            if num not in cores.index:
                 pids_skip.append(pid)
                 continue
             ofname = Path(s.savdir, config.RPROF_DIR,
