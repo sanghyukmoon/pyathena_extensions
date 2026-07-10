@@ -178,38 +178,10 @@ def track_cores(s, pid):
     return cores
 
 
-def tidal_radius(s, gd, node, leaf=None):
-    """Calculate tidal radius of this node
-
-    Tidal radius is defined as the distance to the closest node, excluding
-    itself and its descendants.
-
-    Parameters
-    ----------
-    s : LoadSim
-        Object containing simulation metadata.
-    gd : grid_dendro.Dendrogram
-        Dendrogram object.
-    node : int
-        ID of the grid-dendro node.
-
-    Returns
-    -------
-    rtidal : float
-        Tidal radius.
-    """
-    # TODO This needs updated condition if using local dendrogram
-    if node == gd.trunk:
-        # If this node is a trunk, tidal radius is the half the box size,
-        # assuming periodic boundary condition.
-        return 0.5*s.Lbox
-    if leaf is None:
-        leaf = gd.find_minimum(node)
-    nodes = set(gd.nodes.keys()) - set(gd.descendants[node]) - {node}
-    dst = [s.distance_between(nd, leaf) for nd in nodes]
-    rtidal = np.min(dst)
-    return rtidal
-
+def tidal_radius():
+    # TODO implement tidal radius calculation based on radial profiles of
+    # sign of gravitational acceleration
+    pass
 
 def local_dendrogram(arr, center_pos, domain_left_edge, domain_cell_size,
                      hw=0.5, prune=True, ncells_min=27):
@@ -284,21 +256,9 @@ def critical_tes_property(s, rprf, core):
     rhoc = rprf.rho.isel(r=0).data[()]
     r0 = s.cs/np.sqrt(4*np.pi*s.gconst*rhoc)
     m0 = s.cs**3/np.sqrt(4*np.pi*s.gconst**3*rhoc)
-    mtidal = (4*np.pi*rprf.r**2*rprf.rho).sel(r=slice(0, core.tidal_radius)
-                                              ).integrate('r').data[()]
-    mean_tidal_density = mtidal / (4*np.pi*core.tidal_radius**3/3)
-
-    rprf_slc = rprf.sel(r=slice(0, core.tidal_radius))
-    vx_com = rprf_slc.velx_mw.weighted(rprf_slc.r**2*rprf_slc.rho).mean()
-    vy_com = rprf_slc.vely_mw.weighted(rprf_slc.r**2*rprf_slc.rho).mean()
-    vz_com = rprf_slc.velz_mw.weighted(rprf_slc.r**2*rprf_slc.rho).mean()
-    sig1d = np.sqrt((rprf_slc.velx_sq_mw.weighted(rprf_slc.r**2*rprf_slc.rho).mean()
-                   + rprf_slc.vely_sq_mw.weighted(rprf_slc.r**2*rprf_slc.rho).mean()
-                   + rprf_slc.velz_sq_mw.weighted(rprf_slc.r**2*rprf_slc.rho).mean()
-                   - vx_com**2 - vy_com**2 - vz_com**2).data[()]/3)
 
     rmin_fit = 3.5*s.dx
-    rmax_fit = max(core.tidal_radius, 16.5*s.dx)
+    rmax_fit = 16.5*s.dx
     # Select data for sonic radius fit
     rds = rprf.r.sel(r=slice(rmin_fit, rmax_fit)).data
     vr = np.sqrt(
@@ -329,8 +289,8 @@ def critical_tes_property(s, rprf, core):
         except UserWarning:
             dcrit = rcrit = mcrit = np.nan
 
-    res = dict(center_density=rhoc, tidal_mass=mtidal, sigma_1d_tidal=sig1d,
-               mean_tidal_density=mean_tidal_density, sonic_radius=rs, pindex=pindex,
+    res = dict(center_density=rhoc,
+               sonic_radius=rs, pindex=pindex,
                critical_contrast=dcrit, critical_radius=rcrit,
                critical_mass=mcrit)
     return res
@@ -1190,10 +1150,11 @@ def critical_time_old(s, cores, rprofs, *, method):
         # and march backward in time.
         num_buffer = 2
         if np.all(cores.iloc[-(num_buffer+1):].pindex < 0):
-            s.logger.warning("pindex in the last three snapshots is negative."
-                             f" for pid = {pid}."
-                             " cannot calculate critical radius and thus the critical time"
-                             f" Isolated = {cores.attrs['isolated']}")
+            s.logger.warning(
+                "pindex in the last three snapshots is negative."
+               f" for pid = {pid}."
+                " cannot calculate critical radius and thus the critical time"
+            )
             ncrit = np.nan
             rcrit = np.nan
         else:
@@ -1250,49 +1211,6 @@ def critical_time_old(s, cores, rprofs, *, method):
         if ncrit == cores.attrs['numcoll'] and np.isnan(cores.loc[ncrit].critical_radius):
             # If ncrit is ncoll at which critical radius was nan, set ncrit to NaN.
             ncrit = np.nan
-    elif method in ['predicted', 'pred_be', 'pred_xis']:
-        for num, core in cores.sort_index(ascending=True).iterrows():
-            if method == 'predicted':
-                # Predicted critical time using R_tidal_avg and Menc
-                rprf = rprofs.sel(num=num)
-                if np.isfinite(core.critical_radius):
-                    menc = rprf.menc.interp(r=core.critical_radius).data[()]
-                else:
-                    menc = np.nan
-                rtidal_avg = 0.5*(core.leaf_radius + core.tidal_radius)
-                cond1 = rtidal_avg >= core.critical_radius
-                cond2 = menc >= core.critical_mass
-                if cond1 and cond2:
-                    ncrit = num
-                    rcrit = cores.loc[ncrit].critical_radius
-                    break
-            elif method == 'pred_be':
-                # Predicted critical time using BE criterion
-                rprf = rprofs.sel(num=num)
-                rhoc = rprf.rho.isel(r=0).data[()]
-                r0 = s.cs/np.sqrt(4*np.pi*s.gconst*rhoc)
-                m0 = s.cs**3/np.sqrt(4*np.pi*s.gconst**3*rhoc)
-                ts = tes.TES()
-                rbe = ts.rcrit*r0
-                mbe = ts.mcrit*m0
-                menc = rprf.menc.interp(r=rbe).data[()]
-                rtidal_avg = 0.5*(core.leaf_radius + core.tidal_radius)
-                cond1 = rtidal_avg >= rbe
-                cond2 = menc >= mbe
-                if cond1 and cond2:
-                    ncrit = num
-                    rcrit = cores.loc[ncrit].critical_radius
-                    break
-            elif method == 'pred_xis':
-                # Predicted critical time using xi_s
-                r0 = s.cs / np.sqrt(4*np.pi*s.gconst*core.center_density)
-                xi_s = core.sonic_radius / r0
-                cond1 = xi_s > 8.99  # r_crit = r_s at xi_s = 8.99 for p=0.5
-                cond2 = core.pindex > 0 and core.pindex < 1
-                if cond1 and cond2:
-                    ncrit = num
-                    rcrit = cores.loc[ncrit].critical_radius
-                    break
     elif method == 'virial_rcrit':
         for num, core in cores.sort_index(ascending=False).iterrows():
             rprf = rprofs.sel(num=num)

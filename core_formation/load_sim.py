@@ -180,8 +180,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Load derived core informations using various alternative critical times
             if hasattr(self, 'cores') and hasattr(self, 'rprofs'):
                 self.cores_dict = {}
-                for mtd in ['empirical', 'predicted', 'virial_rcrit']: # pred_be, pred_xis
-                    # Calculate derived core properties using the predicted critical time
+                for mtd in ['empirical', 'virial_rcrit']:
                     savdir = Path(self.savdir, config.CORE_DIR)
                     try:
                         self.cores_dict[mtd] = self.update_core_props(
@@ -190,7 +189,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                             savdir = savdir,
                             force_override = override_derived_cores
                         )
-                    except KeyError:
+                    except (AttributeError, KeyError):
                         self.logger.warning(
                             f"Failed to update core propfs for method {method}, model {self.basename}"
                         )
@@ -291,12 +290,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         self.cores = self.cores_dict[method].copy()
 
     def good_cores(self, nres=8):
-        """List of resolved and isolated cores"""
+        """List of resolved cores"""
         good_cores = []
         for pid, cores in self.cores.items():
-            if not cores.attrs['isolated']:
-                # Exclude non-isolated cores
-                continue
             if cores.attrs['track_failed']:
                 # Exclude cores that failed to be tracked before collapse.
                 continue
@@ -324,9 +320,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         core_dict = {}
         for pid in self.pids:
             cores = self.cores[pid].copy()
-            if not cores.attrs['isolated']:
-                core_dict[pid] = cores
-                continue
             if cores.attrs['track_failed']:
                 core_dict[pid] = cores
                 continue
@@ -403,8 +396,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 core = cores.loc[ncrit]
                 rprf = rprofs.sel(num=ncrit)
                 rcore = rcrit
-                if np.isnan(rcore) and cores.attrs['isolated']:
-                    raise ValueError("Critical radius at t_crit is NaN even though core is isolated: "
+                if np.isnan(rcore):
+                    raise ValueError("Critical radius at t_crit is NaN: "
                                      f"Model {self.basename}, par {pid}, ncrit = {ncrit}"
                                      f" crit_method {method}")
                 if rcore > rprf.r.max()[()]:

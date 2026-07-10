@@ -791,7 +791,6 @@ def plot_core_evolution(s, pid, num, rmax=None):
         ds = s.load_hdf5(num, quantities=['dens'], load_method='xarray')
 #    gd = s.load_dendro(num)
     core = s.cores[pid].loc[num]
-    core_tcrit_pred = s.cores_dict['predicted'][pid].loc[num]
     core_tcrit_emp = s.cores_dict['empirical'][pid].loc[num]
     rprf = s.rprofs[pid].sel(num=num)
 
@@ -1003,13 +1002,8 @@ def plot_core_evolution(s, pid, num, rmax=None):
     plt.text(0.6, 0.9, r'$t={:.3f}$'.format(ds.Time)+r'$\,t_{J,0}$',
              transform=plt.gca().transAxes, backgroundcolor='w')
 
-    # Annotate normalized time; if either core_tcrit_pred or core_tcrit_emp is unresolved, this will raise
+    # Annotate normalized time; if core_tcrit_emp is unresolved, this will raise
     # AttributeError.
-    try:
-        plt.text(0.6, 0.8, r'$\tau_\mathrm{evol,pred}=$'+r'${:.2f}$'.format(core_tcrit_pred.tnorm2),
-                 transform=plt.gca().transAxes, backgroundcolor='w')
-    except AttributeError:
-        pass
     try:
         plt.text(0.6, 0.7, r'$\tau_\mathrm{evol}=$'+r'${:.2f}$'.format(core_tcrit_emp.tnorm2),
                  transform=plt.gca().transAxes, backgroundcolor='w')

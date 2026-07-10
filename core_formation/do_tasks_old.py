@@ -139,21 +139,15 @@ if __name__ == "__main__":
         # Calculate Lagrangian properties
         if args.lagrangian_props:
             s = sa.set_model(mdl, force_override=True)
-            isolated_pids = [
-                pid for pid in s.pids
-                if s.cores[pid].attrs['isolated'] and len(s.cores[pid]) > 1
-                # Note that this is different from good_cores, which additionally
-                # checks resolvedness
-            ]
             def wrapper(pid):
-                method_list = ['empirical', 'predicted', 'virial_rcrit'] # virial, pred_be, pred_xis
+                method_list = ['empirical', 'virial_rcrit'] # virial, pred_be, pred_xis
                 for method in method_list:
                     s.select_cores(method)
                     if pid in s.good_cores(0):
                         tasks.lagrangian_props(s, pid, method=method, overwrite=args.overwrite)
             print(f"Calculate Lagrangian properties for model {mdl}")
             with Pool(args.np) as p:
-                p.map(wrapper, isolated_pids)
+                p.map(wrapper, pids)
 
         # Calculate radial profiles of t_coll cores and pickle them.
         if args.projections:
@@ -222,7 +216,7 @@ if __name__ == "__main__":
             s = sa.set_model(mdl, force_override=True)
             print(f"draw core evolution plots for model {mdl}")
             for pid in pids:
-                for method in ['empirical', 'predicted', 'virial', 'virial_rcrit']:
+                for method in ['empirical', 'virial_rcrit']:
                     s.select_cores(method)
                     cores = s.cores[pid]
                     def wrapper(num):
@@ -281,7 +275,7 @@ if __name__ == "__main__":
                                 srcdir])
             prefix = config.PLOT_PREFIX_CORE_EVOLUTION
             for pid in pids:
-                for method in ['empirical', 'predicted', 'virial', 'virial_rcrit']:
+                for method in ['empirical', 'virial_rcrit']:
                     s.select_cores(method)
                     prf = f"{prefix}.par{pid}.tcrit_{method}"
                     subprocess.run(["make_movie", "-p", prf, "-s", srcdir,
