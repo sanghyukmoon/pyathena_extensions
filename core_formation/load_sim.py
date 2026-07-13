@@ -654,7 +654,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         return tcoll_cores
 
     @LoadSimBase.Decorators.check_pickle
-    def _load_cores(self, prefix='cores', savdir=None, force_override=False):
+    def _load_cores(self, prefix='cores', savdir=None, force_override=False, fmul=5):
         cores_dict = {}
         pids_not_found = []
 
@@ -671,7 +671,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         for pid in self.pids:
             fname = Path(savdir, f'cores.par{pid}.p')
             cores = pd.read_pickle(fname).sort_index()
-            nums = self.core_trajectory(cores, return_nums=True)[0]
+            nums = self.core_trajectory(cores, fmul=fmul, return_nums=True)[0]
             cores = cores.loc[nums]
 
             # Read critical TES info and concatenate to self.cores
