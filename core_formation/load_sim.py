@@ -558,7 +558,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         pos2 = self.flatindex_to_cartesian(idx2)
         return tools.periodic_distance(pos1, pos2, self.Lbox)
 
-    def core_trajectory(self, cores, fmul=5, return_nums=False):
+    def core_trajectory(self, cores, return_nums=False):
         """Return the backward core trajectory as a continuous path.
 
         The trajectory is traversed from the collapse time to the past. When
@@ -569,10 +569,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         ----------
         cores : pandas.DataFrame
             DataFrame containing the core information for a given pid.
-        fmul : float, optional
-            Maximum allowed displacement factor between consecutive snapshots.
-            Tracking stops when the periodic distance exceeds
-            ``fmul * dt_output * Mach``.
         return_nums : bool, optional
             If True, also return the snapshot numbers associated with the
             tracked trajectory.
@@ -587,7 +583,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         """
         cores = cores.sort_index(ascending=False)
         widths = np.asarray(self.domain['re']) - np.asarray(self.domain['le'])
-        dl_max = fmul*self.dt_output['hdf5']*self.Mach
 
         pos0 = np.asarray(self.flatindex_to_cartesian(cores.iloc[0].leaf_id),
                           dtype=float)
@@ -603,8 +598,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 tools.periodic_operator(delta, -0.5*width, 0.5*width)
                 for delta, width in zip(pos_wrapped - pos_prev_wrapped, widths)
             ])
-            if np.linalg.norm(displacement) > dl_max:
-                break
             nums.append(num)
             trajectory.append(pos_prev_unwrapped + displacement)
             pos_prev_unwrapped = trajectory[-1]
@@ -654,7 +647,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         return tcoll_cores
 
     @LoadSimBase.Decorators.check_pickle
-    def _load_cores(self, prefix='cores', savdir=None, force_override=False, fmul=5):
+    def _load_cores(self, prefix='cores', savdir=None, force_override=False):
         cores_dict = {}
         pids_not_found = []
 
@@ -671,7 +664,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         for pid in self.pids:
             fname = Path(savdir, f'cores.par{pid}.p')
             cores = pd.read_pickle(fname).sort_index()
-            nums = self.core_trajectory(cores, fmul=fmul, return_nums=True)[0]
+            nums = self.core_trajectory(cores, return_nums=True)[0]
             cores = cores.loc[nums]
 
             # Read critical TES info and concatenate to self.cores
