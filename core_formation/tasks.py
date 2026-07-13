@@ -254,25 +254,6 @@ def radial_profile(s, nums=None, pids=None, overwrite=False):
         nums = s.nums
 
     for num in nums:
-        pids_skip = []
-        for pid in pids:
-            cores = s.cores[pid]
-            if num not in cores.index:
-                pids_skip.append(pid)
-                continue
-            ofname = Path(s.savdir, config.RPROF_DIR,
-                          'radial_profile.par{}.{:05d}.nc'.format(pid, num))
-            if ofname.exists() and not overwrite:
-                pids_skip.append(pid)
-
-        pids_to_process = sorted(set(pids) - set(pids_skip))
-
-        if len(pids_to_process) == 0:
-            msg = ("[radial_profile] Every core alreay has radial profiles at "
-                   f"num = {num}. Skipping...")
-            print(msg)
-            continue
-
         print(f"[radial_profile] Start reading snapshot at num = {num}.")
 
         # Load the snapshot
