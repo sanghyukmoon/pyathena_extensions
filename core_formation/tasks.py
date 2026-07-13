@@ -260,32 +260,33 @@ def radial_profile(s, nums=None, pids=None, overwrite=False):
         # ds0 should not be modified in the following loop.
         ds0 = s.load_hdf5(num, chunks=config.CHUNKSIZE)
 
-        # Loop through cores
-        for pid in pids_to_process:
+        # Loop through cores and find unique node ids
+        unique_leaves = set()
+        for pid in s.pids:
             cores = s.cores[pid]
             if num not in cores.index:
                 # This snapshot `num` does not contain any image of the core `pid`
                 # Continue to the next core.
                 continue
+            unique_leaves.add(cores.loc[num].leaf_id)
 
+        for lid in unique_leaves:
             # Create directory and check if a file already exists
             ofname = Path(s.savdir, config.RPROF_DIR,
-                          f'radial_profile.par{pid}.{num:05d}.nc')
+                          f'radial_profile.{lid}.{num:05d}.nc')
             ofname.parent.mkdir(exist_ok=True)
             if ofname.exists() and not overwrite:
-                msg = (f"[radial_profile] A file already exists for pid = {pid} "
+                msg = (f"[radial_profile] A file already exists for lid = {lid} "
                        f", num = {num}. Continue to the next core")
                 print(msg)
                 continue
 
             msg = (f"[radial_profile] processing model {s.basename}, "
-                   f"pid {pid}, num {num}")
+                   f"lid {lid}, num {num}")
             print(msg)
 
-            core = cores.loc[num]
-
             # Find the location of the core
-            center = s.flatindex_to_cartesian(core.leaf_id)
+            center = s.flatindex_to_cartesian(lid)
             center = dict(zip(['x', 'y', 'z'], center))
 
             # Roll the data such that the core is at the center of the domain
