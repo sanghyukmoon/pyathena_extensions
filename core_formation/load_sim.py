@@ -1011,10 +1011,16 @@ class LoadSimAll(object):
             models = self.models
         for mdl in models:
             s = self.set_model(mdl, **kwargs)
-            for pid in s.good_cores(nres):
-                cores = s.cores[pid]
-                rprofs = s.rprofs[pid]
-                yield s, pid, cores, rprofs
+            if nres == 0:
+                for pid in s.pids:
+                    cores = s.cores[pid]
+                    rprofs = s.rprofs[pid]
+                    yield s, pid, cores, rprofs
+            else:
+                for pid in s.good_cores(nres):
+                    cores = s.cores[pid]
+                    rprofs = s.rprofs[pid]
+                    yield s, pid, cores, rprofs
 
     def itercritcore(self, models=None, nres=8, **kwargs):
         if models is None:
