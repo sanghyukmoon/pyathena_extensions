@@ -738,7 +738,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             min_nr = None
             for num in cores.index:
                 try:
-                    fname = savdir / f'radial_profile.par{pid}.{num:05d}.nc'
+                    leaf_id = cores.loc[num].leaf_id
+                    fname = savdir / f'radial_profile.{leaf_id}.{num:05d}.nc'
                     rprf = xr.load_dataset(fname)
                     if min_nr is None:
                         min_nr = rprf.sizes['r']
@@ -747,6 +748,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     rprofs_pid.append(rprf)
                     nums.append(num)
                 except FileNotFoundError:
+                    print(f"Missing radial profile for pid {pid}, num {num}.")
                     pids_not_found.append(pid)
                     break
             if len(rprofs_pid) > 0:
