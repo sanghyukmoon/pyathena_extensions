@@ -97,6 +97,27 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             basedir = basedir_or_Mach
             super().__init__(basedir, savdir=savdir, load_method='xarray',
                              units=Units('code'), verbose=verbose)
+
+            # Override physical units assuming dense sub-patch of a GMC
+            nH0 = 200*au.cm**-3  # Mean Hydrogen number density
+            T = 10*au.K  # Temperature
+            mH = 1.008*au.u  # Mass of a hydrogen atom
+            mu = 14/6  # Average molecular weight per particle
+            muH = 1.4  # Average molecular weight per hydrogen
+            cs = np.sqrt(ac.k_B*T / (mu*mH))
+            rho0 = muH*nH0*mH
+            LJ0 = np.sqrt(np.pi*cs**2/(ac.G*rho0)).to('pc')
+            MJ0 = (rho0*LJ0**3).to('Msun')
+            tJ0 = (LJ0/cs).to('Myr')
+            units_dict = {'unit_system': 'cloud',
+                          'mass_cgs': MJ0.cgs.value,
+                          'length_cgs': LJ0.cgs.value,
+                          'time_cgs': tJ0.cgs.value,
+                          'mean_mass_per_hydrogen': (muH*mH).cgs.value}
+            self.u = Units('custom', units_dict=units_dict)
+            self.u.number_density = (self.u.density/(self.u.muH*self.u.mH)).to('cm-3')
+            self.u.column_density = (self.u.number_density*self.u.length).to('cm-2')
+
             self.Mach = self.par['problem']['Mach']
             if self.Mach in {5, 10}:
                 if self.Mach == 5:
@@ -155,9 +176,16 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             try:
                 # Load cores
+                num_start = int(
+                    (self.tcoll_cores.loc[1].time - 1.5 / self.u.Myr)
+                    / self.dt_output['hdf5']
+                )
                 savdir = Path(self.savdir, config.CORE_DIR)
-                self.cores = self._load_cores(savdir=savdir,
-                                              force_override=override_cores)
+                self.cores = self._load_cores(
+                    savdir=savdir,
+                    force_override=override_cores,
+                    num_start=num_start
+                )
             except FileNotFoundError:
                 self.logger.warning("Cannot find core files to load.")
                 pass
@@ -176,7 +204,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                                         "concatenate individual radial profiles "
                                         "into one file?")
                     pass
-
             # Load derived core informations using various alternative critical times
             if hasattr(self, 'cores') and hasattr(self, 'rprofs'):
                 self.cores_dict = {}
@@ -191,7 +218,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                         )
                     except (AttributeError, KeyError):
                         self.logger.warning(
-                            f"Failed to update core propfs for method {method}, model {self.basename}"
+                            f"Failed to update core props for method {mtd}, model {self.basename}"
                         )
                 try:
                     self.select_cores(method)
@@ -204,26 +231,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             pass
         else:
             raise ValueError("Unknown parameter type for basedir_or_Mach")
-
-        # Override Unit system assuming dense sub-patch of a GMC
-        nH0 = 200*au.cm**-3  # Mean Hydrogen number density
-        T = 10*au.K  # Temperature
-        mH = 1.008*au.u  # Mass of a hydrogen atom
-        mu = 14/6  # Average molecular weight per particle
-        muH = 1.4  # Average molecular weight per hydrogen
-        cs = np.sqrt(ac.k_B*T / (mu*mH))
-        rho0 = muH*nH0*mH
-        LJ0 = np.sqrt(np.pi*cs**2/(ac.G*rho0)).to('pc')
-        MJ0 = (rho0*LJ0**3).to('Msun')
-        tJ0 = (LJ0/cs).to('Myr')
-        units_dict = {'unit_system': 'cloud',
-                      'mass_cgs': MJ0.cgs.value,
-                      'length_cgs': LJ0.cgs.value,
-                      'time_cgs': tJ0.cgs.value,
-                      'mean_mass_per_hydrogen': (muH*mH).cgs.value}
-        self.u = Units('custom', units_dict=units_dict)
-        self.u.number_density = (self.u.density/(self.u.muH*self.u.mH)).to('cm-3')
-        self.u.column_density = (self.u.number_density*self.u.length).to('cm-2')
 
     def load_hdf5(self, num, sparse=False, **kwargs):
         """Load hdf5 file
@@ -558,7 +565,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         pos2 = self.flatindex_to_cartesian(idx2)
         return tools.periodic_distance(pos1, pos2, self.Lbox)
 
-    def core_trajectory(self, cores, return_nums=False):
+    def core_trajectory(self, cores, return_nums=False, num_start=None):
         """Return the backward core trajectory as a continuous path.
 
         The trajectory is traversed from the collapse time to the past. When
@@ -572,6 +579,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         return_nums : bool, optional
             If True, also return the snapshot numbers associated with the
             tracked trajectory.
+        num_start : int, optional
+            Earliest snapshot to include in the trajectory.
 
         Returns
         -------
@@ -581,6 +590,11 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             Snapshot numbers from past to future. Returned only when
             ``return_nums`` is True.
         """
+        if num_start is not None:
+            cores = cores.loc[num_start:]
+        if cores.empty:
+            raise ValueError(f'No core snapshots at or after num_start={num_start}')
+
         cores = cores.sort_index(ascending=False)
         widths = np.asarray(self.domain['re']) - np.asarray(self.domain['le'])
 
@@ -647,7 +661,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         return tcoll_cores
 
     @LoadSimBase.Decorators.check_pickle
-    def _load_cores(self, prefix='cores', savdir=None, force_override=False):
+    def _load_cores(self, prefix='cores', savdir=None, force_override=False,
+                    num_start=None):
         cores_dict = {}
         pids_not_found = []
 
@@ -664,8 +679,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         for pid in self.pids:
             fname = Path(savdir, f'cores.par{pid}.p')
             cores = pd.read_pickle(fname).sort_index()
-            nums = self.core_trajectory(cores, return_nums=True)[0]
-            cores = cores.loc[nums]
+            cores = cores.loc[num_start:]
 
             # Read critical TES info and concatenate to self.cores
             # Try reading critical TES pickles
