@@ -59,7 +59,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
     def __init__(self, basedir_or_Mach=None, method='virial_rcrit', savdir=None,
                  verbose=False, force_override=False, override_cores=False,
-                 override_rprofs=False, override_derived_cores=False):
+                 override_rprofs=False, override_derived_cores=False,
+                 load_derived_cores=True):
         """The constructor for LoadSim class for core formation simulations.
 
         Parameters
@@ -205,7 +206,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                                         "into one file?")
                     pass
             # Load derived core informations using various alternative critical times
-            if hasattr(self, 'cores') and hasattr(self, 'rprofs'):
+            if load_derived_cores:
                 self.cores_dict = {}
                 for mtd in ['empirical', 'virial_rcrit']:
                     savdir = Path(self.savdir, config.CORE_DIR)

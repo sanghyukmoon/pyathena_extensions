@@ -127,7 +127,8 @@ if __name__ == "__main__":
 
         # Find critical tes
         if args.critical_tes:
-            s = sa.set_model(mdl, force_override=True)
+            s = sa.set_model(mdl, override_cores=True, override_rprofs=True,
+                             load_derived_cores=False)
             print(f"find critical tes for cores for model {mdl}")
             for pid in pids:
                 cores = s.cores[pid]
@@ -138,7 +139,8 @@ if __name__ == "__main__":
 
         # Calculate Lagrangian properties
         if args.lagrangian_props:
-            s = sa.set_model(mdl, force_override=True)
+            s = sa.set_model(mdl, override_cores=True, override_rprofs=True,
+                             load_derived_cores=False)
             def wrapper(pid):
                 method_list = ['empirical', 'virial_rcrit'] # virial, pred_be, pred_xis
                 for method in method_list:
