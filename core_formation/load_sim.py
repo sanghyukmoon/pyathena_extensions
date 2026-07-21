@@ -58,7 +58,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
     """
 
     def __init__(self, basedir_or_Mach=None, method='virial_rcrit', savdir=None,
-                 verbose=False, force_override=False, override_cores=False,
+                 verbose=False, override_all=False, override_cores=False,
                  override_rprofs=False, override_derived_cores=False,
                  load_derived_cores=True):
         """The constructor for LoadSim class for core formation simulations.
@@ -89,7 +89,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         self.gconst = np.pi
         self.tff0 = tools.tfreefall(self.rho0, self.gconst)
 
-        if force_override==True:
+        if override_all==True:
             override_cores = True
             override_rprofs = True
             override_derived_cores = True

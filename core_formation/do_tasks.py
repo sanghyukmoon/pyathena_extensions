@@ -75,7 +75,7 @@ if __name__ == "__main__":
                         s = sa.set_model(args.model, override_cores=True,
                                          load_derived_cores=False)
                     else:
-                        s = sa.set_model(args.model, force_override=True)
+                        s = sa.set_model(args.model, override_all=True)
                     tasks.__dict__[task](s, overwrite=args.overwrite)
     else:
         write_slurm_script(args.model, args.tasks, args.overwrite)
