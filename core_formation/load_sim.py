@@ -994,7 +994,7 @@ class LoadSimAll(object):
                 self.models.append(mdl)
                 self.basedirs[mdl] = basedir
 
-    def set_model(self, model, reset=False, **kwargs):
+    def set_model(self, model, reset=True, **kwargs):
         self.model = model
         if reset or 'force_override' in kwargs and kwargs['force_override']:
             self.sim = LoadSim(self.basedirs[model], **kwargs)
