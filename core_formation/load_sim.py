@@ -175,21 +175,22 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             except FileNotFoundError:
                 pass
 
-            try:
-                # Load cores
-                num_start = int(
-                    (self.tcoll_cores.loc[1].time - 1.5 / self.u.Myr)
-                    / self.dt_output['hdf5']
-                )
-                savdir = Path(self.savdir, config.CORE_DIR)
-                self.cores = self._load_cores(
-                    savdir=savdir,
-                    force_override=override_cores,
-                    num_start=num_start
-                )
-            except FileNotFoundError:
-                self.logger.warning("Cannot find core files to load.")
-                pass
+            if len(self.tcoll_cores) > 0:
+                try:
+                    # Load cores
+                    num_start = int(
+                        (self.tcoll_cores.loc[1].time - 1.5 / self.u.Myr)
+                        / self.dt_output['hdf5']
+                    )
+                    savdir = Path(self.savdir, config.CORE_DIR)
+                    self.cores = self._load_cores(
+                        savdir=savdir,
+                        force_override=override_cores,
+                        num_start=num_start
+                    )
+                except FileNotFoundError:
+                    self.logger.warning("Cannot find core files to load.")
+                    pass
 
             if hasattr(self, 'cores'):
                 try:
