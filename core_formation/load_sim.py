@@ -982,7 +982,6 @@ class LoadSimAll(object):
             models = dict()
         self.models = []
         self.basedirs = dict()
-        self.simdict = dict()
 
         for mdl, basedir in models.items():
             if not osp.exists(basedir):
@@ -994,19 +993,8 @@ class LoadSimAll(object):
                 self.models.append(mdl)
                 self.basedirs[mdl] = basedir
 
-    def set_model(self, model, reset=True, **kwargs):
-        self.model = model
-        if reset or 'force_override' in kwargs and kwargs['force_override']:
-            self.sim = LoadSim(self.basedirs[model], **kwargs)
-            self.simdict[model] = self.sim
-        else:
-            try:
-                self.sim = self.simdict[model]
-            except KeyError:
-                self.sim = LoadSim(self.basedirs[model], **kwargs)
-                self.simdict[model] = self.sim
-
-        return self.sim
+    def set_model(self, model, **kwargs):
+        return LoadSim(self.basedirs[model], **kwargs)
 
     def itercore(self, models=None, nres=8, **kwargs):
         if models is None:
