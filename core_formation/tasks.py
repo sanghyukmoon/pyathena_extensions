@@ -425,6 +425,9 @@ def projections(s, nums=None, overwrite=False):
             return ds.where(ds.dens >= ncrit, other=0)
         raise ValueError(f'Unknown method {method}')
 
+    def weighted_mean(data, weight, dim):
+        return (data*weight).sum(dim) / weight.sum(dim)
+
     axtoi = dict(x=0, y=1, z=2)
 
     for num in nums:
@@ -453,9 +456,9 @@ def projections(s, nums=None, overwrite=False):
 
                     # Velocity and velocity dispersion
                     vel = d[f'vel{i+1}']
-                    vel_los = vel.weighted(d.dens).mean(ax)
+                    vel_los = weighted_mean(vel, d.dens, ax)
                     vdisp_los = np.sqrt(
-                        (vel**2).weighted(d.dens).mean(ax) - vel_los**2
+                        weighted_mean(vel**2, d.dens, ax) - vel_los**2
                     )
                     name = f'{ax}_vel_mtd{method}_nc{ncrit}'
                     data_vars[name] = vel_los
