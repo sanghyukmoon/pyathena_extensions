@@ -294,7 +294,7 @@ def radial_profile(s, nums=None, pids=None, overwrite=False):
 
             # Calculate radial profile
             rprf = tools.radial_profile(s, ds, list(center.values()),
-                                        compute_flux=True)
+                                        rmax=0.53, compute_flux=True)
             rprf = rprf.expand_dims(dict(t=[ds.Time,]))
 
             # write to file
@@ -412,11 +412,61 @@ def lagrangian_props(s, pid, method='empirical', overwrite=False):
     lprops.to_pickle(ofname, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def projections(s, num, overwrite=True):
-    msg = '[projections] processing model {} num {}'
-    print(msg.format(s.basename, num))
-    s.read_prj(num, force_override=overwrite)
+def projections(s, nums=None, overwrite=False):
+    if nums is None:
+        nums = s.nums
+    nums = np.atleast_1d(nums)
 
+    def threshold(ds, ncrit, method):
+        if method == 'tophat':
+            return ds.where((ds.dens >= ncrit) &
+                            (ds.dens < 10*ncrit), other=0)
+        if method == 'step':
+            return ds.where(ds.dens >= ncrit, other=0)
+        raise ValueError(f'Unknown method {method}')
+
+    axtoi = dict(x=0, y=1, z=2)
+
+    for num in nums:
+        ofname = Path(s.savdir, config.PROJ_DIR,
+                      f'projection.{num:05d}.nc')
+        ofname.parent.mkdir(parents=True, exist_ok=True)
+        if ofname.exists() and not overwrite:
+            print(f'[projections] {ofname} already exists. Skipping...')
+            continue
+
+        print(f'[projections] processing model {s.basename} num {num}')
+        ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
+        data_vars = {}
+
+        for ax, i in axtoi.items():
+            dx = s.domain['dx'][i]
+            ds[f'vel{i+1}'] = ds[f'mom{i+1}'] / ds.dens
+
+            data_vars[f'{ax}_Sigma_gas'] = (ds.dens*dx).sum(ax)
+            for method in ['tophat', 'step']:
+                for ncrit in [10, 30, 100]:
+                    d = threshold(ds, ncrit, method)
+                    # Surface density
+                    name = f'{ax}_Sigma_gas_mtd{method}_nc{ncrit}'
+                    data_vars[name] = (d.dens*dx).sum(ax)
+
+                    # Velocity and velocity dispersion
+                    vel = d[f'vel{i+1}']
+                    vel_los = vel.weighted(d.dens).mean(ax)
+                    vdisp_los = np.sqrt(
+                        (vel**2).weighted(d.dens).mean(ax) - vel_los**2
+                    )
+                    name = f'{ax}_vel_mtd{method}_nc{ncrit}'
+                    data_vars[name] = vel_los
+                    name = f'{ax}_veldisp_mtd{method}_nc{ncrit}'
+                    data_vars[name] = vdisp_los
+        prj = xr.Dataset(data_vars)
+        prj = prj.expand_dims(dict(t=[ds.Time,]))
+
+        if ofname.exists():
+            ofname.unlink()
+        prj.to_netcdf(ofname)
 
 def observables(s, pid, num, overwrite=False):
     # Check if file exists
