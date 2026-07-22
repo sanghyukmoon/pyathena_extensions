@@ -1026,11 +1026,12 @@ class LoadSimAll(object):
     def set_model(self, model, **kwargs):
         return LoadSim(self.basedirs[model], **kwargs)
 
-    def itercore(self, models=None, nres=8, **kwargs):
+    def itercore(self, models=None, nres=8, fmul_prune=3, **kwargs):
         if models is None:
             models = self.models
         for mdl in models:
             s = self.set_model(mdl, **kwargs)
+            s.prune_trajectory(f_mul=fmul_prune)
             if nres == 0:
                 for pid in s.pids:
                     cores = s.cores[pid]
