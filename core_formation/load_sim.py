@@ -567,6 +567,36 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         pos2 = self.flatindex_to_cartesian(idx2)
         return tools.periodic_distance(pos1, pos2, self.Lbox)
 
+    def prune_trajectory(self, *, f_mul=3.0):
+        """Find the earliest snapshot with a continuous tracked minimum.
+        """
+        for pid in self.pids:
+            cores = self.cores[pid]
+            rprofs = self.rprofs[pid]
+            num_start = self.trajectory_start_num(cores, rprofs, f_mul=f_mul)
+            self.cores[pid] = cores.loc[num_start:]
+            self.rprofs[pid] = rprofs.sel(num=slice(num_start, None))
+            if self.cores_dict is not None:
+                for mtd in self.cores_dict.keys():
+                    self.cores_dict[mtd][pid] = self.cores_dict[mtd][pid].loc[num_start:]
+
+    def trajectory_start_num(self, cores, rprofs, *, f_mul):
+        """Find the earliest snapshot with a continuous tracked minimum.
+        """
+        cores = cores.sort_index(ascending=False)
+        dt_output = self.dt_output['hdf5']
+        core0 = cores.iloc[0]
+        core1 = cores.iloc[1]
+        dst0 = self.distance_between(core0.leaf_id, core1.leaf_id)
+        for num, core2 in cores.iloc[2:].iterrows():
+            dst = self.distance_between(core1.leaf_id, core2.leaf_id)
+            if dst > f_mul*dst0:
+                num_start = num+1
+                return num_start
+            dst0 = dst
+            core0 = core1
+            core1 = core2
+
     def core_trajectory(self, cores, return_nums=False, num_start=None):
         """Return the backward core trajectory as a continuous path.
 
