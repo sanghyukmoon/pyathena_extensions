@@ -855,8 +855,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             rc = rprofs.r.data
             rf = np.insert(0.5*(rc[1:] + rc[:-1]), 0, 0)
             rf = np.append(rf, rf[-1]+dr)
+            # vshell_full is the volume between the inner and outer bin edges
             vshell_full = 4*np.pi/3*(rf[1:]**3 - rf[:-1]**3)
+            # vshell_half is the volume between the outer bin edge and the
+            # bin center.
             vshell_half = 4*np.pi/3*(rf[1:]**3 - rc**3)
+            # Note that for the first bin, vshell_full = vshell_half.
 
             rprofs['vshell_full'] = xr.DataArray(
                 vshell_full,
@@ -876,16 +880,38 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             rprofs['Omega_G'] = -rprof_cumsum_r(rprofs, rprofs.rho*rdotg)
 
+            # See the Radial Profile from Cartesian Grid Data slide
+            # or July 24 research note.
+            hdr = 0.5*(rprofs.r[1] - rprofs.r[0]).data[()]
+            rl = rprofs.r - hdr
+            ru = rprofs.r + hdr
+            r_inv_avg = (3/2) * (ru + rl) / (ru**2 + ru*rl + rl**2)
+            r2_avg = (3/5) * (
+                ru**4 + ru**3*rl + ru**2*rl**2 + ru*rl**3 + rl**4
+            ) / (ru**2 + ru*rl + rl**2)
+            r5_avg = (3/8) * (
+                ru**7 + ru**6*rl + ru**5*rl**2 + ru**4*rl**3
+                + ru**3*rl**4 + ru**2*rl**5 + ru*rl**6 + rl**7
+            ) / (ru**2 + ru*rl + rl**2)
+            vshell_inner_half = rprofs.vshell_full - rprofs.vshell_half
+            menc_inner_edge = rprofs.menc - rprofs.rho*vshell_inner_half
+            menc_inner_edge -= 4*np.pi*rprofs.rho*rl**3/3
             rdotg_sph = xr.where(
                 rprofs.r > 0,
-                -self.gconst * rprofs.menc / rprofs.r,
+                -self.gconst*(
+                    menc_inner_edge*r_inv_avg
+                    + 4*np.pi*rprofs.rho/3*r2_avg
+                ),
                 0
             )
             rprofs['Omega_G_sph'] = -rprof_cumsum_r(rprofs, rprofs.rho*rdotg_sph)
-
             rprofs['Omega_G0'] = xr.where(
                 rprofs.r > 0,
-                self.gconst * rprofs.menc**2 / rprofs.r,
+                self.gconst*(
+                    menc_inner_edge**2*r_inv_avg
+                    + 8*np.pi*rprofs.rho/3*menc_inner_edge*r2_avg
+                    + (4*np.pi*rprofs.rho/3)**2*r5_avg
+                ),
                 0
             )
 
