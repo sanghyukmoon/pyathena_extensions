@@ -438,6 +438,99 @@ class SpaceTimePlotter():
                 }
         return layout
 
+def plot_lookback_profiles(
+    sa,
+    lookback_times_in_myr,
+    quantities,
+    *,
+    panel_size=(5.5, 3.5),
+    xlim=(1e-2, 1e0),
+    line_kwargs=None,
+):
+    """Plot radial quantities by row and lookback times by column.
+
+    Each entry in ``quantities`` is a dictionary whose ``name`` is either an
+    rprofs field name or a callable with signature ``name(s, rprofs)``.
+    """
+    lookback_times_in_myr = np.asarray(lookback_times_in_myr, dtype=float)
+    nrows = len(quantities)
+    ncols = len(lookback_times_in_myr)
+
+    if nrows == 0 or ncols == 0:
+        raise ValueError('At least one quantity and lookback time are required')
+
+    fig, axs = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(panel_size[0]*ncols, panel_size[1]*nrows),
+        squeeze=False,
+        sharex=True,
+        sharey='row',
+        gridspec_kw={'hspace': 0.1},
+    )
+
+    default_style = {'color': 'k', 'lw': 1, 'alpha': 0.3}
+    default_style.update(line_kwargs or {})
+
+    for s, pid, cores, rprofs in sa.itercore(nres=0):
+        lookback_times_code = lookback_times_in_myr/s.u.Myr
+        selected_times = cores.attrs['tcoll'] - lookback_times_code
+
+        # Require radial profiles to cover every requested lookback time.
+        if (selected_times.min() < rprofs.t.min()
+                or selected_times.max() > rprofs.t.max()):
+            continue
+
+        radius_in_pc = rprofs.r*s.u.pc
+
+        for row, var_info in enumerate(quantities):
+            name = var_info['name']
+            if isinstance(name, str):
+                profile = rprofs[name]
+            else:
+                profile = name(s, rprofs)
+
+            style = default_style | var_info.get('line_kwargs', {})
+            for ax, time in zip(axs[row], selected_times):
+                ax.plot(radius_in_pc, profile.interp(t=time), **style)
+
+    for col, lookback_time in enumerate(lookback_times_in_myr):
+        axs[0, col].text(
+            0.5, 0.9,
+            rf'$t_\mathrm{{coll}}-{lookback_time:g}\,\mathrm{{Myr}}$',
+            ha='left',
+            va='top',
+            transform=axs[0, col].transAxes
+        )
+        axs[0, col].text(
+            0.5, 0.75,
+            rf'$t_\mathrm{{coll}}-{lookback_time/s.u.Myr/(s.tff0/10):.2f}\,t_\mathrm{{ff,ps}}$',
+            ha='left',
+            va='top',
+            transform=axs[0, col].transAxes
+        )
+
+    for row, var_info in enumerate(quantities):
+        for ax in axs[row]:
+            ax.set_xscale('log')
+            ax.set_xlim(*xlim)
+            ax.set_yscale(var_info.get('yscale', 'linear'))
+
+            if 'ylim' in var_info:
+                ax.set_ylim(*var_info['ylim'])
+
+            for y, style in var_info.get('hlines', []):
+                ax.axhline(y, **style)
+
+        axs[row, 0].set_ylabel(var_info.get('ylabel', ''))
+
+    for ax in axs[:-1].flat:
+        ax.set_xlabel('')
+    for ax in axs[-1]:
+        ax.set_xlabel(r'$r\,[\mathrm{pc}]$')
+
+    return fig, axs
+
 def plot_projection(s, ds, field='dens', axis='z', op='sum',
                     vmin=1e-1, vmax=2e2, cmap='pink_r', alpha=1,
                     ax=None, cax=None, noplot=False,
