@@ -353,10 +353,13 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4, compute_flux=Fal
 
     # Convert density and velocities to spherical coord.
     gacc = {}
+    vel_origin = {}
     for dim, axis in zip(['x', 'y', 'z'], [1, 2, 3]):
         # Recenter velocity and calculate gravitational acceleration
         vel_ = ds[f'mom{axis}']/ds.dens
-        ds[f'vel{dim}'] = vel_ - vel_.sel(x=origin[0], y=origin[1], z=origin[2])
+        v0 = vel_.sel(x=origin[0], y=origin[1], z=origin[2])
+        vel_origin[dim] = v0
+        ds[f'vel{dim}'] = vel_ - v0
         gacc[dim] = -ds.phi.differentiate(dim)
     ds = ds.drop_vars(['mom1', 'mom2', 'mom3'])
     ds = ds.rename_vars(dict(dens='rho'))
@@ -601,6 +604,11 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4, compute_flux=Fal
                 for j in ['x', 'y', 'z']:
                     mdot = mdot + basis[i]*basis[j]*flux_tensor[(i, j)]
             rprofs[prefix] = mdot_scale*mdot
+
+    # Register velocity at origin
+    rprofs['velx_origin'] = vel_origin['x']
+    rprofs['vely_origin'] = vel_origin['y']
+    rprofs['velz_origin'] = vel_origin['z']
 
     # Drop theta and phi coordinates
     for k in ['th', 'ph']:
