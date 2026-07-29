@@ -74,6 +74,8 @@ if __name__ == "__main__":
                     if task == 'radial_profile':
                         s = sa.set_model(args.model, override_cores=True,
                                          load_derived_cores=False)
+                    elif tasks == 'projections':
+                        s = sa.set_model(args.model, load_derived_cores=False)
                     else:
                         s = sa.set_model(args.model, override_all=True)
                     tasks.__dict__[task](s, overwrite=args.overwrite)
