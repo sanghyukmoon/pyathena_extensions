@@ -47,7 +47,6 @@ if __name__ == "__main__":
     parser.add_argument("tasks", nargs='+', type=str, help="Tasks to do")
     parser.add_argument("--runbyslurm", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
-    parser.add_argument("--num", type=int)
 
     args = parser.parse_args()
 
