@@ -232,7 +232,7 @@ def core_tracking(s, pids=None, overwrite=False):
         cores.to_pickle(ofname, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def radial_profile(s, nums=None, pids=None, overwrite=False):
+def radial_profile(s, nums=None, pids=None, overwrite=False, all_minima=False):
     """Calculates and pickles radial profiles of all cores.
 
     Parameters
@@ -260,15 +260,18 @@ def radial_profile(s, nums=None, pids=None, overwrite=False):
         # ds0 should not be modified in the following loop.
         ds0 = s.load_hdf5(num, chunks=config.CHUNKSIZE)
 
-        # Loop through cores and find unique node ids
-        unique_leaves = set()
-        for pid in s.pids:
-            cores = s.cores[pid]
-            if num not in cores.index:
-                # This snapshot `num` does not contain any image of the core `pid`
-                # Continue to the next core.
-                continue
-            unique_leaves.add(cores.loc[num].leaf_id)
+        if all_minima:
+            unique_leaves = set(s.minima[num])
+        else:
+            # Loop through cores and find unique node ids
+            unique_leaves = set()
+            for pid in s.pids:
+                cores = s.cores[pid]
+                if num not in cores.index:
+                    # This snapshot `num` does not contain any image of the core `pid`
+                    # Continue to the next core.
+                    continue
+                unique_leaves.add(cores.loc[num].leaf_id)
 
         for lid in unique_leaves:
             # Create directory and check if a file already exists
