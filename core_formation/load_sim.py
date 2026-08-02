@@ -583,17 +583,41 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
     def trajectory_start_num(self, cores, rprofs, *, f_mul):
         """Find the earliest snapshot with a continuous tracked minimum.
         """
+        # Tracking using the lab-frame velocity at the potential minimum
+#        cores = cores.sort_index(ascending=False)
+#        dt_output = self.dt_output['hdf5']
+#        core0 = cores.iloc[0]
+#        for num, core1 in cores.iloc[1:].iterrows():
+#            dst0 = self.distance_between(core0.leaf_id, core1.leaf_id)
+#            pos0 = np.array(self.flatindex_to_cartesian(core0.leaf_id))
+#            pos1 = np.array(self.flatindex_to_cartesian(core1.leaf_id))
+#
+#            rprf = rprofs.sel(num=slice(core1.name, core0.name))
+#            vx = rprf.velx_origin.mean('t')
+#            vy = rprf.vely_origin.mean('t')
+#            vz = rprf.velz_origin.mean('t')
+#            pos_extrapolated = pos0 - np.array([vx, vy, vz])*dt_output
+#            dst = tools.periodic_distance(pos1, pos_extrapolated, self.Lbox)
+#
+#            disp_pred = np.sqrt(vx**2 + vy**2 + vz**2)*dt_output
+#            if dst > f_mul*max(disp_pred, self.dx):
+#                num_start = num+1
+#                return num_start
+#            core0 = core1
+
         cores = cores.sort_index(ascending=False)
-        dt_output = self.dt_output['hdf5']
         core0 = cores.iloc[0]
         core1 = cores.iloc[1]
-        dst0 = self.distance_between(core0.leaf_id, core1.leaf_id)
         for num, core2 in cores.iloc[2:].iterrows():
-            dst = self.distance_between(core1.leaf_id, core2.leaf_id)
-            if dst > f_mul*dst0:
+            dst0 = self.distance_between(core0.leaf_id, core1.leaf_id)
+            pos0 = np.array(self.flatindex_to_cartesian(core0.leaf_id))
+            pos1 = np.array(self.flatindex_to_cartesian(core1.leaf_id))
+            pos2 = np.array(self.flatindex_to_cartesian(core2.leaf_id))
+            pos_extrapolated = pos0 + 2*(pos1 - pos0)
+            dst = tools.periodic_distance(pos2, pos_extrapolated, self.Lbox)
+            if dst > f_mul*max(dst0, self.dx):
                 num_start = num+1
                 return num_start
-            dst0 = dst
             core0 = core1
             core1 = core2
 
