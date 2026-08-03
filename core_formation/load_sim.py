@@ -178,15 +178,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             if len(self.tcoll_cores) > 0:
                 try:
                     # Load cores
-                    num_start = int(
-                        (self.tcoll_cores.loc[1].time - 1.5 / self.u.Myr)
-                        / self.dt_output['hdf5']
-                    )
                     savdir = Path(self.savdir, config.CORE_DIR)
                     self.cores = self._load_cores(
                         savdir=savdir,
-                        force_override=override_cores,
-                        num_start=num_start
+                        force_override=override_cores
                     )
                 except FileNotFoundError:
                     self.logger.warning("Cannot find core files to load.")
@@ -200,7 +195,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                         savdir = savdir,
                         force_override = override_rprofs
                     )
-                    self.prune_trajectory(f_mul=3)
                 except FileNotFoundError:
                     self.logger.warning("Cannot find radial profile files to load. "
                                         "Have you run concat_radial_profiles() to "
@@ -568,44 +562,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         pos2 = self.flatindex_to_cartesian(idx2)
         return tools.periodic_distance(pos1, pos2, self.Lbox)
 
-    def prune_trajectory(self, *, f_mul=3.0):
-        """Find the earliest snapshot with a continuous tracked minimum.
-        """
-        for pid in self.pids:
-            cores = self.cores[pid]
-            rprofs = self.rprofs[pid]
-            num_start = self.trajectory_start_num(cores, f_mul=f_mul)
-            self.cores[pid] = cores.loc[num_start:]
-            self.rprofs[pid] = rprofs.sel(num=slice(num_start, None))
-            if hasattr(self, 'cores_dict'):
-                for mtd in self.cores_dict.keys():
-                    self.cores_dict[mtd][pid] = self.cores_dict[mtd][pid].loc[num_start:]
-
     def trajectory_start_num(self, cores, *, f_mul):
         """Find the earliest snapshot with a continuous tracked minimum.
         """
-        # Tracking using the lab-frame velocity at the potential minimum
-#        cores = cores.sort_index(ascending=False)
-#        dt_output = self.dt_output['hdf5']
-#        core0 = cores.iloc[0]
-#        for num, core1 in cores.iloc[1:].iterrows():
-#            dst0 = self.distance_between(core0.leaf_id, core1.leaf_id)
-#            pos0 = np.array(self.flatindex_to_cartesian(core0.leaf_id))
-#            pos1 = np.array(self.flatindex_to_cartesian(core1.leaf_id))
-#
-#            rprf = rprofs.sel(num=slice(core1.name, core0.name))
-#            vx = rprf.velx_origin.mean('t')
-#            vy = rprf.vely_origin.mean('t')
-#            vz = rprf.velz_origin.mean('t')
-#            pos_extrapolated = pos0 - np.array([vx, vy, vz])*dt_output
-#            dst = tools.periodic_distance(pos1, pos_extrapolated, self.Lbox)
-#
-#            disp_pred = np.sqrt(vx**2 + vy**2 + vz**2)*dt_output
-#            if dst > f_mul*max(disp_pred, self.dx):
-#                num_start = num+1
-#                return num_start
-#            core0 = core1
-
         cores = cores.sort_index(ascending=False)
         core0 = cores.iloc[0]
         core1 = cores.iloc[1]
@@ -718,8 +677,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         return tcoll_cores
 
     @LoadSimBase.Decorators.check_pickle
-    def _load_cores(self, prefix='cores', savdir=None, force_override=False,
-                    num_start=None):
+    def _load_cores(self, prefix='cores', savdir=None, force_override=False):
         cores_dict = {}
         pids_not_found = []
 
@@ -737,6 +695,14 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             fname = Path(savdir, f'cores.par{pid}.p')
             cores = pd.read_pickle(fname).sort_index()
             num_start = self.trajectory_start_num(cores, f_mul=3.0)
+
+            num_start_min = int(
+                (self.tcoll_cores.loc[1].time - 1.5 / self.u.Myr)
+                / self.dt_output['hdf5']
+            )
+            # Prevent excessive back-tracking to early times
+            num_start = max(num_start, num_start_min)
+
             cores = cores.loc[num_start:]
 
             # Read critical TES info and concatenate to self.cores
