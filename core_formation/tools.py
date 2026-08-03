@@ -18,7 +18,7 @@ from pathlib import Path
 from pyathena.util import transform
 from tesphere import utils, tes
 
-from . import config
+from . import load_sim, config
 
 
 class LognormalPDF:
@@ -940,14 +940,14 @@ def radial_acceleration(s, rprf):
                             + acc.cen + acc.ani)
     acc['dvdt_euler'] = acc.dvdt_lagrange - acc.adv
 
-    dm = 4*np.pi*rprf.r**2*rprf.rho
-    acc['Fadv'] = (dm*acc.adv).cumulative_integrate('r')
-    acc['Fthm'] = (dm*acc.thm).cumulative_integrate('r')
-    acc['Ftrb'] = (dm*acc.trb).cumulative_integrate('r')
-    acc['Fmag'] = (dm*acc.mag).cumulative_integrate('r')
-    acc['Fcen'] = (dm*acc.cen).cumulative_integrate('r')
-    acc['Fgrv'] = (-dm*acc.grv).cumulative_integrate('r')
-    acc['Fani'] = (dm*acc.ani).cumulative_integrate('r')
+    acc['Fadv'] = load_sim.rprof_cumsum_r(rprf, rprf.rho*acc.adv)
+    acc['Fthm'] = load_sim.rprof_cumsum_r(rprf, rprf.rho*acc.thm)
+    acc['Ftrb'] = load_sim.rprof_cumsum_r(rprf, rprf.rho*acc.trb)
+    acc['Fmag'] = load_sim.rprof_cumsum_r(rprf, rprf.rho*acc.mag)
+    acc['Fcen'] = load_sim.rprof_cumsum_r(rprf, rprf.rho*acc.cen)
+    acc['Fgrv'] = -load_sim.rprof_cumsum_r(rprf, rprf.rho*acc.grv)
+    acc['Fani'] = load_sim.rprof_cumsum_r(rprf, rprf.rho*acc.ani)
+
 
     # Net forces
     acc['fnet'] = (acc.thm + acc.trb + acc.cen + acc.ani
