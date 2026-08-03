@@ -1030,8 +1030,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             rprofs['mBE'] = mbe
             rprofs['mTES'] = mbe*(1 + sigma_1d_sq/2)
             mass_to_flux_crit = 1 / (2*np.pi*np.sqrt(self.gconst))
-            rprofs['mPhi'] = rprofs.phi_B*np.sqrt(4*np.pi)*mass_to_flux_crit
-
+            if self.mhd:
+                rprofs['mPhi'] = rprofs.phi_B*np.sqrt(4*np.pi)*mass_to_flux_crit
+            else:
+                rprofs['mPhi'] = xr.zeros_like(rprofs.rho)
 
             rprofs = rprofs.merge(tools.radial_acceleration(self, rprofs), compat="no_conflicts")
             if 'num' not in rprofs.indexes:
