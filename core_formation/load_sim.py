@@ -200,6 +200,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                         savdir = savdir,
                         force_override = override_rprofs
                     )
+                    self.prune_trajectory(f_mul=3)
                 except FileNotFoundError:
                     self.logger.warning("Cannot find radial profile files to load. "
                                         "Have you run concat_radial_profiles() to "
@@ -573,14 +574,14 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         for pid in self.pids:
             cores = self.cores[pid]
             rprofs = self.rprofs[pid]
-            num_start = self.trajectory_start_num(cores, rprofs, f_mul=f_mul)
+            num_start = self.trajectory_start_num(cores, f_mul=f_mul)
             self.cores[pid] = cores.loc[num_start:]
             self.rprofs[pid] = rprofs.sel(num=slice(num_start, None))
-            if self.cores_dict is not None:
+            if hasattr(self, 'cores_dict'):
                 for mtd in self.cores_dict.keys():
                     self.cores_dict[mtd][pid] = self.cores_dict[mtd][pid].loc[num_start:]
 
-    def trajectory_start_num(self, cores, rprofs, *, f_mul):
+    def trajectory_start_num(self, cores, *, f_mul):
         """Find the earliest snapshot with a continuous tracked minimum.
         """
         # Tracking using the lab-frame velocity at the potential minimum
@@ -735,6 +736,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         for pid in self.pids:
             fname = Path(savdir, f'cores.par{pid}.p')
             cores = pd.read_pickle(fname).sort_index()
+            num_start = self.trajectory_start_num(cores, f_mul=3.0)
             cores = cores.loc[num_start:]
 
             # Read critical TES info and concatenate to self.cores
@@ -1092,7 +1094,6 @@ class LoadSimAll(object):
             models = self.models
         for mdl in models:
             s = self.set_model(mdl, **kwargs)
-            s.prune_trajectory(f_mul=fmul_prune)
             if nres == 0:
                 for pid in s.pids:
                     cores = s.cores[pid]
