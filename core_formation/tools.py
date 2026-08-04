@@ -372,7 +372,7 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
             for ex, ey, ez in basis
         )
 
-    def _radial_binning(qty, mass_weighted=False):
+    def _radial_binning(qty, mass_weighted=False, qty_sub=None):
         """Inner wrapper function for radial binning
 
         Central sphere and the first few nonzero radial bins are corrected with
@@ -386,6 +386,10 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
             Quantity to be binned.
         mass_weighted : bool, optional
             Whether to calculate mass-weighted average. Default to False.
+        qty_sub : xarray.DataArray, optional
+            Quantity evaluated at subcell positions with dimensions
+            ``(subcell, cell)``. If omitted, the parent-cell value is used
+            for every subcell belonging to that parent.
 
         Returns
         -------
@@ -398,25 +402,37 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
         -----
         mass_weighted=True assumes that rprofs['rho'] is already calculated.
         """
-        if mass_weighted:
-            dat = ds.rho*qty
-        else:
-            dat = qty
+        # Perform normal radial binning for entire domain
+        dat = ds.rho*qty if mass_weighted else qty
         rprf, bin_cnt = transform.groupby_bins(dat, 'r', nbin, (hdx, redge),
                                                return_count=True)
         if mass_weighted:
             rprf = rprf / rprofs['rho']
+
         # Overwrite the central sphere and first few nonzero bins with
         # subcell corrected values.
         vshell = (bin_cnt*s.dV).rename('vshell')
-        qty_patch = qty.sel(**subcell_region).transpose('z', 'y', 'x').stack(cell=('z', 'y', 'x'))
-        if mass_weighted:
-            numer = (rho_patch*qty_patch*subcell_frac*s.dV).sum('cell')
-            denom = shell_mass
+
+        if qty_sub is None:
+            qty_patch = (
+                qty.sel(**subcell_region)
+                .reset_coords(drop=True)
+                .transpose('z', 'y', 'x')
+                .stack(cell=('z', 'y', 'x'))
+            )
+            weight = rho_patch if mass_weighted else 1
+            numer = (
+                weight*qty_patch*subcell_frac*s.dV
+            ).sum('cell')
         else:
-            numer = (qty_patch*subcell_frac*s.dV).sum('cell')
-            denom = shell_volume
+            weight = rho_patch if mass_weighted else 1
+            numer = (
+                weight*qty_sub*flag_subcell_in_shell*dV_sub
+            ).sum(('subcell', 'cell'))
+        denom = shell_mass if mass_weighted else shell_volume
         rprf_patch = numer/denom
+
+        # Stitch the subcell-corrected values with the rest of the radial profile
         rprf = xr.concat([rprf_patch, rprf.isel(r=slice(subcell_region_radius, None))], dim='r')
         vshell = xr.concat([shell_volume, vshell.isel(r=slice(subcell_region_radius, None))], dim='r')
         return rprf, vshell
