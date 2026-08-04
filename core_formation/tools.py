@@ -296,7 +296,7 @@ def critical_tes_property(s, rprf, core):
     return res
 
 
-def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4, compute_flux=False):
+def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
     """Calculates radial profiles of various properties at selected position
 
     This function returns lazy Dataset if the inputs are dask array.
@@ -311,9 +311,6 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4, compute_flux=Fal
         Coordinate origin (x0, y0, z0).
     rmax : float, optional
         Maximum radius of radial bins. If None, use s.Lbox/2
-    newz : array, optional
-        (x, y, z) vector components of the new z axis. If None, z axis is
-        assumed to be the native z axis.
     nsub : int, optional
         Number of subcells per cell for subcell correction. Default to 4.
 
@@ -367,12 +364,12 @@ def radial_profile(s, ds, origin, rmax=None, newz=None, nsub=4, compute_flux=Fal
         ds = ds.rename_vars(dict(Bcc1='bx', Bcc2='by', Bcc3='bz'))
 
     _, (ds['vel1'], ds['vel2'], ds['vel3'])\
-        = transform.to_spherical((ds.velx, ds.vely, ds.velz), origin, newz)
+        = transform.to_spherical((ds.velx, ds.vely, ds.velz), origin)
     if s.mhd:
         _, (ds['b1'], ds['b2'], ds['b3'])\
-            = transform.to_spherical((ds.bx, ds.by, ds.bz), origin, newz)
+            = transform.to_spherical((ds.bx, ds.by, ds.bz), origin)
     _, (ds['gacc1'], ds['gacc2'], ds['gacc3'])\
-        = transform.to_spherical(gacc.values(), origin, newz)
+        = transform.to_spherical(gacc.values(), origin)
     ds['frac_neg_gacc1'] = xr.where(ds.gacc1 < 0, 1.0, 0.0)
     ds['Ldens_x'] = ds.rho*((ds.y - origin[1])*ds.velz - (ds.z - origin[2])*ds.vely)
     ds['Ldens_y'] = ds.rho*((ds.z - origin[2])*ds.velx - (ds.x - origin[0])*ds.velz)
