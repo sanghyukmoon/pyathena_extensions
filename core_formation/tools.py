@@ -337,82 +337,39 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
         components along the orthonormal basis defined by the enclosed mean
         magnetic field direction and the two perpendicular directions.
     """
-    if rmax is None:
-        rmax = s.Lbox/2
+    # Define helper functions
+    def _plane_basis(normal):
+        normal = np.array(normal, dtype=float)
+        norm = np.sqrt((normal**2).sum())
+        if not np.isfinite(norm) or norm == 0:
+            normal = np.array([0.0, 0.0, 1.0])
+        else:
+            normal /= norm
+        ref = np.array([1.0, 0.0, 0.0]) if abs(normal[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+        e1 = np.cross(normal, ref)
+        e1 /= np.sqrt((e1**2).sum())
+        e2 = np.cross(normal, e1)
+        return e1, e2, normal
 
-    # Slice data
-    nbin = int(np.ceil(rmax/s.dx))
-    hdx = 0.5*s.dx
-    redge = (nbin + 0.5)*s.dx
-    ds = ds.sel(x=slice(origin[0] - redge, origin[0] + redge),
-                y=slice(origin[1] - redge, origin[1] + redge),
-                z=slice(origin[2] - redge, origin[2] + redge))
-
-    # Convert density and velocities to spherical coord.
-    gacc = {}
-    vel_origin = {}
-    for dim, axis in zip(['x', 'y', 'z'], [1, 2, 3]):
-        # Recenter velocity and calculate gravitational acceleration
-        vel_ = ds[f'mom{axis}']/ds.dens
-        v0 = vel_.sel(x=origin[0], y=origin[1], z=origin[2])
-        vel_origin[dim] = v0
-        ds[f'vel{dim}'] = vel_ - v0
-        gacc[dim] = -ds.phi.differentiate(dim)
-    ds = ds.drop_vars(['mom1', 'mom2', 'mom3'])
-    ds = ds.rename_vars(dict(dens='rho'))
-    if s.mhd:
-        ds = ds.rename_vars(dict(Bcc1='bx', Bcc2='by', Bcc3='bz'))
-
-    _, (ds['vel1'], ds['vel2'], ds['vel3'])\
-        = transform.to_spherical((ds.velx, ds.vely, ds.velz), origin)
-    if s.mhd:
-        _, (ds['b1'], ds['b2'], ds['b3'])\
-            = transform.to_spherical((ds.bx, ds.by, ds.bz), origin)
-    _, (ds['gacc1'], ds['gacc2'], ds['gacc3'])\
-        = transform.to_spherical(gacc.values(), origin)
-    ds['frac_neg_gacc1'] = xr.where(ds.gacc1 < 0, 1.0, 0.0)
-    ds['Ldens_x'] = ds.rho*((ds.y - origin[1])*ds.velz - (ds.z - origin[2])*ds.vely)
-    ds['Ldens_y'] = ds.rho*((ds.z - origin[2])*ds.velx - (ds.x - origin[0])*ds.velz)
-    ds['Ldens_z'] = ds.rho*((ds.x - origin[0])*ds.vely - (ds.y - origin[1])*ds.velx)
-
-    # Perform radial binnings
-    rprofs = {}
-    nbin_sub = min(4, nbin)
-    if nbin_sub == 0:
-        raise ValueError('radial_profile requires at least one radial bin')
-
-    if nbin_sub > 0:
-        redge_sub = (nbin_sub + 0.5)*s.dx
-        sel_patch = dict(x=slice(origin[0] - redge_sub, origin[0] + redge_sub),
-                         y=slice(origin[1] - redge_sub, origin[1] + redge_sub),
-                         z=slice(origin[2] - redge_sub, origin[2] + redge_sub))
-        ds_patch = ds.sel(**sel_patch)
-
-        subcell_dx = s.dx/nsub
-        offsets = xr.DataArray(-0.5*s.dx + (np.arange(nsub) + 0.5)*subcell_dx, dims='sub')
-        xsub = (ds_patch.x - origin[0]) + offsets.rename(sub='subx')
-        ysub = (ds_patch.y - origin[1]) + offsets.rename(sub='suby')
-        zsub = (ds_patch.z - origin[2]) + offsets.rename(sub='subz')
-        rsub = np.sqrt(xsub**2 + ysub**2 + zsub**2)
-        rsub = rsub.stack(cell=('z', 'y', 'x'), subcell=('subz', 'suby', 'subx'))
-        rsub = rsub.transpose('subcell', 'cell')
-        ibin = np.floor((rsub + hdx)/s.dx).astype(int)
-
-        # Fraction of each parent cell assigned to the central sphere and the
-        # first few nonzero radial shells.
-        subcell_frac = xr.concat([xr.where(ibin == i, 1.0, 0.0).mean('subcell')
-                                for i in range(nbin_sub + 1)], dim='r')
-        subcell_frac = subcell_frac.assign_coords(r=np.arange(nbin_sub + 1)*s.dx)
-        shell_volume = (subcell_frac*s.dV).sum('cell').rename('vshell')
-        rho_patch = ds_patch.rho.transpose('z', 'y', 'x').stack(cell=('z', 'y', 'x'))
-        shell_mass = (rho_patch*subcell_frac*s.dV).sum('cell').rename('mshell')
+    def _magnetic_flux(radius, normal):
+        e1, e2, normal = _plane_basis(normal)
+        q = np.arange(-radius, radius + hdx, s.dx)
+        u = xr.DataArray(q, dims='u', coords=dict(u=q))
+        v = xr.DataArray(q, dims='v', coords=dict(v=q))
+        xq = origin[0] + u*e1[0] + v*e2[0]
+        yq = origin[1] + u*e1[1] + v*e2[1]
+        zq = origin[2] + u*e1[2] + v*e2[2]
+        R = np.sqrt(u**2 + v**2)
+        bnorm = ds.bx*normal[0] + ds.by*normal[1] + ds.bz*normal[2]
+        plane = bnorm.interp(x=xq, y=yq, z=zq, method='linear')
+        return (plane.where(R <= radius).sum(('u', 'v')) * s.dx**2).rename('phi_B')
 
     def _radial_binning(qty, mass_weighted=False):
         """Inner wrapper function for radial binning
 
         Central sphere and the first few nonzero radial bins are corrected with
         subcell method, while the rest of the bins are calculated with simple
-        binning. The number of subcell bins is determined by nbin_sub, which is
+        binning. The number of subcell bins is determined by subcell_region_radius, which is
         set to 4 by default.
 
         Parameters
@@ -444,7 +401,7 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
         # Overwrite the central sphere and first few nonzero bins with
         # subcell corrected values.
         vshell = (bin_cnt*s.dV).rename('vshell')
-        qty_patch = qty.sel(**sel_patch).transpose('z', 'y', 'x').stack(cell=('z', 'y', 'x'))
+        qty_patch = qty.sel(**subcell_region).transpose('z', 'y', 'x').stack(cell=('z', 'y', 'x'))
         if mass_weighted:
             numer = (rho_patch*qty_patch*subcell_frac*s.dV).sum('cell')
             denom = shell_mass
@@ -452,53 +409,112 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
             numer = (qty_patch*subcell_frac*s.dV).sum('cell')
             denom = shell_volume
         rprf_patch = numer/denom
-        rprf = xr.concat([rprf_patch, rprf.isel(r=slice(nbin_sub, None))], dim='r')
-        vshell = xr.concat([shell_volume, vshell.isel(r=slice(nbin_sub, None))], dim='r')
+        rprf = xr.concat([rprf_patch, rprf.isel(r=slice(subcell_region_radius, None))], dim='r')
+        vshell = xr.concat([shell_volume, vshell.isel(r=slice(subcell_region_radius, None))], dim='r')
         return rprf, vshell
 
-    def _plane_basis(normal):
-        normal = np.array(normal, dtype=float)
-        norm = np.sqrt((normal**2).sum())
-        if not np.isfinite(norm) or norm == 0:
-            normal = np.array([0.0, 0.0, 1.0])
-        else:
-            normal /= norm
-        ref = np.array([1.0, 0.0, 0.0]) if abs(normal[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
-        e1 = np.cross(normal, ref)
-        e1 /= np.sqrt((e1**2).sum())
-        e2 = np.cross(normal, e1)
-        return e1, e2, normal
+    if rmax is None:
+        rmax = s.Lbox/2
 
-    def _magnetic_flux(radius, normal):
-        e1, e2, normal = _plane_basis(normal)
-        q = np.arange(-radius, radius + hdx, s.dx)
-        u = xr.DataArray(q, dims='u', coords=dict(u=q))
-        v = xr.DataArray(q, dims='v', coords=dict(v=q))
-        xq = origin[0] + u*e1[0] + v*e2[0]
-        yq = origin[1] + u*e1[1] + v*e2[1]
-        zq = origin[2] + u*e1[2] + v*e2[2]
-        R = np.sqrt(u**2 + v**2)
-        bnorm = ds.bx*normal[0] + ds.by*normal[1] + ds.bz*normal[2]
-        plane = bnorm.interp(x=xq, y=yq, z=zq, method='linear')
-        return (plane.where(R <= radius).sum(('u', 'v')) * s.dx**2).rename('phi_B')
+    # =========================================================================
+    # ====== Step 1. Define variables and select the region of interest =======
+    # =========================================================================
 
-    # Volume-weighted averages
-    rprofs['rho'], rprofs['vshell'] = _radial_binning(ds['rho'])
+    # Select the region within the maximum radius
+    nbin = int(np.ceil(rmax/s.dx))
+    assert nbin > 0, f"nbin must be positive, got {nbin}"
+    hdx = 0.5*s.dx
+    redge = (nbin + 0.5)*s.dx
+    ds = ds.sel(x=slice(origin[0] - redge, origin[0] + redge),
+                y=slice(origin[1] - redge, origin[1] + redge),
+                z=slice(origin[2] - redge, origin[2] + redge))
+    ds = ds.rename_vars(dict(dens='rho'))
+    if s.mhd:
+        ds = ds.rename_vars(dict(Bcc1='bx', Bcc2='by', Bcc3='bz'))
+    # Subtract the velocity at the potential minimum
+    vel_origin = {}
+    for dim, axis in zip(['x', 'y', 'z'], [1, 2, 3]):
+        vel_ = ds[f'mom{axis}']/ds.rho
+        vel_origin[dim] = vel_.sel(x=origin[0], y=origin[1], z=origin[2])
+        ds[f'vel{dim}'] = vel_ - vel_origin[dim]
+    ds = ds.drop_vars(['mom1', 'mom2', 'mom3'])
+    # Angular momenta
+    ds['Ldens_x'] = ds.rho*((ds.y - origin[1])*ds.velz - (ds.z - origin[2])*ds.vely)
+    ds['Ldens_y'] = ds.rho*((ds.z - origin[2])*ds.velx - (ds.x - origin[0])*ds.velz)
+    ds['Ldens_z'] = ds.rho*((ds.x - origin[0])*ds.vely - (ds.y - origin[1])*ds.velx)
+    # Gravitational accelerations
+    for dim in ['x', 'y', 'z']:
+        ds[f'gacc{dim}'] = -ds.phi.differentiate(dim)
+
+    # Transform vector fields to spherical coordinates
+    _, (ds['vel1'], ds['vel2'], ds['vel3'])\
+        = transform.to_spherical((ds.velx, ds.vely, ds.velz), origin)
+    _, (ds['gacc1'], ds['gacc2'], ds['gacc3'])\
+        = transform.to_spherical((ds.gaccx, ds.gaccy, ds.gaccz), origin)
+    if s.mhd:
+        _, (ds['b1'], ds['b2'], ds['b3'])\
+            = transform.to_spherical((ds.bx, ds.by, ds.bz), origin)
+
+    # flag cells where g_r is negative
+    # TODO  need to set g_r = 0 at r = 0 before doing radial_binning.
+    ds['flag_neg_gacc1'] = xr.where(ds.gacc1 < 0, 1.0, 0.0)
+
+    # =========================================================================
+    # ====== Step 2. Calculate radial profiles ================================
+    # =========================================================================
+
+    subcell_region_radius = min(4, nbin)
+    if subcell_region_radius > 0:
+        # Select dataset within the subcell region
+        redge_sub = (subcell_region_radius + 0.5)*s.dx
+        subcell_region = dict(x=slice(origin[0] - redge_sub, origin[0] + redge_sub),
+                         y=slice(origin[1] - redge_sub, origin[1] + redge_sub),
+                         z=slice(origin[2] - redge_sub, origin[2] + redge_sub))
+        ds_patch = ds.sel(**subcell_region)
+
+        # Calculate the cell-centered x,y,z coordinates of the subcells
+        # Subcell location is specified by the parent cell coordinates (x,y,z)
+        # and the offset from the parent cell, (subx, suby, subz).
+        dx_sub = s.dx/nsub
+        offsets = xr.DataArray(-0.5*s.dx + (np.arange(nsub) + 0.5)*dx_sub, dims='sub')
+        xsub = (ds_patch.x - origin[0]) + offsets.rename(sub='subx')
+        ysub = (ds_patch.y - origin[1]) + offsets.rename(sub='suby')
+        zsub = (ds_patch.z - origin[2]) + offsets.rename(sub='subz')
+        rsub = np.sqrt(xsub**2 + ysub**2 + zsub**2)
+        rsub = rsub.stack(
+            cell=('z', 'y', 'x'),
+            subcell=('subz', 'suby', 'subx')
+        ).transpose('subcell', 'cell')
+        ibin = np.floor((rsub + hdx)/s.dx).astype(int)
+
+        # Fraction of each parent cell assigned to the central sphere and the
+        # first few nonzero radial shells.
+        subcell_frac = xr.concat(
+            [xr.where(ibin == i, 1.0, 0.0).mean('subcell')
+               for i in range(subcell_region_radius + 1)],
+             dim='r'
+        ).assign_coords(r=np.arange(subcell_region_radius + 1)*s.dx)
+        shell_volume = (subcell_frac*s.dV).sum('cell').rename('vshell')
+        rho_patch = ds_patch.rho.transpose('z', 'y', 'x').stack(cell=('z', 'y', 'x'))
+        shell_mass = (rho_patch*subcell_frac*s.dV).sum('cell').rename('mshell')
+
+    # 1. Scalars
+    # ----------
+    rprofs = {}
+    rprofs['rho'], rprofs['vshell'] = _radial_binning(ds.rho)
+    rprofs['frac_neg_gacc1'], _ = _radial_binning(ds.flag_neg_gacc1)
+    rprofs['phi_mw'], _ = _radial_binning(ds.phi, mass_weighted=True)
+
+    # 2. Vectors
+    # ----------
     rprofs['gacc1'], _ = _radial_binning(ds['gacc1'])
-    rprofs['frac_neg_gacc1'], _ = _radial_binning(ds['frac_neg_gacc1'])
-
-    # Mass-weighted averages
-    for k in ['gacc1', 'velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3', 'phi']:
+    for k in ['gacc1', 'velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3']:
         rprofs[k+'_mw'], _ = _radial_binning(ds[k], mass_weighted=True)
-
-    # virial terms
-    rprofs['xgx_mw'], _ = _radial_binning((ds.x - origin[0])*gacc['x'], mass_weighted=True)
-    rprofs['ygy_mw'], _ = _radial_binning((ds.y - origin[1])*gacc['y'], mass_weighted=True)
-    rprofs['zgz_mw'], _ = _radial_binning((ds.z - origin[2])*gacc['z'], mass_weighted=True)
-
-    # Mass-weighted squared averages
     for k in ['velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3']:
         rprofs[k+'_sq_mw'], _ = _radial_binning(ds[k]**2, mass_weighted=True)
+    rprofs['xgx_mw'], _ = _radial_binning((ds.x - origin[0])*ds.gaccx, mass_weighted=True)
+    rprofs['ygy_mw'], _ = _radial_binning((ds.y - origin[1])*ds.gaccy, mass_weighted=True)
+    rprofs['zgz_mw'], _ = _radial_binning((ds.z - origin[2])*ds.gaccz, mass_weighted=True)
     for k in ['Ldens_x', 'Ldens_y', 'Ldens_z']:
         rprofs[k], _ = _radial_binning(ds[k])
     if s.mhd:
@@ -507,48 +523,34 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
             rprofs[k+'_sq'], _ = _radial_binning(ds[k]**2)
     rprofs = xr.Dataset(rprofs)
 
-    Lshell_x = rprofs.Ldens_x * rprofs.vshell
-    Lshell_y = rprofs.Ldens_y * rprofs.vshell
-    Lshell_z = rprofs.Ldens_z * rprofs.vshell
-    rprofs['Lx_enc'] = Lshell_x.cumsum('r')
-    rprofs['Ly_enc'] = Lshell_y.cumsum('r')
-    rprofs['Lz_enc'] = Lshell_z.cumsum('r')
+    # TODO This can be computed as post-processing (see below costh_BL)
+    rprofs['Lx_enc'] = (rprofs.Ldens_x*rprofs.vshell).cumsum('r')
+    rprofs['Ly_enc'] = (rprofs.Ldens_y*rprofs.vshell).cumsum('r')
+    rprofs['Lz_enc'] = (rprofs.Ldens_z*rprofs.vshell).cumsum('r')
     Lnorm = np.sqrt(rprofs.Lx_enc**2 + rprofs.Ly_enc**2 + rprofs.Lz_enc**2)
     rprofs['lhat_x'] = rprofs.Lx_enc / Lnorm
     rprofs['lhat_y'] = rprofs.Ly_enc / Lnorm
     rprofs['lhat_z'] = rprofs.Lz_enc / Lnorm
-
-    rhat = {
-        'x': xr.where(ds.r > 0, (ds.x - origin[0])/ds.r, 0.0),
-        'y': xr.where(ds.r > 0, (ds.y - origin[1])/ds.r, 0.0),
-        'z': xr.where(ds.r > 0, (ds.z - origin[2])/ds.r, 0.0)
-    }
-    flux_tensor = {} # < rho v_i rhat_j > for i,j in {x,y,z}
-    for i in ['x', 'y', 'z']:
-        for j in ['x', 'y', 'z']:
-            flux_tensor[(i, j)], _ = _radial_binning(ds.rho*ds[f'vel{i}']*rhat[j])
-    mdot_scale = -4*np.pi*rprofs.r**2
-    # For Cartesian directions, mdot is simply the diagonal components.
-    # For MHD, we also calculate mdot along the field direction.
-    for i in ['x', 'y', 'z']:
-        rprofs[f'mdot_{i}'] = mdot_scale*flux_tensor[(i, i)]
+    # TODO_END
 
     if s.mhd:
         venc = rprofs.vshell.cumsum('r')
-        rprofs['bmean_x'] = (rprofs.bx * rprofs.vshell).cumsum('r') / venc
-        rprofs['bmean_y'] = (rprofs.by * rprofs.vshell).cumsum('r') / venc
-        rprofs['bmean_z'] = (rprofs.bz * rprofs.vshell).cumsum('r') / venc
-        bmean_norm = np.sqrt(rprofs.bmean_x**2 + rprofs.bmean_y**2 + rprofs.bmean_z**2)
-        rprofs['bhat_x'] = rprofs.bmean_x / bmean_norm
-        rprofs['bhat_y'] = rprofs.bmean_y / bmean_norm
-        rprofs['bhat_z'] = rprofs.bmean_z / bmean_norm
+        rprofs['mean_bx'] = (rprofs.bx * rprofs.vshell).cumsum('r') / venc
+        rprofs['mean_by'] = (rprofs.by * rprofs.vshell).cumsum('r') / venc
+        rprofs['mean_bz'] = (rprofs.bz * rprofs.vshell).cumsum('r') / venc
+        bmean_norm = np.sqrt(rprofs.mean_bx**2 + rprofs.mean_by**2 + rprofs.mean_bz**2)
+        rprofs['bhat_x'] = rprofs.mean_bx / bmean_norm
+        rprofs['bhat_y'] = rprofs.mean_by / bmean_norm
+        rprofs['bhat_z'] = rprofs.mean_bz / bmean_norm
+        # TODO This can be computed as post-processing
         rprofs['costh_BL'] = (
             rprofs.bhat_x*rprofs.lhat_x
             + rprofs.bhat_y*rprofs.lhat_y
             + rprofs.bhat_z*rprofs.lhat_z
         )
-
-        radii = rprofs.r.values
+        # Define B-normal plane at each radius and calculate
+        # 1. Two perpendicular unit vectors.
+        # 2. Magnetic flux
         bhat_x, bhat_y, bhat_z = dask.compute(
             rprofs.bhat_x, rprofs.bhat_y, rprofs.bhat_z
         )
@@ -559,7 +561,7 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
         bperp2_x, bperp2_y, bperp2_z = [], [], []
         if compute_flux:
             phi_B = []
-        for radius, nx, ny, nz in zip(radii, bhat_x, bhat_y, bhat_z):
+        for radius, nx, ny, nz in zip(rprofs.r.values, bhat_x, bhat_y, bhat_z):
             bperp1, bperp2, bhat = _plane_basis((nx, ny, nz))
             bperp1_x.append(bperp1[0])
             bperp1_y.append(bperp1[1])
@@ -578,6 +580,24 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
         if compute_flux:
             rprofs['phi_B'] = xr.concat(phi_B, dim='r').assign_coords(r=rprofs.r)
 
+    # 3. Tensors
+    # ----------
+    rhat = {
+        'x': xr.where(ds.r > 0, (ds.x - origin[0])/ds.r, 0.0),
+        'y': xr.where(ds.r > 0, (ds.y - origin[1])/ds.r, 0.0),
+        'z': xr.where(ds.r > 0, (ds.z - origin[2])/ds.r, 0.0)
+    }
+    mdot_scale = -4*np.pi*rprofs.r**2
+    mass_flux = {} # < rho v_i rhat_j > for i,j in {x,y,z}
+    for i in 'xyz':
+        for j in 'xyz':
+            mass_flux[(i, j)], _ = _radial_binning(ds.rho*ds[f'vel{i}']*rhat[j])
+        rprofs[f'mdot_{i}'] = mdot_scale*mass_flux[(i, i)]
+
+    # For Cartesian directions, mdot is simply the diagonal components.
+    # For MHD, we also want to calculate mdot along the field direction.
+    # See May 5, 2026 notes for mathmatical expressions
+    if s.mhd:
         for basis, prefix in [
             (dict(x=rprofs.bhat_x, y=rprofs.bhat_y, z=rprofs.bhat_z), 'mdot_b'),
             (dict(x=rprofs.bperp1_x, y=rprofs.bperp1_y, z=rprofs.bperp1_z), 'mdot_bperp1'),
@@ -586,7 +606,7 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
             mdot = 0
             for i in ['x', 'y', 'z']:
                 for j in ['x', 'y', 'z']:
-                    mdot = mdot + basis[i]*basis[j]*flux_tensor[(i, j)]
+                    mdot = mdot + basis[i]*basis[j]*mass_flux[(i, j)]
             rprofs[prefix] = mdot_scale*mdot
 
     # Register velocity at origin
