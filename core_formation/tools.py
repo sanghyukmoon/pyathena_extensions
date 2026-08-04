@@ -464,6 +464,9 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
     # =========================================================================
 
     subcell_region_radius = min(4, nbin)
+    if not isinstance(nsub, (int, np.integer)) or nsub <= 0 or nsub % 2:
+        raise ValueError('nsub must be a positive even integer')
+
     if subcell_region_radius > 0:
         # Select dataset within the subcell region
         redge_sub = (subcell_region_radius + 0.5)*s.dx
@@ -480,8 +483,12 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
         xsub = (ds_patch.x - origin[0]) + offsets.rename(sub='subx')
         ysub = (ds_patch.y - origin[1]) + offsets.rename(sub='suby')
         zsub = (ds_patch.z - origin[2]) + offsets.rename(sub='subz')
-        rsub = np.sqrt(xsub**2 + ysub**2 + zsub**2)
-        rsub = rsub.stack(
+
+        # Keep the unstacked geometry for calculating the spherical basis at
+        # each subcell position.
+        Rsub = np.sqrt(xsub**2 + ysub**2)
+        rsub_grid = np.sqrt(Rsub**2 + zsub**2)
+        rsub = rsub_grid.stack(
             cell=('z', 'y', 'x'),
             subcell=('subz', 'suby', 'subx')
         ).transpose('subcell', 'cell')
@@ -489,13 +496,23 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
 
         # Fraction of each parent cell assigned to the central sphere and the
         # first few nonzero radial shells.
-        subcell_frac = xr.concat(
-            [xr.where(ibin == i, 1.0, 0.0).mean('subcell')
-               for i in range(subcell_region_radius + 1)],
-             dim='r'
+        flag_subcell_in_shell = xr.concat(
+            [
+                xr.where(ibin == i, 1.0, 0.0)
+                for i in range(subcell_region_radius + 1)
+            ],
+            dim='r',
         ).assign_coords(r=np.arange(subcell_region_radius + 1)*s.dx)
+        subcell_frac = flag_subcell_in_shell.mean('subcell')
+        dV_sub = s.dV/nsub**3
+
         shell_volume = (subcell_frac*s.dV).sum('cell').rename('vshell')
-        rho_patch = ds_patch.rho.transpose('z', 'y', 'x').stack(cell=('z', 'y', 'x'))
+        rho_patch_grid = ds_patch.rho.reset_coords(drop=True)
+        rho_patch = (
+            rho_patch_grid
+            .transpose('z', 'y', 'x')
+            .stack(cell=('z', 'y', 'x'))
+        )
         shell_mass = (rho_patch*subcell_frac*s.dV).sum('cell').rename('mshell')
 
     # 1. Scalars
