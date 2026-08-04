@@ -364,6 +364,14 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
         plane = bnorm.interp(x=xq, y=yq, z=zq, method='linear')
         return (plane.where(R <= radius).sum(('u', 'v')) * s.dx**2).rename('phi_B')
 
+    def _spherical_at_subcells(vec, basis):
+        """Project Cartesian vectors onto spherical bases at subcells."""
+        vx, vy, vz = vec
+        return tuple(
+            vx*ex + vy*ey + vz*ez
+            for ex, ey, ez in basis
+        )
+
     def _radial_binning(qty, mass_weighted=False):
         """Inner wrapper function for radial binning
 
@@ -468,7 +476,8 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
         raise ValueError('nsub must be a positive even integer')
 
     if subcell_region_radius > 0:
-        # Select dataset within the subcell region
+        # 1. Select the subcell region and construct geometry
+        # --------------------------------------------------------
         redge_sub = (subcell_region_radius + 0.5)*s.dx
         subcell_region = dict(x=slice(origin[0] - redge_sub, origin[0] + redge_sub),
                          y=slice(origin[1] - redge_sub, origin[1] + redge_sub),
@@ -488,10 +497,64 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
         # each subcell position.
         Rsub = np.sqrt(xsub**2 + ysub**2)
         rsub_grid = np.sqrt(Rsub**2 + zsub**2)
-        rsub = rsub_grid.stack(
+
+        # Spherical basis vectors evaluated at subcell positions. Because
+        # nsub is even, no subcell center lies at r=0 or R=0.
+        sin_th = Rsub/rsub_grid
+        cos_th = zsub/rsub_grid
+        sin_ph = ysub/Rsub
+        cos_ph = xsub/Rsub
+        zero_sub = xr.zeros_like(rsub_grid)
+
+        spherical_basis_sub = (
+            (sin_th*cos_ph, sin_th*sin_ph, cos_th),
+            (cos_th*cos_ph, cos_th*sin_ph, -sin_th),
+            (-sin_ph + zero_sub, cos_ph + zero_sub, zero_sub),
+        )
+
+        vel_sub = _spherical_at_subcells(
+            (ds_patch.velx, ds_patch.vely, ds_patch.velz),
+            spherical_basis_sub
+        )
+        gacc_sub = _spherical_at_subcells(
+            (ds_patch.gaccx, ds_patch.gaccy, ds_patch.gaccz),
+            spherical_basis_sub
+        )
+
+        subcell_fields = {
+            'rsub': rsub_grid,
+            'vel1': vel_sub[0],
+            'vel2': vel_sub[1],
+            'vel3': vel_sub[2],
+            'gacc1': gacc_sub[0],
+            'flag_neg_gacc1': xr.where(
+                gacc_sub[0] < 0, 1.0, 0.0
+            ),
+        }
+
+        if s.mhd:
+            b_sub = _spherical_at_subcells(
+                (ds_patch.bx, ds_patch.by, ds_patch.bz),
+                spherical_basis_sub
+            )
+            subcell_fields.update(
+                b1=b_sub[0],
+                b2=b_sub[1],
+                b3=b_sub[2],
+            )
+
+        # Drop inherited cell-center r, th, and ph coordinates before using
+        # r as the radial-shell dimension.
+        subcell_data = xr.Dataset(subcell_fields).reset_coords(drop=True)
+        subcell_data = subcell_data.stack(
             cell=('z', 'y', 'x'),
             subcell=('subz', 'suby', 'subx')
         ).transpose('subcell', 'cell')
+
+        # 2. Calculate the fraction of each parent cell assigned to subcells
+        # ------------------------------------------------------------------
+        rsub = subcell_data.rsub
+        subcell_data = subcell_data.drop_vars('rsub')
         ibin = np.floor((rsub + hdx)/s.dx).astype(int)
 
         # Fraction of each parent cell assigned to the central sphere and the
