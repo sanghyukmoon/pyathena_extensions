@@ -18,7 +18,7 @@ from pathlib import Path
 from pyathena.util import transform
 from tesphere import utils, tes
 
-from . import load_sim, config
+from . import config
 
 
 class LognormalPDF:
@@ -1008,72 +1008,9 @@ def infall_rate(rprofs, cores):
         time.append(rprf.t.data[()])
         vr.append(-rprf.vel1_mw.data[()])
         mdot.append((-4*np.pi*rprf.r**2*rprf.rho*rprf.vel1_mw).data[()])
-    if 'num' in rprofs.indexes:
-        rprofs = rprofs.drop_indexes('num')
     rprofs['infall_speed'] = xr.DataArray(vr, coords=dict(t=time))
     rprofs['infall_rate'] = xr.DataArray(mdot, coords=dict(t=time))
-    if 'num' not in rprofs.indexes:
-        rprofs = rprofs.set_xindex('num')
     return rprofs
-
-
-def radial_acceleration(s, rprf):
-    """Calculate RHS of the Lagrangian EOM (force per unit mass)
-
-    Parameters
-    ----------
-    s : LoadSim
-        Object containing simulation metadata.
-    rprf : xarray.Dataset
-        Radial profiles
-
-    Returns
-    -------
-    acc : xarray.Dataset
-        Accelerations appearing in Lagrangian EOM
-
-    """
-    if 'num' in rprf.indexes:
-        rprf = rprf.drop_indexes('num')
-    pthm = rprf.rho*s.cs**2
-    ptrb = rprf.rho*rprf.dvel1_sq_mw
-    acc = dict(adv=rprf.vel1_mw*rprf.vel1_mw.differentiate('r'),
-               thm=-pthm.differentiate('r') / rprf.rho,
-               trb=-ptrb.differentiate('r') / rprf.rho,
-               cen=((rprf.vel2_mw**2 + rprf.vel3_mw**2) / rprf.r).where(rprf.r > 0, other=0),
-               grv=rprf.gacc1_mw,
-               ani=((rprf.dvel2_sq_mw + rprf.dvel3_sq_mw - 2*rprf.dvel1_sq_mw)
-                    / rprf.r).where(rprf.r > 0, other=0))
-    if s.mhd:
-        t_rr = 0.5*(rprf.b1_sq - rprf.b2_sq - rprf.b3_sq)
-        acc['mag'] = (
-            t_rr.differentiate('r')
-            + ((2*rprf.b1_sq - rprf.b2_sq - rprf.b3_sq)
-               / rprf.r).where(rprf.r > 0, other=0)
-        ) / rprf.rho
-    else:
-        acc['mag'] = rprf.rho*0
-
-    acc = xr.Dataset(acc)
-    acc['dvdt_lagrange'] = (acc.thm + acc.trb + acc.mag + acc.grv
-                            + acc.cen + acc.ani)
-    acc['dvdt_euler'] = acc.dvdt_lagrange - acc.adv
-
-    acc['Fadv'] = load_sim.rprof_cumsum_r(rprf, rprf.rho*acc.adv)
-    acc['Fthm'] = load_sim.rprof_cumsum_r(rprf, rprf.rho*acc.thm)
-    acc['Ftrb'] = load_sim.rprof_cumsum_r(rprf, rprf.rho*acc.trb)
-    acc['Fmag'] = load_sim.rprof_cumsum_r(rprf, rprf.rho*acc.mag)
-    acc['Fcen'] = load_sim.rprof_cumsum_r(rprf, rprf.rho*acc.cen)
-    acc['Fgrv'] = -load_sim.rprof_cumsum_r(rprf, rprf.rho*acc.grv)
-    acc['Fani'] = load_sim.rprof_cumsum_r(rprf, rprf.rho*acc.ani)
-
-
-    # Net forces
-    acc['fnet'] = (acc.thm + acc.trb + acc.cen + acc.ani
-                   + acc.mag + acc.grv) / (-acc.grv)
-    acc['Fnet'] = (acc.Fthm + acc.Ftrb + acc.Fcen + acc.Fani
-                   + acc.Fmag - acc.Fgrv) / acc.Fgrv
-    return acc
 
 
 def observable(s, core, rprf):

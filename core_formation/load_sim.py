@@ -801,7 +801,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     prj_rprofs = prj_rprofs.isel(R=slice(0, min_nr))
                     rprf = rprf.merge(prj_rprofs, compat="no_conflicts")
 
-                rprf = rprf.set_xindex('num')
                 rprofs_dict[pid] = rprf
 
         if len(pids_not_found) > 0:
@@ -1016,9 +1015,53 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             else:
                 rprofs['mPhi'] = xr.zeros_like(rprofs.rho)
 
-            rprofs = rprofs.merge(tools.radial_acceleration(self, rprofs), compat="no_conflicts")
-            if 'num' not in rprofs.indexes:
-                rprofs = rprofs.set_xindex('num')
+            rprofs['adv'] = (
+                rprofs.vel1_mw*rprofs.vel1_mw.differentiate('r')
+            )
+            pthm = rprofs.rho*self.cs**2
+            ptrb = rprofs.rho*rprofs.dvel1_sq_mw
+            rprofs['thm'] = -pthm.differentiate('r') / rprofs.rho
+            rprofs['trb'] = -ptrb.differentiate('r') / rprofs.rho
+            rprofs['cen'] = (
+                (rprofs.vel2_mw**2 + rprofs.vel3_mw**2) / rprofs.r
+            ).where(rprofs.r > 0, other=0)
+            rprofs['grv'] = rprofs.gacc1_mw
+            rprofs['ani'] = (
+                (rprofs.dvel2_sq_mw + rprofs.dvel3_sq_mw
+                 - 2*rprofs.dvel1_sq_mw) / rprofs.r
+            ).where(rprofs.r > 0, other=0)
+
+            if self.mhd:
+                rprofs['mag'] = (
+                    t_rr.differentiate('r')
+                    + ((2*rprofs.b1_sq - rprofs.b2_sq - rprofs.b3_sq)
+                       / rprofs.r).where(rprofs.r > 0, other=0)
+                ) / rprofs.rho
+            else:
+                rprofs['mag'] = rprofs.rho*0
+
+            rprofs['dvdt_lagrange'] = (
+                rprofs.thm + rprofs.trb + rprofs.mag + rprofs.grv
+                + rprofs.cen + rprofs.ani
+            )
+            rprofs['dvdt_euler'] = rprofs.dvdt_lagrange - rprofs.adv
+
+            rprofs['Fadv'] = rprof_cumsum_r(rprofs, rprofs.rho*rprofs.adv)
+            rprofs['Fthm'] = rprof_cumsum_r(rprofs, rprofs.rho*rprofs.thm)
+            rprofs['Ftrb'] = rprof_cumsum_r(rprofs, rprofs.rho*rprofs.trb)
+            rprofs['Fmag'] = rprof_cumsum_r(rprofs, rprofs.rho*rprofs.mag)
+            rprofs['Fcen'] = rprof_cumsum_r(rprofs, rprofs.rho*rprofs.cen)
+            rprofs['Fgrv'] = -rprof_cumsum_r(rprofs, rprofs.rho*rprofs.grv)
+            rprofs['Fani'] = rprof_cumsum_r(rprofs, rprofs.rho*rprofs.ani)
+
+            rprofs['fnet'] = (
+                rprofs.thm + rprofs.trb + rprofs.cen + rprofs.ani
+                + rprofs.mag + rprofs.grv
+            ) / (-rprofs.grv)
+            rprofs['Fnet'] = (
+                rprofs.Fthm + rprofs.Ftrb + rprofs.Fcen + rprofs.Fani
+                + rprofs.Fmag - rprofs.Fgrv
+            ) / rprofs.Fgrv
 
             rprofs_dict[pid] = rprofs.transpose('t', 'r', ...)
 
@@ -1041,7 +1084,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             pspec.append(ps)
         pspec = xr.concat(pspec, 't')
         pspec = pspec.assign_coords(dict(num=('t', self.nums)))
-        pspec = pspec.set_xindex('num')
         return pspec
 
 
