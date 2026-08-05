@@ -512,65 +512,55 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
         # Keep the unstacked geometry for calculating the spherical basis at
         # each subcell position.
         Rsub = np.sqrt(xsub**2 + ysub**2)
-        rsub_grid = np.sqrt(Rsub**2 + zsub**2)
+        rsub = np.sqrt(Rsub**2 + zsub**2)
 
         # Spherical basis vectors evaluated at subcell positions. Because
         # nsub is even, no subcell center lies at r=0 or R=0.
-        sin_th = Rsub/rsub_grid
-        cos_th = zsub/rsub_grid
+        sin_th = Rsub/rsub
+        cos_th = zsub/rsub
         sin_ph = ysub/Rsub
         cos_ph = xsub/Rsub
-        zero_sub = xr.zeros_like(rsub_grid)
-
+        zero_sub = xr.zeros_like(rsub)
         spherical_basis_sub = (
             (sin_th*cos_ph, sin_th*sin_ph, cos_th),
             (cos_th*cos_ph, cos_th*sin_ph, -sin_th),
             (-sin_ph + zero_sub, cos_ph + zero_sub, zero_sub),
         )
 
-        vel_sub = _spherical_at_subcells(
+        # Transform selected vectors to spherical components
+        ds_sub = {}
+        ds_sub['vel1'], ds_sub['vel2'], ds_sub['vel3'] = _spherical_at_subcells(
             (ds_patch.velx, ds_patch.vely, ds_patch.velz),
             spherical_basis_sub
         )
-        gacc_sub = _spherical_at_subcells(
+        ds_sub['gacc1'], _, _ = _spherical_at_subcells(
             (ds_patch.gaccx, ds_patch.gaccy, ds_patch.gaccz),
             spherical_basis_sub
         )
-
-        subcell_fields = {
-            'rsub': rsub_grid,
-            'vel1': vel_sub[0],
-            'vel2': vel_sub[1],
-            'vel3': vel_sub[2],
-            'gacc1': gacc_sub[0],
-            'flag_neg_gacc1': xr.where(
-                gacc_sub[0] < 0, 1.0, 0.0
-            ),
-        }
-
+        ds_sub['flag_neg_gacc1'] = xr.where(ds_sub['gacc1'] < 0, 1.0, 0.0)
         if s.mhd:
             b_sub = _spherical_at_subcells(
                 (ds_patch.bx, ds_patch.by, ds_patch.bz),
                 spherical_basis_sub
             )
-            subcell_fields.update(
+            ds_sub.update(
                 b1=b_sub[0],
                 b2=b_sub[1],
                 b3=b_sub[2],
             )
-
         # Drop inherited cell-center r, th, and ph coordinates before using
         # r as the radial-shell dimension.
-        subcell_data = xr.Dataset(subcell_fields).reset_coords(drop=True)
-        subcell_data = subcell_data.stack(
+        ds_sub = xr.Dataset(ds_sub).reset_coords(drop=True)
+        ds_sub = ds_sub.stack(
             cell=('z', 'y', 'x'),
             subcell=('subz', 'suby', 'subx')
         ).transpose('subcell', 'cell')
-
+        rsub = rsub.stack(
+            cell=('z', 'y', 'x'),
+            subcell=('subz', 'suby', 'subx')
+        ).transpose('subcell', 'cell')
         # 2. Calculate the fraction of each parent cell assigned to subcells
         # ------------------------------------------------------------------
-        rsub = subcell_data.rsub
-        subcell_data = subcell_data.drop_vars('rsub')
         ibin = np.floor((rsub + hdx)/s.dx).astype(int)
 
         # Fraction of each parent cell assigned to the central sphere and the
@@ -598,25 +588,70 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
     # ----------
     rprofs = {}
     rprofs['rho'], rprofs['vshell'] = _radial_binning(ds.rho)
-    rprofs['frac_neg_gacc1'], _ = _radial_binning(ds.flag_neg_gacc1)
+    rprofs['frac_neg_gacc1'], _ = _radial_binning(
+        ds.flag_neg_gacc1,
+        qty_sub=ds_sub.flag_neg_gacc1,
+    )
     rprofs['phi_mw'], _ = _radial_binning(ds.phi, mass_weighted=True)
 
     # 2. Vectors
     # ----------
-    rprofs['gacc1'], _ = _radial_binning(ds['gacc1'])
-    for k in ['gacc1', 'velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3']:
-        rprofs[k+'_mw'], _ = _radial_binning(ds[k], mass_weighted=True)
-    for k in ['velx', 'vely', 'velz', 'vel1', 'vel2', 'vel3']:
-        rprofs[k+'_sq_mw'], _ = _radial_binning(ds[k]**2, mass_weighted=True)
+    rprofs['gacc1'], _ = _radial_binning(
+        ds.gacc1,
+        qty_sub=ds_sub.gacc1,
+    )
+    rprofs['gacc1_mw'], _ = _radial_binning(
+        ds.gacc1,
+        mass_weighted=True,
+        qty_sub=ds_sub.gacc1,
+    )
+
+    # Cartesian components
+    # -------------------- remain constant within each parent cell.
+    for k in ['velx', 'vely', 'velz']:
+        rprofs[k+'_mw'], _ = _radial_binning(
+            ds[k],
+            mass_weighted=True,
+        )
+        rprofs[k+'_sq_mw'], _ = _radial_binning(
+            ds[k]**2,
+            mass_weighted=True,
+        )
+    # integrand for virial energy term
     rprofs['xgx_mw'], _ = _radial_binning((ds.x - origin[0])*ds.gaccx, mass_weighted=True)
     rprofs['ygy_mw'], _ = _radial_binning((ds.y - origin[1])*ds.gaccy, mass_weighted=True)
     rprofs['zgz_mw'], _ = _radial_binning((ds.z - origin[2])*ds.gaccz, mass_weighted=True)
+    # angular momentum
     for k in ['Ldens_x', 'Ldens_y', 'Ldens_z']:
         rprofs[k], _ = _radial_binning(ds[k])
     if s.mhd:
-        for k in ['bx', 'by', 'bz', 'b1', 'b2', 'b3']:
+        for k in ['bx', 'by', 'bz']:
             rprofs[k], _ = _radial_binning(ds[k])
             rprofs[k+'_sq'], _ = _radial_binning(ds[k]**2)
+
+    # Spherical components
+    # -------------------- use the basis evaluated at each subcell.
+    for k in ['vel1', 'vel2', 'vel3']:
+        rprofs[k+'_mw'], _ = _radial_binning(
+            ds[k],
+            mass_weighted=True,
+            qty_sub=ds_sub[k],
+        )
+        rprofs[k+'_sq_mw'], _ = _radial_binning(
+            ds[k]**2,
+            mass_weighted=True,
+            qty_sub=ds_sub[k]**2,
+        )
+    if s.mhd:
+        for k in ['b1', 'b2', 'b3']:
+            rprofs[k], _ = _radial_binning(
+                ds[k],
+                qty_sub=ds_sub[k],
+            )
+            rprofs[k+'_sq'], _ = _radial_binning(
+                ds[k]**2,
+                qty_sub=ds_sub[k]**2,
+            )
     rprofs = xr.Dataset(rprofs)
 
     # TODO This can be computed as post-processing (see below costh_BL)
