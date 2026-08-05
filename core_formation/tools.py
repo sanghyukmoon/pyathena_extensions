@@ -654,16 +654,6 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
             )
     rprofs = xr.Dataset(rprofs)
 
-    # TODO This can be computed as post-processing (see below costh_BL)
-    rprofs['Lx_enc'] = (rprofs.Ldens_x*rprofs.vshell).cumsum('r')
-    rprofs['Ly_enc'] = (rprofs.Ldens_y*rprofs.vshell).cumsum('r')
-    rprofs['Lz_enc'] = (rprofs.Ldens_z*rprofs.vshell).cumsum('r')
-    Lnorm = np.sqrt(rprofs.Lx_enc**2 + rprofs.Ly_enc**2 + rprofs.Lz_enc**2)
-    rprofs['lhat_x'] = rprofs.Lx_enc / Lnorm
-    rprofs['lhat_y'] = rprofs.Ly_enc / Lnorm
-    rprofs['lhat_z'] = rprofs.Lz_enc / Lnorm
-    # TODO_END
-
     if s.mhd:
         venc = rprofs.vshell.cumsum('r')
         rprofs['mean_bx'] = (rprofs.bx * rprofs.vshell).cumsum('r') / venc
@@ -673,12 +663,6 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
         rprofs['bhat_x'] = rprofs.mean_bx / bmean_norm
         rprofs['bhat_y'] = rprofs.mean_by / bmean_norm
         rprofs['bhat_z'] = rprofs.mean_bz / bmean_norm
-        # TODO This can be computed as post-processing
-        rprofs['costh_BL'] = (
-            rprofs.bhat_x*rprofs.lhat_x
-            + rprofs.bhat_y*rprofs.lhat_y
-            + rprofs.bhat_z*rprofs.lhat_z
-        )
         # Define B-normal plane at each radius and calculate
         # 1. Two perpendicular unit vectors.
         # 2. Magnetic flux

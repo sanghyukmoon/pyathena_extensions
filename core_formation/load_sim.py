@@ -866,6 +866,19 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             )
 
             rprofs['menc'] = rprof_cumsum_r(rprofs, rprofs.rho)
+            rprofs['Lx_enc'] = rprof_cumsum_r(rprofs, rprofs.Ldens_x)
+            rprofs['Ly_enc'] = rprof_cumsum_r(rprofs, rprofs.Ldens_y)
+            rprofs['Lz_enc'] = rprof_cumsum_r(rprofs, rprofs.Ldens_z)
+            Lnorm = np.sqrt(rprofs.Lx_enc**2 + rprofs.Ly_enc**2 + rprofs.Lz_enc**2)
+            rprofs['lhat_x'] = rprofs.Lx_enc / Lnorm
+            rprofs['lhat_y'] = rprofs.Ly_enc / Lnorm
+            rprofs['lhat_z'] = rprofs.Lz_enc / Lnorm
+            if s.mhd:
+                rprofs['costh_BL'] = (
+                    rprofs.bhat_x*rprofs.lhat_x
+                    + rprofs.bhat_y*rprofs.lhat_y
+                    + rprofs.bhat_z*rprofs.lhat_z
+                )
 
             # Virial terms
             rdotg = rprofs.xgx_mw + rprofs.ygy_mw + rprofs.zgz_mw
