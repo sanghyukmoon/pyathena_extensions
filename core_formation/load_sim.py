@@ -872,7 +872,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             rprofs['lhat_x'] = rprofs.Lx_enc / Lnorm
             rprofs['lhat_y'] = rprofs.Ly_enc / Lnorm
             rprofs['lhat_z'] = rprofs.Lz_enc / Lnorm
-            if s.mhd:
+            if self.mhd:
                 rprofs['costh_BL'] = (
                     rprofs.bhat_x*rprofs.lhat_x
                     + rprofs.bhat_y*rprofs.lhat_y
