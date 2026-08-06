@@ -734,8 +734,7 @@ def plot_cum_forces(s, rprf, core, ax=None, lw=1):
 
     plt.plot(rp.r, rp.Fthm/rp.Fgrv, lw=lw, c='tab:blue', label=r'$F_\mathrm{thm}$')
     plt.plot(rp.r, rp.Ftrb/rp.Fgrv, lw=lw, c='tab:orange', label=r'$F_\mathrm{trb}$')
-    plt.plot(rp.r, rp.Fcen/rp.Fgrv, lw=lw, c='tab:green', label=r'$F_\mathrm{cen}$')
-    plt.plot(rp.r, rp.Fani/rp.Fgrv, lw=lw, c='tab:purple', label=r'$F_\mathrm{ani}$')
+    plt.plot(rp.r, (rp.Fcen+rp.Fani)/rp.Fgrv, lw=lw, c='tab:green', label=r'$F_\mathrm{cen}$')
     fnet = rp.Fthm + rp.Ftrb + rp.Fcen + rp.Fani - rp.Fgrv
     if s.mhd:
         plt.plot(rp.r, rp.Fmag/rp.Fgrv, lw=lw, c='tab:red', label=r'$F_\mathrm{mag}$')
@@ -757,8 +756,7 @@ def plot_forces(s, rprf, ax=None, xlim=(0, 0.2), ylim=(-2, 3)):
     rp = rprf.isel(r=slice(1, None))
     (rp.thm/(-rp.grv)).plot(lw=1, color='tab:blue', label=r'$f_\mathrm{thm}$')
     (rp.trb/(-rp.grv)).plot(lw=1, color='tab:orange', label=r'$f_\mathrm{trb}$')
-    (rp.cen/(-rp.grv)).plot(lw=1, color='tab:green', label=r'$f_\mathrm{cen}$')
-    (rp.ani/(-rp.grv)).plot(lw=1, color='tab:purple', label=r'$f_\mathrm{ani}$')
+    ((rp.cen+rp.ani)/(-rp.grv)).plot(lw=1, color='tab:green', label=r'$f_\mathrm{cen}$')
     fnet = (rp.thm + rp.trb + rp.cen + rp.ani + rp.grv)
     if s.mhd:
         (rp.mag/(-rp.grv)).plot(lw=1, color='tab:red', label=r'$f_\mathrm{mag}$')
