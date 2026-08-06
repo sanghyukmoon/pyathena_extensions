@@ -13,6 +13,7 @@ from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 import matplotlib.patheffects as pe
 import numpy as np
 import xarray as xr
+import pandas as pd
 # Bottleneck does not use stable sum.
 # See xarray #1346, #7344 and bottleneck #193, #462 and more.
 # Let's disable third party softwares to go conservative.
@@ -890,12 +891,32 @@ def plot_core_evolution(s, pid, num, hw=0.2):
     pds = pds[((pds.x1 > xc - hw) & (pds.x1 < xc + hw)
              & (pds.x2 > yc - hw) & (pds.x2 < yc + hw)
              & (pds.x3 > zc - hw) & (pds.x3 < zc + hw))]
-    pds = pds.copy()
     pds.loc[:, ('x1', 'x2', 'x3')] -= np.array([xc, yc, zc])
     for pos, idx in zip(['x1', 'x2', 'x3'], [0, 1, 2]):
-        pds.loc[:, pos] = tools.sawtooth(pds[pos],
-                                         s.domain['le'][idx], s.domain['re'][idx],
-                                         s.domain['le'][idx], s.domain['re'][idx])
+        pds.loc[:, pos] = tools.sawtooth(
+            pds[pos],
+            s.domain['le'][idx],
+            s.domain['re'][idx],
+            s.domain['le'][idx],
+            s.domain['re'][idx]
+        )
+
+    # Load minima positions
+    pos_minima = {}
+    for lid in s.minima[num]:
+        x, y, z = s.flatindex_to_cartesian(lid)
+        if (x > xc - hw) and (x < xc + hw) and (y > yc - hw) and (y < yc + hw) and (z > zc - hw) and (z < zc + hw):
+            pos_minima[lid] = x, y, z
+    pos_minima = pd.DataFrame.from_dict(pos_minima, orient='index', columns=['x1', 'x2', 'x3'])
+    pos_minima.loc[:, ('x1', 'x2', 'x3')] -= np.array([xc, yc, zc])
+    for pos, idx in zip(['x1', 'x2', 'x3'], [0, 1, 2]):
+        pos_minima.loc[:, pos] = tools.sawtooth(
+            pos_minima[pos],
+            s.domain['le'][idx],
+            s.domain['re'][idx],
+            s.domain['le'][idx],
+            s.domain['re'][idx]
+        )
 
     # Create figure
     fig = plt.figure(figsize=(35, 21))
@@ -958,15 +979,15 @@ def plot_core_evolution(s, pid, num, hw=0.2):
             c0 = plt.Circle((0, 0), core.radius, fill=False, color='b', lw=1, ls='-.')
             plt.gca().add_artist(c0)
 
-        # Overplot star particles
+        # Overplot star particles and minima
         plt.scatter(pds[xycoords[prj_axis][0]], pds[xycoords[prj_axis][1]],
                     marker=MarkerStyle('*', fillstyle='full'), color='y')
-
+        plt.scatter(pos_minima[xycoords[prj_axis][0]], pos_minima[xycoords[prj_axis][1]],
+                    marker=MarkerStyle('+'), color='tab:gray')
         plt.xlim(-hw, hw)
         plt.ylim(-hw, hw)
         plt.xlabel(xlabel[prj_axis])
         plt.ylabel(ylabel[prj_axis])
-
 
     # 4. Radial profiles
     # Density
