@@ -582,11 +582,11 @@ def plot_projection(s, ds, field='dens', axis='z', op='sum',
         Ly = ymax - ymin
         Lz = zmax - zmin
 
-    wh = dict(zip(('x', 'y', 'z'), ((Ly, Lz), (Lz, Lx), (Lx, Ly))))
+    wh = dict(zip(('x', 'y', 'z'), ((Ly, Lz), (Lx, Lz), (Lx, Ly))))
     extent = dict(zip(('x', 'y', 'z'), ((ymin, ymax, zmin, zmax),
-                                        (zmin, zmax, xmin, xmax),
+                                        (xmin, xmax, zmin, zmax),
                                         (xmin, xmax, ymin, ymax))))
-    permutations = dict(z=('x', 'y'), y=('z', 'x'), x=('y', 'z'))
+    permutations = dict(z=('x', 'y'), y=('x', 'z'), x=('y', 'z'))
     field_dict_pyathena = dict(dens='dens', mask='mask')
 
     if ax is None:
@@ -729,15 +729,17 @@ def plot_cum_forces(s, rprf, core, ax=None, lw=1):
     if ax is not None:
         plt.sca(ax)
 
-    plt.plot(rprf.r, rprf.Fthm/rprf.Fgrv, lw=lw, c='tab:blue', label=r'$F_\mathrm{thm}$')
-    plt.plot(rprf.r, rprf.Ftrb/rprf.Fgrv, lw=lw, c='tab:orange', label=r'$F_\mathrm{trb}$')
-    plt.plot(rprf.r, rprf.Fcen/rprf.Fgrv, lw=lw, c='tab:green', label=r'$F_\mathrm{cen}$')
-    plt.plot(rprf.r, rprf.Fani/rprf.Fgrv, lw=lw, c='tab:purple', label=r'$F_\mathrm{ani}$')
-    fnet = rprf.Fthm + rprf.Ftrb + rprf.Fcen + rprf.Fani - rprf.Fgrv
+    rp = rprf.isel(r=slice(1, None))
+
+    plt.plot(rp.r, rp.Fthm/rp.Fgrv, lw=lw, c='tab:blue', label=r'$F_\mathrm{thm}$')
+    plt.plot(rp.r, rp.Ftrb/rp.Fgrv, lw=lw, c='tab:orange', label=r'$F_\mathrm{trb}$')
+    plt.plot(rp.r, rp.Fcen/rp.Fgrv, lw=lw, c='tab:green', label=r'$F_\mathrm{cen}$')
+    plt.plot(rp.r, rp.Fani/rp.Fgrv, lw=lw, c='tab:purple', label=r'$F_\mathrm{ani}$')
+    fnet = rp.Fthm + rp.Ftrb + rp.Fcen + rp.Fani - rp.Fgrv
     if s.mhd:
-        plt.plot(rprf.r, rprf.Fmag/rprf.Fgrv, lw=lw, c='tab:red', label=r'$F_\mathrm{mag}$')
-        fnet += rprf.Fmag
-    plt.plot(rprf.r, fnet/rprf.Fgrv, 'k-', lw=1.5*lw, label=r'$F_\mathrm{net}$')
+        plt.plot(rp.r, rp.Fmag/rp.Fgrv, lw=lw, c='tab:red', label=r'$F_\mathrm{mag}$')
+        fnet += rp.Fmag
+    plt.plot(rp.r, fnet/rp.Fgrv, 'k-', lw=1.5*lw, label=r'$F_\mathrm{net}$')
 
 
     plt.axhline(0, c='k', lw=1, ls='--')
@@ -751,16 +753,17 @@ def plot_forces(s, rprf, ax=None, xlim=(0, 0.2), ylim=(-2, 3)):
     if ax is not None:
         plt.sca(ax)
 
-    (rprf.thm/(-rprf.grv)).plot(lw=1, color='tab:blue', label=r'$f_\mathrm{thm}$')
-    (rprf.trb/(-rprf.grv)).plot(lw=1, color='tab:orange', label=r'$f_\mathrm{trb}$')
-    (rprf.cen/(-rprf.grv)).plot(lw=1, color='tab:green', label=r'$f_\mathrm{cen}$')
-    (rprf.ani/(-rprf.grv)).plot(lw=1, color='tab:purple', label=r'$f_\mathrm{ani}$')
-    fnet = (rprf.thm + rprf.trb + rprf.cen + rprf.ani + rprf.grv)
+    rp = rprf.isel(r=slice(1, None))
+    (rp.thm/(-rp.grv)).plot(lw=1, color='tab:blue', label=r'$f_\mathrm{thm}$')
+    (rp.trb/(-rp.grv)).plot(lw=1, color='tab:orange', label=r'$f_\mathrm{trb}$')
+    (rp.cen/(-rp.grv)).plot(lw=1, color='tab:green', label=r'$f_\mathrm{cen}$')
+    (rp.ani/(-rp.grv)).plot(lw=1, color='tab:purple', label=r'$f_\mathrm{ani}$')
+    fnet = (rp.thm + rp.trb + rp.cen + rp.ani + rp.grv)
     if s.mhd:
-        (rprf.mag/(-rprf.grv)).plot(lw=1, color='tab:red', label=r'$f_\mathrm{mag}$')
-        fnet += rprf.mag
+        (rp.mag/(-rp.grv)).plot(lw=1, color='tab:red', label=r'$f_\mathrm{mag}$')
+        fnet += rp.mag
 
-    plt.plot(rprf.r, fnet/(-rprf.grv), lw=1.5, color='k', label=r'$f_\mathrm{net}$')
+    plt.plot(rp.r, fnet/(-rp.grv), lw=1.5, color='k', label=r'$f_\mathrm{net}$')
 
 
     plt.axhline(0, linestyle=':')
@@ -901,16 +904,16 @@ def plot_core_evolution(s, pid, num, hw=0.2):
 
     xlim = dict(z=(xc-hw, xc+hw),
                 x=(yc-hw, yc+hw),
-                y=(zc-hw, zc+hw))
+                y=(xc-hw, xc+hw))
     ylim = dict(z=(yc-hw, yc+hw),
                 x=(zc-hw, zc+hw),
-                y=(xc-hw, xc+hw))
-    xlabel = dict(z=r'$x/L_{J,0}$', x=r'$y/L_{J,0}$', y=r'$z/L_{J,0}$')
-    ylabel = dict(z=r'$y/L_{J,0}$', x=r'$z/L_{J,0}$', y=r'$x/L_{J,0}$')
+                y=(zc-hw, zc+hw))
+    xlabel = dict(z=r'$x/L_{J,0}$', x=r'$y/L_{J,0}$', y=r'$x/L_{J,0}$')
+    ylabel = dict(z=r'$y/L_{J,0}$', x=r'$z/L_{J,0}$', y=r'$z/L_{J,0}$')
 
     xycoords = dict(z=['x1', 'x2'],
                     x=['x2', 'x3'],
-                    y=['x3', 'x1'])
+                    y=['x1', 'x3'])
 
     axs = dict(proj=[fig.add_subplot(gs[i, 0]) for i in [0, 1, 2]],
                zoom=[fig.add_subplot(gs[i, 1]) for i in [0, 1, 2]],
