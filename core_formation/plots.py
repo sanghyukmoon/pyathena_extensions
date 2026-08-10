@@ -878,6 +878,8 @@ def plot_core_evolution(s, pid, num, hw=0.2):
     else:
         ds = s.load_hdf5(num, quantities=['dens'], load_method='xarray')
     core = s.cores[pid].loc[num]
+    if 'radius' not in core:
+        core['radius'] = np.nan
     core_tcrit_emp = s.cores_dict['empirical'][pid].loc[num]
     rprf = s.rprofs[pid].sel(num=num)
 
@@ -940,7 +942,8 @@ def plot_core_evolution(s, pid, num, hw=0.2):
                force=[fig.add_subplot(gs[1, i]) for i in [2, 3]],
                veldisp=fig.add_subplot(gs[2, 2]),
                vel=fig.add_subplot(gs[2, 3]),
-               acc=fig.add_subplot(gs[:, 4]))
+               acc=fig.add_subplot(gs[:-1, 4]),
+               mcrit=fig.add_subplot(gs[-1, 4]))
 
     # Zoom-in dataset
     sel = dict(x=slice(-hw, hw), y=slice(-hw, hw), z=slice(-hw, hw))
@@ -1079,6 +1082,20 @@ def plot_core_evolution(s, pid, num, hw=0.2):
     plt.xlim(0, hw)
     plt.legend(ncol=3, fontsize=17, loc='upper right')
 
+    # 7. Critical masses
+    plt.sca(axs['mcrit'])
+    (rprf.menc/rprf.mmax).plot(label=r'$M_\mathrm{enc}/M_\mathrm{crit}$', c='tab:red', lw=1)
+    (rprf.menc/(rprf.mTES+rprf.mPhi)).plot(label=r'$M_\mathrm{enc}/(M_\mathrm{TES}+M_\mathrm{\Phi})$', c='tab:red', ls='--', lw=1)
+    (rprf.menc/rprf.mPhi).plot(label=r'$M_\mathrm{enc}/M_\Phi$', lw=1, c='tab:purple')
+    (rprf.menc/rprf.mTES).plot(label=r'$M_\mathrm{enc}/M_\mathrm{TES}$', lw=1, c='tab:blue')
+    plt.axhline(1.0, ls=':', color='tab:gray')
+    plt.xlim(0, 0.2)
+    plt.ylim(0, 2)
+    plt.title('')
+    plt.xlabel(r'$r/L_{J,0}$')
+    plt.ylabel(r'$M/M_\mathrm{cr}$')
+    plt.legend(ncol=2, fontsize=15, loc='lower right')
+
     # Annotations
     plt.sca(axs['rho'][0])
     plt.text(0.6, 0.9, r'$t={:.3f}$'.format(ds.Time)+r'$\,t_{J,0}$',
@@ -1104,7 +1121,7 @@ def plot_core_evolution(s, pid, num, hw=0.2):
              transform=plt.gca().transAxes, backgroundcolor='w')
 
     for ax in (axs['rho'][0], axs['rho'][1], axs['force'][0], axs['force'][1],
-               axs['vel'], axs['veldisp'], axs['acc']):
+               axs['vel'], axs['veldisp'], axs['acc'], axs['mcrit']):
         plt.sca(ax)
         ln1 = plt.axvline(core.virial_rcrit, ls='-', c='r')
         ln2 = plt.axvline(core.critical_radius, ls='--', c='tab:red')
