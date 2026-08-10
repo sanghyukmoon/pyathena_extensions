@@ -641,7 +641,7 @@ def resample_hdf5(s, level=0):
     uniform.main(**kwargs)
 
 
-def plot_core_evolution(s, pid, num, method='empirical', overwrite=False, rmax=None):
+def plot_core_evolution(s, pid, num, method='empirical', overwrite=False):
     """Creates multi-panel plot for t_coll core properties
 
     Parameters
@@ -663,7 +663,7 @@ def plot_core_evolution(s, pid, num, method='empirical', overwrite=False, rmax=N
         return
     print(f'[plot_core_evolution] processing model {s.basename} pid: {pid} num: {num}, tcrit_method: {method}')
     s.select_cores(method)
-    fig = plots.plot_core_evolution(s, pid, num, rmax=rmax)
+    fig = plots.plot_core_evolution(s, pid, num)
     fig.savefig(fname, bbox_inches='tight', dpi=200)
     plt.close(fig)
 
