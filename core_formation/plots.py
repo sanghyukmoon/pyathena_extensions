@@ -532,11 +532,10 @@ def plot_lookback_profiles(
 
     return fig, axs
 
-def plot_projection(s, ds, field='dens', axis='z', op='sum',
+def plot_projection(s, ds, field='dens', axis='z',
                     vmin=1e-1, vmax=2e2, cmap='pink_r', alpha=1,
-                    ax=None, cax=None, noplot=False,
-                    add_colorbar=True, transpose=False):
-    """Plot projection of the selected variable along the given axis.
+                    ax=None, cax=None, add_colorbar=True):
+    """Plot one or more projected layers along the selected axis.
 
     Parameters
     ----------
@@ -544,8 +543,9 @@ def plot_projection(s, ds, field='dens', axis='z', op='sum',
         Object containing simulation metadata.
     ds : xarray.Dataset
         Object containing fluid variables.
-    field : str, optional
-        Variable to plot.
+    field : str or sequence of str, optional
+        Raster variable or vector overlay (`b_stream` or `v_quiver`) to
+        plot. Multiple layers are drawn in the supplied order.
     axis : str, optional
         Axis to project.
     vmin : float, optional
@@ -562,66 +562,84 @@ def plot_projection(s, ds, field='dens', axis='z', op='sum',
         Axes to draw color bar.
     add_colorbar : bool, optional
         If true, add color bar.
-    transpose : bool, optional
-        If true, transpose x and y axis.
     """
-    # some domain informations
-    xmin, ymin, zmin = s.domain['le']
-    xmax, ymax, zmax = s.domain['re']
-    Lx, Ly, Lz = s.domain['Lx']
+    fields_are_scalar = isinstance(field, str)
+    fields = (field,) if fields_are_scalar else tuple(field)
 
-    if isinstance(ds, xr.Dataset):
-        # Reset the domain information, for the case when
-        # ds is a part of the whole domain.
-        xmin = ds.x[0] - 0.5*s.dx
-        ymin = ds.y[0] - 0.5*s.dy
-        zmin = ds.z[0] - 0.5*s.dz
-        xmax = ds.x[-1] + 0.5*s.dx
-        ymax = ds.y[-1] + 0.5*s.dy
-        zmax = ds.z[-1] + 0.5*s.dz
-        Lx = xmax - xmin
-        Ly = ymax - ymin
-        Lz = zmax - zmin
-
-    wh = dict(zip(('x', 'y', 'z'), ((Ly, Lz), (Lx, Lz), (Lx, Ly))))
-    extent = dict(zip(('x', 'y', 'z'), ((ymin, ymax, zmin, zmax),
-                                        (xmin, xmax, zmin, zmax),
-                                        (xmin, xmax, ymin, ymax))))
+    # domain information
+    xmin = ds.x[0] - 0.5*s.dx
+    ymin = ds.y[0] - 0.5*s.dy
+    zmin = ds.z[0] - 0.5*s.dz
+    xmax = ds.x[-1] + 0.5*s.dx
+    ymax = ds.y[-1] + 0.5*s.dy
+    zmax = ds.z[-1] + 0.5*s.dz
+    extent = dict(zip(
+        ('x', 'y', 'z'),
+        ((ymin, ymax, zmin, zmax),
+         (xmin, xmax, zmin, zmax),
+         (xmin, xmax, ymin, ymax))
+    ))
     permutations = dict(z=('x', 'y'), y=('x', 'z'), x=('y', 'z'))
-    field_dict_pyathena = dict(dens='dens', mask='mask')
+    axis1, axis2 = permutations[axis]
+    magnetic_fields = dict(x='Bcc1', y='Bcc2', z='Bcc3')
+    velocity_fields = dict(x='vel1', y='vel2', z='vel3')
 
     if ax is None:
         ax = plt.gca()
 
-    if field=='b_stream':
-        ds = ds.rename(dict(Bcc1='bx', Bcc2='by', Bcc3='bz'))
-        b1 = ds[f'b{permutations[axis][0]}'].weighted(ds.dens).mean(axis)
-        b2 = ds[f'b{permutations[axis][1]}'].weighted(ds.dens).mean(axis)
-        b1 = b1.transpose(*permutations[axis]).to_numpy()
-        b2 = b2.transpose(*permutations[axis]).to_numpy()
-        x1 = ds.coords[permutations[axis][0]].to_numpy()
-        x2 = ds.coords[permutations[axis][1]].to_numpy()
-        img = ax.streamplot(x1, x2, b1, b2, linewidth=1, color='tab:gray', density=1, arrowsize=0.5)
-    else:
-        fld = field_dict_pyathena[field]
-        if op == 'sum':
-            prj = ds[fld].integrate(axis).transpose(*permutations[axis])
-        elif op == 'max':
-            prj = ds[fld].max(axis).transpose(*permutations[axis])
-        if noplot:
-            return prj
-        else:
-            prj = prj.to_numpy()
+    projected = dict(dens=(ds.dens*s.dx).sum(axis))
+    if 'b_stream' in fields:
+        projected['b1'] = (
+            ds.dens*ds[magnetic_fields[axis1]]*s.dx
+        ).sum(axis) / projected['dens']
+        projected['b2'] = (
+            ds.dens*ds[magnetic_fields[axis2]]*s.dx
+        ).sum(axis) / projected['dens']
+    if 'v_quiver' in fields:
+        projected['v1'] = (
+            ds.dens*ds[velocity_fields[axis1]]*s.dx
+        ).sum(axis) / projected['dens']
+        projected['v2'] = (
+            ds.dens*ds[velocity_fields[axis2]]*s.dx
+        ).sum(axis) / projected['dens']
+    projected = xr.Dataset(projected).transpose(axis2, axis1)
 
-        prj = prj.T # Required for imshow to be consistent with the extent definition.
-        if transpose:
-            prj = prj.T
-            extent = {k: v[2:] + v[0:2] for k, v in extent.items()}
-        img = ax.imshow(prj, norm=LogNorm(vmin, vmax), origin='lower',
-                        extent=extent[axis], cmap=cmap, alpha=alpha)
-        if add_colorbar:
-            plt.colorbar(cax=cax)
-    return img
+    x1 = ds.coords[axis1].to_numpy()
+    x2 = ds.coords[axis2].to_numpy()
+    for fld in fields:
+        if fld == 'dens':
+            prj = projected[fld].to_numpy()
+            ax.imshow(
+                prj, norm=LogNorm(vmin, vmax), origin='lower',
+                extent=extent[axis], cmap=cmap, alpha=alpha,
+            )
+        elif fld == 'b_stream':
+            b1 = projected.b1.to_numpy()
+            b2 = projected.b2.to_numpy()
+            ax.streamplot(
+                x1, x2, b1, b2, linewidth=1, color='tab:gray',
+                density=1, arrowsize=0.5,
+            )
+        else:
+            def sample_indices(size, count=10):
+                count = min(count, size)
+                return ((np.arange(count) + 0.5)*size/count).astype(int)
+
+            idx1 = sample_indices(ds.sizes[axis1])
+            idx2 = sample_indices(ds.sizes[axis2])
+            select = {axis1: idx1, axis2: idx2}
+            vel1 = projected.v1.isel(select).to_numpy()
+            vel2 = projected.v2.isel(select).to_numpy()
+            ax.quiver(
+                x1[idx1], x2[idx2], vel1, vel2,
+                angles='xy', scale_units='width', scale=40*s.cs,
+                pivot='mid', color='#008b8b', edgecolor='white',
+                linewidth=0.3, alpha=0.9, width=0.004, headwidth=3.5,
+                headlength=4.5, headaxislength=4, minlength=0.25,
+                zorder=3,
+            )
+    if add_colorbar:
+        plt.colorbar(cax=cax)
 
 
 def plot_energies(s, ds, rprf, core, gd, node, ax=None):
@@ -871,12 +889,12 @@ def plot_diagnostics(s, pid, normalize_time=True):
     return fig
 
 
-def plot_core_evolution(s, pid, num, hw=0.2):
+def plot_core_evolution(s, pid, num, hw=0.15):
     # Load data
     if s.mhd:
-        ds = s.load_hdf5(num, quantities=['dens', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
+        ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
     else:
-        ds = s.load_hdf5(num, quantities=['dens'], load_method='xarray')
+        ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3'], load_method='xarray')
     core = s.cores[pid].loc[num]
     if 'radius' not in core:
         core['radius'] = np.nan
@@ -947,15 +965,20 @@ def plot_core_evolution(s, pid, num, hw=0.2):
 
     # Zoom-in dataset
     sel = dict(x=slice(-hw, hw), y=slice(-hw, hw), z=slice(-hw, hw))
-    d, _, _ = tools.recenter_dataset(ds, dict(x=xc, y=yc, z=zc))
+    d, center, _ = tools.recenter_dataset(ds, dict(x=xc, y=yc, z=zc))
     d = d.sel(sel)
+    for i in '123':
+        vel = d[f'mom{i}']/d.dens
+        vel_origin = vel.sel(x=center['x'], y=center['y'], z=center['z'])
+        d[f'vel{i}'] = vel - vel_origin
 
-    for i, prj_axis in enumerate(['z', 'x', 'y']):
+    fields = ('dens', 'b_stream') if s.mhd else 'dens'
+    for i, prj_axis in enumerate(['z', 'y', 'x']):
         # 1. Projections
         plt.sca(axs['proj'][i])
-        plot_projection(s, ds, axis=prj_axis, add_colorbar=False)
-        if s.mhd:
-            plot_projection(s, ds, 'b_stream', axis=prj_axis, add_colorbar=False)
+        plot_projection(
+            s, ds, field=fields, axis=prj_axis, add_colorbar=False,
+        )
         rec = plt.Rectangle((xlim[prj_axis][0], ylim[prj_axis][0]),
                             2*hw, 2*hw, fill=False, ec='r')
         plt.gca().add_artist(rec)
@@ -967,9 +990,10 @@ def plot_core_evolution(s, pid, num, hw=0.2):
 
         # 2. Zoom-in projections
         plt.sca(axs['zoom'][i])
-        plot_projection(s, d, axis=prj_axis, add_colorbar=False)
-        if s.mhd:
-            plot_projection(s, d, 'b_stream', axis=prj_axis, add_colorbar=False)
+        plot_projection(
+            s, d, field=(*fields, 'v_quiver'),
+            axis=prj_axis, add_colorbar=False,
+        )
         if np.isfinite(core.virial_rcrit) and core.virial_rcrit <= np.sqrt(2)*hw:
             c0 = plt.Circle((0, 0), core.virial_rcrit, fill=False, color='r', lw=1, ls='-')
             plt.gca().add_artist(c0)
