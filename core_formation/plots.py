@@ -441,21 +441,26 @@ class SpaceTimePlotter():
 
 def plot_lookback_profiles(
     sa,
-    lookback_times_in_myr,
+    lookback_times,
     quantities,
     *,
+    norm=False,
     panel_size=(5.5, 3.5),
     xlim=(1e-2, 1e0),
     line_kwargs=None,
+    nres = 0,
 ):
     """Plot radial quantities by row and lookback times by column.
 
     Each entry in ``quantities`` is a dictionary whose ``name`` is either an
     rprofs field name or a callable with signature ``name(s, rprofs)``.
     """
-    lookback_times_in_myr = np.asarray(lookback_times_in_myr, dtype=float)
+    lookback_times = np.asarray(lookback_times, dtype=float)
     nrows = len(quantities)
-    ncols = len(lookback_times_in_myr)
+    ncols = len(lookback_times)
+
+    if norm:
+        xlim=(1e-1, 1e1)
 
     if nrows == 0 or ncols == 0:
         raise ValueError('At least one quantity and lookback time are required')
@@ -473,16 +478,23 @@ def plot_lookback_profiles(
     default_style = {'color': 'k', 'lw': 1, 'alpha': 0.3}
     default_style.update(line_kwargs or {})
 
-    for s, pid, cores, rprofs in sa.itercore(nres=0):
-        lookback_times_code = lookback_times_in_myr/s.u.Myr
-        selected_times = cores.attrs['tcoll'] - lookback_times_code
+    for s, pid, cores, rprofs in sa.itercore(nres=nres):
+        if norm:
+            tcrit = cores.attrs['tcrit']
+            tcoll = cores.attrs['tcoll']
+            selected_times = tcrit + (tcoll-tcrit)*lookback_times
+        else:
+            selected_times = cores.attrs['tcoll'] - lookback_times/s.u.Myr
 
         # Require radial profiles to cover every requested lookback time.
         if (selected_times.min() < rprofs.t.min()
                 or selected_times.max() > rprofs.t.max()):
             continue
 
-        radius_in_pc = rprofs.r*s.u.pc
+        if norm:
+            radius = rprofs.r/cores.attrs['rcore']
+        else:
+            radius = rprofs.r*s.u.pc
 
         for row, var_info in enumerate(quantities):
             name = var_info['name']
@@ -493,23 +505,27 @@ def plot_lookback_profiles(
 
             style = default_style | var_info.get('line_kwargs', {})
             for ax, time in zip(axs[row], selected_times):
-                ax.plot(radius_in_pc, profile.interp(t=time), **style)
+                ax.plot(radius, profile.interp(t=time), **style)
 
-    for col, lookback_time in enumerate(lookback_times_in_myr):
+    for col, lookback_time in enumerate(lookback_times):
+        if norm:
+            txt = rf'$\tau_\mathrm{{evol}} = {lookback_time:g}$'
+        else:
+            txt = rf'$t_\mathrm{{coll}}-{lookback_time:g}\,\mathrm{{Myr}}$'
         axs[0, col].text(
-            0.5, 0.9,
-            rf'$t_\mathrm{{coll}}-{lookback_time:g}\,\mathrm{{Myr}}$',
+            0.5, 0.9, txt,
             ha='left',
             va='top',
             transform=axs[0, col].transAxes
         )
-        axs[0, col].text(
-            0.5, 0.75,
-            rf'$t_\mathrm{{coll}}-{lookback_time/s.u.Myr/(s.tff0/10):.2f}\,t_\mathrm{{ff,ps}}$',
-            ha='left',
-            va='top',
-            transform=axs[0, col].transAxes
-        )
+        if not norm:
+            axs[0, col].text(
+                0.5, 0.75,
+                rf'$t_\mathrm{{coll}}-{lookback_time/s.u.Myr/(s.tff0/10):.2f}\,t_\mathrm{{ff,ps}}$',
+                ha='left',
+                va='top',
+                transform=axs[0, col].transAxes
+            )
 
     for row, var_info in enumerate(quantities):
         for ax in axs[row]:
@@ -528,7 +544,10 @@ def plot_lookback_profiles(
     for ax in axs[:-1].flat:
         ax.set_xlabel('')
     for ax in axs[-1]:
-        ax.set_xlabel(r'$r\,[\mathrm{pc}]$')
+        if norm:
+            ax.set_xlabel(r'$r/r_\mathrm{crit}$')
+        else:
+            ax.set_xlabel(r'$r\,[\mathrm{pc}]$')
 
     return fig, axs
 
@@ -1313,9 +1332,6 @@ def radial_profile_at_tcrit(s, pid, ax=None, lw=1.5):
     plt.ylabel(r'$\rho/\rho_c$')
     plt.yscale('log')
 
-# DEPRECATED
-
-
 def plot_sinkhistory(s, ds, pds):
     # find end time
     ds_end = s.load_hdf5(s.nums[-1], header_only=True)
@@ -1330,16 +1346,20 @@ def plot_sinkhistory(s, ds, pds):
     ax3 = fig.add_subplot(gs[1, :])
 
     # plot projections
-    for ax, axis in zip((ax0, ax1, ax2), ('z', 'x', 'y')):
-        plot_projection(s, ds, ax=ax, axis=axis, add_colorbar=False)
+    for ax, axis in zip((ax0, ax1, ax2), ('z', 'y', 'x')):
+        plot_projection(s, ds, axis=axis, ax=ax, add_colorbar=False)
         ax.set_xticks([])
         ax.set_yticks([])
     ax0.plot(pds.x1, pds.x2, '*', color='b', ms=8, mew=0.5, alpha=0.7)
-    ax1.plot(pds.x2, pds.x3, '*', color='b', ms=8, mew=0.5, alpha=0.7)
-    ax2.plot(pds.x3, pds.x1, '*', color='b', ms=8, mew=0.5, alpha=0.7)
+    ax1.plot(pds.x1, pds.x3, '*', color='b', ms=8, mew=0.5, alpha=0.7)
+    ax2.plot(pds.x2, pds.x3, '*', color='b', ms=8, mew=0.5, alpha=0.7)
+    ax0.set_title(r'$\text{along }z\quad (x, y)$')
+    ax1.set_title(r'$\text{along }y\quad (x, z)$')
+    ax2.set_title(r'$\text{along }x\quad (y, z)$')
 
     # plot particle history
     plt.sca(ax3)
+    ax3.text(0.01, 0.93, rf"$\text{{number of sinks formed}}={len(s.pids)}$", transform=ax3.transAxes)
     for pid in s.pids:
         phst = s.load_parhst(pid)
         time = phst.time
@@ -1348,12 +1368,17 @@ def plot_sinkhistory(s, ds, pds):
         plt.plot(time[tslc], mass[tslc])
     plt.axvline(ds.Time, linestyle=':', color='k', linewidth=0.5)
     if len(s.tcoll_cores) > 0:
-        plt.xlim(s.tcoll_cores.time.iloc[0], tend)
+        plt.xlim(s.tcoll_cores.time.iloc[0]-0.01, tend+0.01)
     plt.ylim(1e-2, 1e1)
     plt.yscale('log')
     plt.xlabel(r'$t/t_\mathrm{J,0}$')
     plt.ylabel(r'$M_*/M_\mathrm{J,0}$')
     return fig
+
+
+
+# DEPRECATED
+
 
 
 def plot_Pspec(s, ds, ax=None, ax_twin=None):
