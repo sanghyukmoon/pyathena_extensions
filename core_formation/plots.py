@@ -1346,8 +1346,11 @@ def plot_sinkhistory(s, ds, pds):
     ax3 = fig.add_subplot(gs[1, :])
 
     # plot projections
+    fields = ('dens', 'b_stream') if s.mhd else 'dens'
     for ax, axis in zip((ax0, ax1, ax2), ('z', 'y', 'x')):
-        plot_projection(s, ds, axis=axis, ax=ax, add_colorbar=False)
+        plot_projection(
+            s, ds, field=fields, axis=axis, ax=ax, add_colorbar=False
+        )
         ax.set_xticks([])
         ax.set_yticks([])
     ax0.plot(pds.x1, pds.x2, '*', color='b', ms=8, mew=0.5, alpha=0.7)

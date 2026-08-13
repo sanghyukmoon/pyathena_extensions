@@ -36,8 +36,8 @@
 # 1024 ~ 15 GB per core
 
 # Core evolution plot
-# 1024 ~ 30 GB per core
-# 512 ~ 3 GB per core
+# 1024 ~ 85 GB per core
+# 512 ~ 3 GB per core (outdated)
 
 # linewidth-size
 # 1024 ~ 77 GB per core (106 GB per core for critical cores)
