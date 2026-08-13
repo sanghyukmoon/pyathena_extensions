@@ -70,14 +70,15 @@ if __name__ == "__main__":
                 client.wait_for_workers(runner.n_workers)
 
                 for task in args.tasks:
-                    if task == 'radial_profile':
+                    if task in ('save_minima', 'projections'):
+                        s = sa.set_model(args.model, load_derived_cores=False)
+                    elif task == 'radial_profile':
                         s = sa.set_model(args.model, override_cores=True,
                                          load_derived_cores=False)
-                    elif tasks == 'projections':
-                        s = sa.set_model(args.model, load_derived_cores=False)
                     else:
                         s = sa.set_model(args.model, override_all=True)
                     tasks.__dict__[task](s, overwrite=args.overwrite)
+#                                         nums=[145, 151], all_minima=True)
     else:
         write_slurm_script(args.model, args.tasks, args.overwrite)
         subprocess.run(["sbatch", SCRIPT_PATH])
