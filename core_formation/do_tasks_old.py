@@ -200,7 +200,7 @@ if __name__ == "__main__":
             s = sa.set_model(mdl, override_all=True)
             print(f"draw core evolution plots for model {mdl}")
             for pid in pids:
-                for method in ['empirical', 'virial_rcrit']:
+                for method in ['virial_rcrit']:
                     s.select_cores(method)
                     cores = s.cores[pid]
                     def wrapper(num):
