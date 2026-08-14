@@ -698,9 +698,8 @@ def plot_sink_history(s, num, overwrite=False):
     if fname.exists() and not overwrite:
         print('[plot_sink_history] file already exists. Skipping...')
         return
-    ds = s.load_hdf5(num, quantities=['dens',], load_method='xarray')
-    pds = s.load_par(num)
-    fig = plots.plot_sinkhistory(s, ds, pds)
+    print(f'[plot_sink_history] processing model {s.basename} num: {num}')
+    fig = plots.plot_sinkhistory(s, num)
     fig.savefig(fname, bbox_inches='tight', dpi=200)
     plt.close(fig)
 

@@ -1332,7 +1332,14 @@ def radial_profile_at_tcrit(s, pid, ax=None, lw=1.5):
     plt.ylabel(r'$\rho/\rho_c$')
     plt.yscale('log')
 
-def plot_sinkhistory(s, ds, pds):
+def plot_sinkhistory(s, num):
+    # Load data
+    if s.mhd:
+        ds = s.load_hdf5(num, quantities=['dens', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
+    else:
+        ds = s.load_hdf5(num, quantities=['dens',], load_method='xarray')
+    pds = s.load_par(num)
+
     # find end time
     ds_end = s.load_hdf5(s.nums[-1], header_only=True)
     tend = ds_end['Time']
