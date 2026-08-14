@@ -580,6 +580,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 return num_start
             core0 = core1
             core1 = core2
+        # Tracked all the way to the earliest snapshot. Return num
+        return num
 
     def core_trajectory(self, cores, return_nums=False, num_start=None):
         """Return the backward core trajectory as a continuous path.
