@@ -908,7 +908,7 @@ def plot_diagnostics(s, pid, normalize_time=True):
     return fig
 
 
-def plot_core_evolution(s, pid, num, hw=0.15):
+def plot_core_evolution(s, pid, num, hw=0.1):
     # Load data
     if s.mhd:
         ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
@@ -917,7 +917,6 @@ def plot_core_evolution(s, pid, num, hw=0.15):
     core = s.cores[pid].loc[num]
     if 'radius' not in core:
         core['radius'] = np.nan
-    core_tcrit_emp = s.cores_dict['empirical'][pid].loc[num]
     rprf = s.rprofs[pid].sel(num=num)
 
     # Find the location of the core
@@ -1144,10 +1143,10 @@ def plot_core_evolution(s, pid, num, hw=0.15):
     plt.text(0.6, 0.9, r'$t={:.3f}$'.format(ds.Time)+r'$\,t_{J,0}$',
              transform=plt.gca().transAxes, backgroundcolor='w')
 
-    # Annotate normalized time; if core_tcrit_emp is unresolved, this will raise
-    # AttributeError.
+    # Annotate normalized time; if this core failed to find t_crit,
+    # this will raise AttributeError.
     try:
-        plt.text(0.6, 0.8, r'$\tau_\mathrm{evol}=$'+r'${:.2f}$'.format(core_tcrit_emp.tnorm2),
+        plt.text(0.6, 0.8, r'$\tau_\mathrm{evol}=$'+r'${:.2f}$'.format(core.tnorm2),
                  transform=plt.gca().transAxes, backgroundcolor='w')
     except AttributeError:
         pass
