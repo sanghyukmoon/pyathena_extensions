@@ -375,7 +375,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             virial_rcrit = []
             for num in cores.index:
                 rprf = rprofs.sel(num=num)
-                x = (rprf.menc/rprf.mmax).to_numpy()
+                x = (rprf.menc/rprf.mmax_all).to_numpy()
                 x[0] = 0  # Avoid NaN
                 # order=4 means that a point is considered a local maximum
                 # if it is greater than its 4 neighbors on each side.
@@ -963,31 +963,31 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 cphi2 = xr.zeros_like(agrv)
 
             param_dict = {
-                'mmax': {
+                'all': {
                     'sigma_tot2': self.cs**2 + sigma_1d_sq,
                     'c_phi2': cphi2,
                 },
-                'mmax_thm': {
+                'thm': {
                     'sigma_tot2': self.cs**2,
                     'c_phi2': xr.zeros_like(cphi2),
                 },
-                'mmax_trb': {
+                'trb': {
                     'sigma_tot2': sigma_1d_sq,
                     'c_phi2': xr.zeros_like(cphi2),
                 },
-                'mmax_mag': {
+                'mag': {
                     'sigma_tot2': 0,
                     'c_phi2': cphi2,
                 },
-                'mmax_thm_trb': {
+                'thm_trb': {
                     'sigma_tot2': self.cs**2 + sigma_1d_sq,
                     'c_phi2': xr.zeros_like(cphi2),
                 },
-                'mmax_thm_mag': {
+                'thm_mag': {
                     'sigma_tot2': self.cs**2,
                     'c_phi2': cphi2,
                 },
-                'mmax_trb_mag': {
+                'trb_mag': {
                     'sigma_tot2': sigma_1d_sq,
                     'c_phi2': cphi2,
                 },
@@ -998,14 +998,18 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 param_dict[f'{key}0']['a'] = 1.17*xr.ones_like(agrv)
                 param_dict[f'{key}0']['c_phi2'] = (0.17**2)*xr.ones_like(cphi2)
             for key, params in param_dict.items():
-                c_J = np.sqrt(3**4 * 5**3 / (2**10 * np.pi * params['a'].where(params['a'] > 0)**3))
+                c_J = 3**4 * 5**3 / (2**10 * np.pi * params['a'].where(params['a'] > 0)**3)
                 mmag2 = params['c_phi2']/self.gconst*flux**2 if self.mhd else xr.zeros_like(agrv)
+                sigma2 = params['sigma_tot2']
+                rprofs[f"pmax_{key}"] = (
+                    c_J * sigma2**4 / (self.gconst**3*rprofs.menc**2*(1 - mmag2/rprofs.menc**2)**3)
+                ).where(rprofs.menc**2 > mmag2, other=np.nan)
                 # Cubic coefficients for x^3 + ax^2 + bx + c = 0
-                a = -3*mmag2 - c_J**2 * params['sigma_tot2']**4 / (self.gconst**3 * rprofs.ptot)
+                a = -3*mmag2 - c_J * sigma2**4 / (self.gconst**3 * rprofs.ptot)
                 b = 3*mmag2**2
                 c = -mmag2**3
                 x = cubic_root(a, b, c)
-                rprofs[key] = np.sqrt(x.where(x >= 0))
+                rprofs[f"mmax_{key}"] = np.sqrt(x.where(x >= 0))
 
             rhoavg = rprofs.menc / (4*np.pi*rprofs.r**3/3)
             mgrav = self.cs**3/self.gconst**1.5/np.sqrt(rhoavg)

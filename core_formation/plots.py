@@ -59,7 +59,7 @@ class SpaceTimePlotter():
         )
         # Mass-to-critical mass ratio
         self.imshow(
-            rprofs.menc / rprofs.mmax,
+            rprofs.menc / rprofs.mmax_all,
             axs['mass_ratio'],
             vmin=vmin,
             vmax=vmax,
@@ -231,7 +231,7 @@ class SpaceTimePlotter():
                     pe.Stroke(linewidth=2, foreground='k'),
                     pe.Normal(),
                 ])
-                cs = (rprofs.menc/rprofs.mmax).plot.contour(
+                cs = (rprofs.menc/rprofs.mmax_all).plot.contour(
                     ax=ax,
                     levels=[0.7, 0.8, 0.9, 1.0],
                     add_labels=False,
@@ -1126,7 +1126,7 @@ def plot_core_evolution(s, pid, num, hw=0.1):
 
     # 7. Critical masses
     plt.sca(axs['mcrit'])
-    (rprf.menc/rprf.mmax).plot(label=r'$M_\mathrm{enc}/M_\mathrm{crit}$', c='tab:red', lw=1)
+    (rprf.menc/rprf.mmax_all).plot(label=r'$M_\mathrm{enc}/M_\mathrm{crit}$', c='tab:red', lw=1)
     (rprf.menc/(rprf.mTES+rprf.mPhi)).plot(label=r'$M_\mathrm{enc}/(M_\mathrm{TES}+M_\mathrm{\Phi})$', c='tab:red', ls='--', lw=1)
     (rprf.menc/rprf.mPhi).plot(label=r'$M_\mathrm{enc}/M_\Phi$', lw=1, c='tab:purple')
     (rprf.menc/rprf.mTES).plot(label=r'$M_\mathrm{enc}/M_\mathrm{TES}$', lw=1, c='tab:blue')
