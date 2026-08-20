@@ -259,7 +259,7 @@ if __name__ == "__main__":
                                 srcdir])
             prefix = config.PLOT_PREFIX_CORE_EVOLUTION
             for pid in pids:
-                for method in ['empirical', 'virial_rcrit']:
+                for method in ['virial_rcrit']:
                     s.select_cores(method)
                     prf = f"{prefix}.par{pid}.tcrit_{method}"
                     subprocess.run(["make_movie", "-p", prf, "-s", srcdir,

@@ -641,7 +641,7 @@ def resample_hdf5(s, level=0):
     uniform.main(**kwargs)
 
 
-def plot_core_evolution(s, pid, num, method='empirical', overwrite=False):
+def plot_core_evolution(s, pid, num, method='virial_rcrit', overwrite=False):
     """Creates multi-panel plot for t_coll core properties
 
     Parameters
