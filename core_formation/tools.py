@@ -933,7 +933,7 @@ def lagrangian_property(s, cores, rprofs):
                                           Fgrv=rprf.Fgrv.to_numpy()),
                               index = cores.index)
         if s.mhd:
-            lprops['mcrit_mag'] = rprf.mcrit_mag.to_numpy()
+            lprops['mmax_mag'] = rprf.mmax_mag.to_numpy()
             lprops['Fmag'] = rprf.Fmag.to_numpy()
 
     # Attach some attributes

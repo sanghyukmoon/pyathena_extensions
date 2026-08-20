@@ -883,7 +883,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             # Virial terms
             rdotg = rprofs.xgx_mw + rprofs.ygy_mw + rprofs.zgz_mw
-
             rprofs['Omega_G'] = -rprof_cumsum_r(rprofs, rprofs.rho*rdotg)
 
             # See the Radial Profile from Cartesian Grid Data slide
@@ -951,58 +950,60 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             rgrav = self.gconst*rprofs.menc/self.cs**2
             pgrav = self.cs**8/(4*np.pi*self.gconst**3*rprofs.menc**2)
             sigma_1d_sq = rprofs.Omega_K_kin/(3*rprofs.menc)
-            a_grv = rprofs.Omega_G/rprofs.Omega_G0
-            a_grv_eff = a_grv.copy()
+            agrv = rprofs.Omega_G/((3/5)*rprofs.Omega_G0)
+            rprofs['a_grv'] = agrv
             if self.mhd:
-                brms = np.sqrt(2*rprofs.Omega_M/(4*np.pi*rprofs.r**3/3))
-                bflux = np.pi*rprofs.r**2*brms
-                b_mag = (rprofs.Omega_M - rprofs.Omega_S_mag) / (bflux**2/rprofs.r)
-                mmag2 = b_mag/a_grv/self.gconst*bflux**2
-                a_grv_eff *= (1 - mmag2/rprofs.menc**2)
+                flux = np.sqrt(4*np.pi)*rprofs.phi_B
+                bmag = (rprofs.Omega_M - rprofs.Omega_S_mag) / (flux**2/(6*np.pi**2*rprofs.r))
+                rprofs['b_mag'] = bmag
+                cphi2 = 5*bmag / (18*np.pi**2*agrv)
+                rprofs['c_phi'] = np.sqrt(cphi2.where(cphi2 >= 0))
             else:
-                mmag2 = xr.zeros_like(a_grv)
-            rprofs['mcrit_mag'] = np.sqrt(mmag2.where(mmag2 >= 0))
+                flux = xr.zeros_like(rprofs.rho)
+                cphi2 = xr.zeros_like(agrv)
 
             param_dict = {
                 'mmax': {
-                    'mmag2': mmag2,
                     'sigma_tot2': self.cs**2 + sigma_1d_sq,
+                    'c_phi2': cphi2,
                 },
                 'mmax_thm': {
-                    'mmag2': xr.zeros_like(mmag2),
                     'sigma_tot2': self.cs**2,
+                    'c_phi2': xr.zeros_like(cphi2),
                 },
                 'mmax_trb': {
-                    'mmag2': xr.zeros_like(mmag2),
                     'sigma_tot2': sigma_1d_sq,
+                    'c_phi2': xr.zeros_like(cphi2),
                 },
                 'mmax_mag': {
-                    'mmag2': mmag2,
                     'sigma_tot2': 0,
+                    'c_phi2': cphi2,
                 },
                 'mmax_thm_trb': {
-                    'mmag2': xr.zeros_like(mmag2),
-                    'sigma_tot2': self.cs**2 + sigma_1d_sq
+                    'sigma_tot2': self.cs**2 + sigma_1d_sq,
+                    'c_phi2': xr.zeros_like(cphi2),
                 },
                 'mmax_thm_mag': {
-                    'mmag2': mmag2,
-                    'sigma_tot2': self.cs**2
+                    'sigma_tot2': self.cs**2,
+                    'c_phi2': cphi2,
                 },
                 'mmax_trb_mag': {
-                    'mmag2': mmag2,
-                    'sigma_tot2': sigma_1d_sq
+                    'sigma_tot2': sigma_1d_sq,
+                    'c_phi2': cphi2,
                 },
             }
             for key in param_dict.copy().keys():
-                param_dict[key]['a'] = a_grv
-                param_dict[f'{key}_fixed_a'] = param_dict[key].copy()
-                param_dict[f'{key}_fixed_a']['a'] = xr.ones_like(a_grv)
+                param_dict[key]['a'] = agrv
+                param_dict[f'{key}0'] = param_dict[key].copy()
+                param_dict[f'{key}0']['a'] = 1.17*xr.ones_like(agrv)
+                param_dict[f'{key}0']['c_phi2'] = (0.17**2)*xr.ones_like(cphi2)
             for key, params in param_dict.items():
-                c_J = np.sqrt(3**7 / (4 * np.pi * 2**8 * params['a'].where(params['a'] > 0)**3))
+                c_J = np.sqrt(3**4 * 5**3 / (2**10 * np.pi * params['a'].where(params['a'] > 0)**3))
+                mmag2 = params['c_phi2']/self.gconst*flux**2 if self.mhd else xr.zeros_like(agrv)
                 # Cubic coefficients for x^3 + ax^2 + bx + c = 0
-                a = -3*params['mmag2'] - c_J**2 * params['sigma_tot2']**4 / (self.gconst**3 * rprofs.ptot)
-                b = 3*params['mmag2']**2
-                c = -params['mmag2']**3
+                a = -3*mmag2 - c_J**2 * params['sigma_tot2']**4 / (self.gconst**3 * rprofs.ptot)
+                b = 3*mmag2**2
+                c = -mmag2**3
                 x = cubic_root(a, b, c)
                 rprofs[key] = np.sqrt(x.where(x >= 0))
 
@@ -1011,11 +1012,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             mbe = 1.86*mgrav
             rprofs['mBE'] = mbe
             rprofs['mTES'] = mbe*(1 + sigma_1d_sq/2)
-            mass_to_flux_crit = 1 / (2*np.pi*np.sqrt(self.gconst))
-            if self.mhd:
-                rprofs['mPhi'] = rprofs.phi_B*np.sqrt(4*np.pi)*mass_to_flux_crit
-            else:
-                rprofs['mPhi'] = xr.zeros_like(rprofs.rho)
+            rprofs['mPhi'] = 0.17/np.sqrt(self.gconst)*flux
 
             rprofs['adv'] = (
                 rprofs.vel1_mw*rprofs.vel1_mw.differentiate('r')
