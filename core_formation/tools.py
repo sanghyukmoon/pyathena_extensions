@@ -1687,3 +1687,36 @@ def find_closest_leaf(s, gd, flatidx):
     dst = [s.distance_between(lid, flatidx) for lid in gd.leaves]
     lid = gd.leaves[np.argmin(dst)]
     return lid
+
+
+def safe_cbrt(val):
+    """Sign-safe cube root for xarray DataArrays."""
+    return np.sign(val) * np.abs(val)**(1/3)
+
+
+def cubic_root(a, b, c):
+    """Calculate the real root of a cubic equation x^3 + ax^2 + bx + c = 0"""
+    p = (3*b - a**2) / 3
+    q = (2*a**3 - 9*a*b + 27*c) / 27
+    disc = (q/2)**2 + (p/3)**3
+
+    sqrt_disc = np.sqrt(disc.where(disc >= 0))
+    x_cardano = safe_cbrt(-q/2 + sqrt_disc) + safe_cbrt(-q/2 - sqrt_disc) - a/3
+
+    arg = -q/2/np.sqrt(-(p.where(disc < 0)/3)**3)
+    arg_violation = xr.where(disc < 0, np.abs(arg) > 1 + 1e-10, False)
+    if arg_violation.any():
+        max_violation = float((np.abs(arg) - 1).where(arg_violation).max())
+        warnings.warn(
+            f"arccos argument out of [-1, 1] by up to {max_violation:.2e} in "
+            f"{int(arg_violation.sum())} cells. Possible numerical issue near disc=0."
+        )
+    phi = np.arccos(arg.where(disc < 0))
+    r = 2*np.sqrt(-p.where(disc < 0)/3)
+    x0 = r*np.cos(phi/3) - a/3
+    x1 = r*np.cos((phi + 2*np.pi)/3) - a/3
+    x2 = r*np.cos((phi + 4*np.pi)/3) - a/3
+    x_three = xr.concat([x0, x1, x2], 'root')
+    x_cardano_disc_neg = x_three.max(dim='root')
+    x = xr.where(disc >= 0, x_cardano, x_cardano_disc_neg)
+    return x
