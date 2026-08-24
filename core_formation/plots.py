@@ -505,7 +505,15 @@ def plot_lookback_profiles(
 
             style = default_style | var_info.get('line_kwargs', {})
             for ax, time in zip(axs[row], selected_times):
-                ax.plot(radius, profile.interp(t=time), **style)
+                prf = profile.interp(t=time)
+                mask = rprofs.a_grv.interp(t=time) < 0.5
+                if np.any(mask):
+                    rmax = mask.idxmax().data[()]
+                else:
+                    rmax = None
+                prf = prf.sel(r=slice(0, rmax))
+                rds = radius.isel(r=slice(0, len(prf.r)))
+                ax.plot(rds, prf, **style)
 
     for col, lookback_time in enumerate(lookback_times):
         if norm:
