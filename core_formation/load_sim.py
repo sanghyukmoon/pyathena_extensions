@@ -993,12 +993,13 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 },
             }
             for key in param_dict.copy().keys():
-                param_dict[key]['a'] = agrv
+                param_dict[key]['a_grv'] = agrv
                 param_dict[f'{key}0'] = param_dict[key].copy()
-                param_dict[f'{key}0']['a'] = 1.17*xr.ones_like(agrv)
+                param_dict[f'{key}0']['a_grv'] = 1.17*xr.ones_like(agrv)
                 param_dict[f'{key}0']['c_phi2'] = (0.17**2)*xr.ones_like(cphi2)
             for key, params in param_dict.items():
-                c_J = 3**4 * 5**3 / (2**10 * np.pi * params['a'].where(params['a'] > 0)**3)
+                agrv = params['a_grv']
+                c_J = 3**4 * 5**3 / (2**10 * np.pi * agrv.where(agrv > 0)**3)
                 mmag2 = params['c_phi2']/self.gconst*flux**2 if self.mhd else xr.zeros_like(agrv)
                 sigma2 = params['sigma_tot2']
                 rprofs[f"pmax_{key}"] = (
@@ -1010,6 +1011,20 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 c = -mmag2**3
                 x = tools.cubic_root(a, b, c)
                 rprofs[f"mmax_{key}"] = np.sqrt(x.where(x >= 0))
+
+                # fixed sonic radius
+                sigma_trb2 = sigma2 - self.cs**2
+                xi = 32*agrv/45*sigma_trb2*self.gconst*rprofs.menc/(self.cs**2*rprofs.r)
+                eta = 0.5 + 0.5*(1 + xi)**1.5 + 3*xi/4 + 3*xi**2/16
+                rprofs[f"pmax_{key}_fs"] = (
+                    c_J * self.cs**8*eta / (self.gconst**3*rprofs.menc**2*(1 - mmag2/rprofs.menc**2)**3)
+                ).where(rprofs.menc**2 > mmag2, other=np.nan)
+                a = -3*mmag2 - c_J*self.cs**8*eta / (self.gconst**3 * rprofs.ptot)
+                b = 3*mmag2**2
+                c = -mmag2**3
+                x = tools.cubic_root(a, b, c)
+                rprofs[f"mmax_{key}_fs"] = np.sqrt(x.where(x >= 0))
+
 
             rhoavg = rprofs.menc / (4*np.pi*rprofs.r**3/3)
             mgrav = self.cs**3/self.gconst**1.5/np.sqrt(rhoavg)
