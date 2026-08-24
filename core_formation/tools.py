@@ -935,6 +935,7 @@ def lagrangian_property(s, cores, rprofs):
         if s.mhd:
             lprops['mmax_mag'] = rprf.mmax_mag.to_numpy()
             lprops['Fmag'] = rprf.Fmag.to_numpy()
+            lprops['phi_B'] = rprf.phi_B.to_numpy()
 
     # Attach some attributes
     # Velocity dispersion at t_crit
