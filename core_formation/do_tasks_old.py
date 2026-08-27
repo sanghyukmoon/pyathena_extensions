@@ -126,7 +126,7 @@ if __name__ == "__main__":
         if args.lagrangian_props:
             s = sa.set_model(mdl, override_all=True)
             def wrapper(pid):
-                method_list = ['empirical', 'virial_rcrit'] # virial, pred_be, pred_xis
+                method_list = ['virial', 'virial0'] # virial, pred_be, pred_xis
                 for method in method_list:
                     s.select_cores(method)
                     if pid in s.good_cores(0):
@@ -200,7 +200,7 @@ if __name__ == "__main__":
             s = sa.set_model(mdl, override_all=True)
             print(f"draw core evolution plots for model {mdl}")
             for pid in pids:
-                for method in ['virial_rcrit']:
+                for method in ['virial', 'virial0']:
                     s.select_cores(method)
                     cores = s.cores[pid]
                     def wrapper(num):

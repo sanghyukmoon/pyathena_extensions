@@ -449,6 +449,7 @@ def plot_lookback_profiles(
     xlim=(1e-2, 1e0),
     line_kwargs=None,
     nres = 0,
+    method = 'virial'
 ):
     """Plot radial quantities by row and lookback times by column.
 
@@ -478,7 +479,7 @@ def plot_lookback_profiles(
     default_style = {'color': 'k', 'lw': 1, 'alpha': 0.3}
     default_style.update(line_kwargs or {})
 
-    for s, pid, cores, rprofs in sa.itercore(nres=nres):
+    for s, pid, cores, rprofs in sa.itercore(nres=nres, method=method):
         if norm:
             tcrit = cores.attrs['tcrit']
             tcoll = cores.attrs['tcoll']
@@ -916,7 +917,7 @@ def plot_diagnostics(s, pid, normalize_time=True):
     return fig
 
 
-def plot_core_evolution(s, pid, num, hw=0.1):
+def plot_core_evolution(s, pid, num, hw=0.1, method='virial'):
     # Load data
     if s.mhd:
         ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
@@ -1134,7 +1135,13 @@ def plot_core_evolution(s, pid, num, hw=0.1):
 
     # 7. Critical masses
     plt.sca(axs['mcrit'])
-    (rprf.menc/rprf.mmax_all).plot(label=r'$M_\mathrm{enc}/M_\mathrm{crit}$', c='tab:red', lw=1)
+    if method == 'virial':
+        mmax = 'mmax_all'
+    elif method == 'virial0':
+        mmax = 'mmax_all0'
+    else:
+        raise ValueError(f"Unknown method {method}")
+    (rprf.menc/rprf[mmax]).plot(label=r'$M_\mathrm{enc}/M_\mathrm{crit}$', c='tab:red', lw=1)
     (rprf.menc/(rprf.mTES+rprf.mPhi)).plot(label=r'$M_\mathrm{enc}/(M_\mathrm{TES}+M_\mathrm{\Phi})$', c='tab:red', ls='--', lw=1)
     (rprf.menc/rprf.mPhi).plot(label=r'$M_\mathrm{enc}/M_\Phi$', lw=1, c='tab:purple')
     (rprf.menc/rprf.mTES).plot(label=r'$M_\mathrm{enc}/M_\mathrm{TES}$', lw=1, c='tab:blue')

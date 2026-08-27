@@ -1276,22 +1276,23 @@ def critical_time_old(s, cores, rprofs, *, method):
         if ncrit == cores.attrs['numcoll'] and np.isnan(cores.loc[ncrit].critical_radius):
             # If ncrit is ncoll at which critical radius was nan, set ncrit to NaN.
             ncrit = np.nan
-    elif method == 'virial_rcrit':
+    elif method in ['virial', 'virial0']:
         for num, core in cores.sort_index(ascending=False).iterrows():
             rprf = rprofs.sel(num=num)
             # Net force at the critical radius is negative after the
             # critical time, throughout the collapse.
-            if np.isnan(core.virial_rcrit):
+            rcrit = core.virial_rcrit
+            if np.isnan(rcrit):
                 raise Exception(f"{s.basename}: virial_rcrit is NaN at num = {num} for pid = {pid}. Cannot calculate net force at r_crit.")
-            rprf = rprf.interp(r=core.virial_rcrit)
+            rprf = rprf.interp(r=rcrit)
             # Whatever fnet is, if it is not negative, we should break.
             # That is, when rcrit = NaN or inf, we should break.
             # However, NaN can be artificial, we can probably impose
             # the upper limit on p.
-            if core.virial_rcrit <= 3*s.dx:
+            if rcrit <= 3*s.dx:
                 fnet_std = 0
             else:
-                fnet_std = rprofs.fnet.sel(num=num, r=slice(3*s.dx, core.virial_rcrit)).std().data[()]
+                fnet_std = rprofs.fnet.sel(num=num, r=slice(3*s.dx, rcrit)).std().data[()]
             if rprf.Fnet > 0 or fnet_std > 0.3:
                 ncrit = num + 1
                 if ncrit == cores.index[-1] + 1:

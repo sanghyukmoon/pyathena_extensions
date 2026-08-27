@@ -57,7 +57,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         All preimages of t_coll cores.
     """
 
-    def __init__(self, basedir_or_Mach=None, method='virial_rcrit', savdir=None,
+    def __init__(self, basedir_or_Mach=None, method='virial', savdir=None,
                  verbose=False, override_all=False, override_cores=False,
                  override_rprofs=False, override_derived_cores=False,
                  load_derived_cores=True):
@@ -204,7 +204,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Load derived core informations using various alternative critical times
             if load_derived_cores:
                 self.cores_dict = {}
-                for mtd in ['empirical', 'virial_rcrit']:
+                for mtd in ['virial', 'virial0']:
                     savdir = Path(self.savdir, config.CORE_DIR)
                     try:
                         self.cores_dict[mtd] = self.update_core_props(
@@ -361,12 +361,18 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             cores['mw_dst_to_star'] = mw_dst
             cores['min_dst_to_pscore'] = min_dst_to_core
 
-            r = rprofs.r.to_numpy()
-            for suffix in ['', '0']:
+            if method in ['virial', 'virial0']:
+                if method == 'virial':
+                    mmax = 'mmax_all'
+                elif method == 'virial0':
+                    mmax = 'mmax_all0'
+                else:
+                    raise ValueError(f"Unknown method {method}")
+                r = rprofs.r.to_numpy()
                 rcrit = []
                 for num in cores.index:
                     rprf = rprofs.sel(num=num)
-                    x = (rprf.menc/rprf[f"mmax_all{suffix}"]).to_numpy()
+                    x = (rprf.menc/rprf[mmax]).to_numpy()
                     x[0] = 0  # Avoid NaN
                     # order=4 means that a point is considered a local maximum
                     # if it is greater than its 4 neighbors on each side.
@@ -375,7 +381,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                         rcrit.append(r[peaks][0])
                     else:
                         rcrit.append(np.nan)
-                cores[f'virial_rcrit{suffix}'] = pd.Series(rcrit, index=cores.index)
+                cores['virial_rcrit'] = pd.Series(rcrit, index=cores.index)
 
             # Find critical time
             ncrit, rcrit = tools.critical_time_old(self, cores.copy(),
@@ -1005,7 +1011,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
                 # fixed sonic radius
                 sigma_trb2 = sigma2 - self.cs**2
-                xi = 32*agrv/45*sigma_trb2*self.gconst*rprofs.menc/(self.cs**2*rprofs.r)
+                xi = 32*agrv/45*sigma_trb2*self.gconst*rprofs.menc/(self.cs**4*rprofs.r)
                 eta = 0.5 + 0.5*(1 + xi)**1.5 + 3*xi/4 + 3*xi**2/16
                 rprofs[f"pmax_{key}_fs"] = (
                     c_J * self.cs**8*eta / (self.gconst**3*rprofs.menc**2*(1 - mmag2/rprofs.menc**2)**3)
@@ -1064,13 +1070,14 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             rprofs['Fani'] = rprof_cumsum_r(rprofs, rprofs.rho*rprofs.ani)
 
             rprofs['fnet'] = (
-                rprofs.thm + rprofs.trb + rprofs.cen + rprofs.ani
-                + rprofs.mag + rprofs.grv
-            ) / (-rprofs.grv)
+                (rprofs.thm + rprofs.trb + rprofs.cen + rprofs.ani
+                 + rprofs.mag + rprofs.grv) / (-rprofs.grv)
+            ).where(rprofs.r > 0, other=0)
+
             rprofs['Fnet'] = (
-                rprofs.Fthm + rprofs.Ftrb + rprofs.Fcen + rprofs.Fani
-                + rprofs.Fmag - rprofs.Fgrv
-            ) / rprofs.Fgrv
+                (rprofs.Fthm + rprofs.Ftrb + rprofs.Fcen + rprofs.Fani
+                + rprofs.Fmag - rprofs.Fgrv) / rprofs.Fgrv
+            ).where(rprofs.r > 0, other=0)
 
             rprofs_dict[pid] = rprofs.transpose('t', 'r', ...)
 
