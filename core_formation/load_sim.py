@@ -378,7 +378,19 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     # if it is greater than its 4 neighbors on each side.
                     peaks, = signal.argrelextrema(x, np.greater, order=4)
                     if len(peaks) > 0:
-                        rcrit.append(r[peaks][0])
+                        rl = r[peaks[0]-1]
+                        rc = r[peaks[0]]
+                        rr = r[peaks[0]+1]
+                        yl = x[peaks[0]-1]
+                        yc = x[peaks[0]]
+                        yr = x[peaks[0]+1]
+                        # Quadratic interpolation to find the maximum between cells
+                        b = 0.5*(
+                            ((yr - yc)*(rc - rl)*(rc + rl)
+                             - (yc - yl)*(rr - rc)*(rr + rc))
+                            / ((yr - yc)*(rc - rl) - (yc - yl)*(rr - rc))
+                        )
+                        rcrit.append(b)
                     else:
                         rcrit.append(np.nan)
                 cores['virial_rcrit'] = pd.Series(rcrit, index=cores.index)
