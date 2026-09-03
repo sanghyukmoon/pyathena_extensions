@@ -399,7 +399,7 @@ def power_spectrum(s, nums=None, overwrite=False):
         ps.to_netcdf(ofname)
 
 
-def lagrangian_props(s, pid, method='empirical', overwrite=False):
+def lagrangian_props(s, pid, *, method, overwrite=False):
     # Check if file exists
     ofname = Path(s.savdir, config.CORE_DIR, f'lprops_tcrit_{method}.par{pid}.p')
     ofname.parent.mkdir(exist_ok=True)

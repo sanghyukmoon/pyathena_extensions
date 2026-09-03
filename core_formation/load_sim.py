@@ -57,7 +57,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         All preimages of t_coll cores.
     """
 
-    def __init__(self, basedir_or_Mach=None, method='virial', savdir=None,
+    def __init__(self, basedir_or_Mach=None, method='virial0', savdir=None,
                  verbose=False, override_all=False, override_cores=False,
                  override_rprofs=False, override_derived_cores=False,
                  load_derived_cores=True):
@@ -204,7 +204,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Load derived core informations using various alternative critical times
             if load_derived_cores:
                 self.cores_dict = {}
-                for mtd in ['virial', 'virial0']:
+                for mtd in ['empirical', 'virial', 'virial0', 'virial1']:
                     savdir = Path(self.savdir, config.CORE_DIR)
                     try:
                         self.cores_dict[mtd] = self.update_core_props(
@@ -361,10 +361,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             cores['mw_dst_to_star'] = mw_dst
             cores['min_dst_to_pscore'] = min_dst_to_core
 
-            if method in ['virial', 'virial0']:
+            if method in ['virial', 'virial0', 'virial1']:
                 if method == 'virial':
                     mmax = 'mmax_all'
-                elif method == 'virial0':
+                elif method in ['virial0', 'virial1']:
                     mmax = 'mmax_all0'
                 else:
                     raise ValueError(f"Unknown method {method}")

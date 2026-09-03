@@ -126,7 +126,7 @@ if __name__ == "__main__":
         if args.lagrangian_props:
             s = sa.set_model(mdl, override_all=True)
             def wrapper(pid):
-                method_list = ['virial', 'virial0'] # virial, pred_be, pred_xis
+                method_list = ['empirical', 'virial', 'virial0', 'virial1'] # virial, pred_be, pred_xis
                 for method in method_list:
                     s.select_cores(method)
                     if pid in s.good_cores(0):
@@ -200,7 +200,7 @@ if __name__ == "__main__":
             s = sa.set_model(mdl, override_all=True)
             print(f"draw core evolution plots for model {mdl}")
             for pid in pids:
-                for method in ['virial', 'virial0']:
+                for method in ['virial0']:
                     s.select_cores(method)
                     cores = s.cores[pid]
                     def wrapper(num):
@@ -259,7 +259,7 @@ if __name__ == "__main__":
                                 srcdir])
             prefix = config.PLOT_PREFIX_CORE_EVOLUTION
             for pid in pids:
-                for method in ['virial_rcrit']:
+                for method in ['virial0']:
                     s.select_cores(method)
                     prf = f"{prefix}.par{pid}.tcrit_{method}"
                     subprocess.run(["make_movie", "-p", prf, "-s", srcdir,

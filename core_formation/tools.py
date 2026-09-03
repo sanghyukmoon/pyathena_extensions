@@ -930,7 +930,9 @@ def lagrangian_property(s, cores, rprofs):
                                           Ftrb=rprf.Ftrb.to_numpy(),
                                           Fcen=rprf.Fcen.to_numpy(),
                                           Fani=rprf.Fani.to_numpy(),
-                                          Fgrv=rprf.Fgrv.to_numpy()),
+                                          Fgrv=rprf.Fgrv.to_numpy(),
+                                          ptot=rprf.ptot.to_numpy(),
+                                          peq=rprf.peq.to_numpy()),
                               index = cores.index)
         if s.mhd:
             lprops['mmax_mag'] = rprf.mmax_mag.to_numpy()
@@ -1276,7 +1278,7 @@ def critical_time_old(s, cores, rprofs, *, method):
         if ncrit == cores.attrs['numcoll'] and np.isnan(cores.loc[ncrit].critical_radius):
             # If ncrit is ncoll at which critical radius was nan, set ncrit to NaN.
             ncrit = np.nan
-    elif method in ['virial', 'virial0']:
+    elif method in ['virial', 'virial0', 'virial1']:
         for num, core in cores.sort_index(ascending=False).iterrows():
             rprf = rprofs.sel(num=num)
             # Net force at the critical radius is negative after the
@@ -1285,22 +1287,32 @@ def critical_time_old(s, cores, rprofs, *, method):
             if np.isnan(rcrit):
                 raise Exception(f"{s.basename}: virial_rcrit is NaN at num = {num} for pid = {pid}. Cannot calculate net force at r_crit.")
             rprf = rprf.interp(r=rcrit)
-            # Whatever fnet is, if it is not negative, we should break.
-            # That is, when rcrit = NaN or inf, we should break.
-            # However, NaN can be artificial, we can probably impose
-            # the upper limit on p.
-            if rcrit <= 3*s.dx:
-                fnet_std = 0
-            else:
-                fnet_std = rprofs.fnet.sel(num=num, r=slice(3*s.dx, rcrit)).std().data[()]
-            if rprf.Fnet > 0 or fnet_std > 0.3:
-                ncrit = num + 1
-                if ncrit == cores.index[-1] + 1:
-                    s.logger.warning(f"{s.basename}: Net force is positive at t_coll! pid = {pid}")
-                    rcrit = np.nan
+            if method in ['virial', 'virial0']:
+                if rcrit <= 3*s.dx:
+                    fnet_std = 0
                 else:
-                    rcrit = cores.loc[ncrit].virial_rcrit
-                break
+                    fnet_std = rprofs.fnet.sel(num=num, r=slice(3*s.dx, rcrit)).std().data[()]
+                if rprf.Fnet > 0 or fnet_std > 0.3:
+                    ncrit = num + 1
+                    if ncrit == cores.index[-1] + 1:
+                        s.logger.warning(f"{s.basename}: Net force is positive at t_coll! pid = {pid}")
+                        rcrit = np.nan
+                    else:
+                        rcrit = cores.loc[ncrit].virial_rcrit
+                    break
+            elif method == 'virial1':
+                if rcrit <= 3*s.dx:
+                    fnet_std = 0
+                else:
+                    fnet_std = rprofs.fnet.sel(num=num, r=slice(3*s.dx, rcrit)).std().data[()]
+                if rprf.ptot < rprf.peq or fnet_std > 0.3:
+                    ncrit = num + 1
+                    if ncrit == cores.index[-1] + 1:
+                        s.logger.warning(f"{s.basename}: ptot < peq at t_coll! pid = {pid}")
+                        rcrit = np.nan
+                    else:
+                        rcrit = cores.loc[ncrit].virial_rcrit
+                    break
     elif method == 'quadrant':
         raise ValueError("The 'quadrant' method is no longer supported. Please use 'empirical' method instead.")
 
