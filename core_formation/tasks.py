@@ -529,11 +529,14 @@ def save_minima(s, overwrite=False):
         print('[save_minima] processing model {} num {}'.format(s.basename, num))
         ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
         arr = ds.phi.data
-        arr_min_filtered = arr.map_overlap(
-            minimum_filter, depth=1, boundary='periodic', size=3, mode='wrap'
+        neighbor_footprint = np.ones((3, 3, 3), dtype=bool)
+        neighbor_footprint[1, 1, 1] = False
+        arr_min_neighbor = arr.map_overlap(
+            minimum_filter, depth=1, boundary='periodic',
+            footprint=neighbor_footprint, mode='nearest'
         ).flatten()
         arr = arr.flatten()
-        minima[num] = ((arr == arr_min_filtered).nonzero()[0]).compute()
+        minima[num] = ((arr < arr_min_neighbor).nonzero()[0]).compute()
 
     with open(ofname, 'wb') as handle:
         pickle.dump(minima, handle, protocol=pickle.HIGHEST_PROTOCOL)
