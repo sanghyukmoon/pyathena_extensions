@@ -1,4 +1,4 @@
-"""On-the-fly core tracking and explicit NetCDF profile persistence."""
+"""Stateless provenance, periodic displacement, and NetCDF helpers."""
 import hashlib
 import json
 import os
