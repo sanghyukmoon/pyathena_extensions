@@ -153,6 +153,52 @@ class TestParticlesAndTables(unittest.TestCase):
             self.assertEqual(analysis.update_core_props(s, 'virial0'), {})
         self.assertIn('Peer trajectories', s.load_errors[1]['derived:virial0'])
 
+    def test_particle_gap_and_duplicate_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            s = SimpleNamespace(basedir=directory, problem_id='test')
+            for number in (1, 3):
+                Path(directory, f'test.out3.{number:05d}.par0.parbin').touch()
+            with self.assertRaisesRegex(ValueError, 'Gap'):
+                analysis.particle_outputs(s)
+            Path(directory, 'test.out3.00002.par0.parbin').touch()
+            Path(directory, 'parbin').mkdir()
+            Path(directory, 'parbin/test.out3.00002.par0.parbin').touch()
+            with patch.object(analysis, 'read_parbin', return_value={'time': 1.}):
+                with self.assertRaisesRegex(ValueError, 'Duplicate'):
+                    analysis.particle_outputs(s)
+
+    def test_obsolete_tasks_do_not_write(self):
+        from core_formation import tasks
+        s = SimpleNamespace(legacy=False)
+        with self.assertRaisesRegex(ValueError, 'already exist'):
+            tasks.save_minima(s)
+        with self.assertRaisesRegex(ValueError, 'already exist'):
+            tasks.radial_profile(s)
+
+    def test_valid_core_continues_with_missing_particle_time_for_another(self):
+        with tempfile.TemporaryDirectory() as directory:
+            s = simulation(directory)
+            s.pids = [1, 2]
+            s._core_tracks[2] = s._core_tracks[1].iloc[:2].copy()
+            s._core_tracks[2].attrs['pid'] = 2
+            s._get_fparhst = lambda pid: Path(directory, '0.rprof')
+            def reader(path, center_ids):
+                return s._rprof_headers[int(Path(path).stem)].sel(center_id=center_ids)
+            with patch.object(analysis, 'read_radial_profile', side_effect=reader):
+                s.rprofs = {pid: analysis.load_core_rprof(s, pid, cache=False) for pid in s.pids}
+            particle_index = pd.DataFrame(dict(time=[0., 1.], paths=[[], []],
+                                               kind=['parbin', 'parbin']), index=[100, 101])
+            computed = []
+            def compute(method, savdir, pids):
+                computed.extend(pids)
+                return {pid: s._core_tracks[pid].copy() for pid in pids}
+            s._compute_core_props = compute
+            with patch.object(analysis, 'particle_outputs', return_value=particle_index):
+                result = analysis.update_core_props(s, 'virial0', cache=False)
+            self.assertEqual(list(result), [2])
+            self.assertEqual(computed, [2])
+            self.assertIn('particle snapshot', s.load_errors[1]['derived:virial0'])
+
 
 if __name__ == '__main__':
     unittest.main()
