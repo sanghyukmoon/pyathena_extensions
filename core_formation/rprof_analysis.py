@@ -1,5 +1,4 @@
-"""Stateless provenance, periodic displacement, and NetCDF helpers."""
-import hashlib
+"""Periodic displacement and explicit NetCDF serialization helpers."""
 import json
 import os
 from pathlib import Path
@@ -8,14 +7,6 @@ import tempfile
 import numpy as np
 import pandas as pd
 import xarray as xr
-
-
-SCHEMA_VERSION = 1
-
-
-def fingerprint(content):
-    """Hash explicit provenance without depending on simulation state."""
-    return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
 
 
 def frame_to_dataset(frame):
@@ -34,12 +25,6 @@ def dataset_to_frame(dataset):
 
 def periodic_displacement(displacement, length):
     return (np.asarray(displacement) + length/2) % length - length/2
-
-
-def file_stamp(path):
-    path = Path(path)
-    stat = path.stat()
-    return [str(path.resolve()), stat.st_size, stat.st_mtime_ns]
 
 
 def write_netcdf(dataset, path):

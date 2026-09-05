@@ -1,5 +1,4 @@
 import os.path as osp
-import json
 import warnings
 import pandas as pd
 import xarray as xr
@@ -20,8 +19,7 @@ from pyathena.util.units import Units
 from pyathena.io.timing_reader import TimingReader
 
 from . import models, tools, config, hst, slc_prj, myio, rprof_analysis
-from pyathena.io.read_radial_profile import read_radial_profile
-from .rprof_derived import add_rprof_derived, rprof_cumsum_r, CALCULATION_VERSION
+from .rprof_derived import add_rprof_derived, rprof_cumsum_r
 
 
 class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
@@ -302,91 +300,15 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 self._report_failure(pid, 'tracking', error)
         self.cores = self._core_tracks.copy()
         if load_rprofs:
-            for pid, track in self._core_tracks.items():
-                if track.attrs['track_failed']:
-                    continue
+            for pid in self.pids:
                 try:
                     self.load_core_rprof(pid, cache=self.cache, overwrite=overwrite)
                 except (ValueError, OSError, KeyError) as error:
                     self._report_failure(pid, 'profiles', error)
         if load_derived_cores and load_rprofs:
-            dependencies = {'profiles': {}, 'particles': {}}
             for name in ('empirical', 'virial', 'virial0', 'virial1'):
-                self._update_core_props_onthefly(
-                    name, cache=self.cache, overwrite=overwrite, dependencies=dependencies)
+                self.update_core_props(name, overwrite=overwrite)
             self.select_cores(method)
-
-
-    def _update_core_props_onthefly(self, method, *, cache=True, overwrite=False,
-                                   dependencies=None):
-        """Explicit per-core dependency checks and mode-separated NetCDF caches."""
-        if method not in ('empirical', 'virial', 'virial0', 'virial1'):
-            raise ValueError(f'Unknown critical-time method {method}')
-        result = {}
-        # Shared only within this loading operation, never across explicit calls.
-        if dependencies is None:
-            dependencies = {'profiles': {}, 'particles': {}}
-        fingerprints = dependencies['profiles']
-        particle_stamps = dependencies['particles']
-        peer_missing = [pid for pid in self.pids if pid not in self._core_tracks or
-                        self._core_tracks[pid].attrs['track_failed']]
-        for pid in self.pids:
-            stage = f'derived:{method}'
-            try:
-                if peer_missing:
-                    raise ValueError(f'Peer trajectories incomplete for {peer_missing}')
-                if pid not in self.rprofs:
-                    raise ValueError('Radial profiles have not loaded successfully')
-                track = self._core_tracks[pid]
-                self._validate_profile(track, self.rprofs[pid])
-                for cid, other in self._core_tracks.items():
-                    if int(cid) not in fingerprints:
-                        fingerprints[int(cid)] = self._profile_fingerprint(other)
-                current_fingerprint = fingerprints[int(pid)]
-                if self.rprofs[pid].attrs.get('fingerprint') != current_fingerprint:
-                    raise ValueError('In-memory profiles are stale; reload load_core_rprof first')
-                for num in track.index:
-                    if num not in particle_stamps:
-                        particle_stamps[num] = rprof_analysis.file_stamp(self._particle_path(num))
-                content = dict(schema=rprof_analysis.SCHEMA_VERSION, method=method,
-                               profiles=current_fingerprint,
-                               peers=fingerprints,
-                               track_attributes=track.attrs,
-                               particles=[particle_stamps[num] for num in track.index],
-                               history=rprof_analysis.file_stamp(self._get_fparhst(pid)))
-                fingerprint = rprof_analysis.fingerprint(content)
-                path = Path(self.savdir, 'on_the_fly', f'core_props.{method}.par{pid}.nc')
-                if cache and not overwrite and path.exists():
-                    try:
-                        stored = xr.load_dataset(path, engine='netcdf4')
-                        if stored.attrs.get('fingerprint') == fingerprint:
-                            result[pid] = rprof_analysis.dataset_to_frame(stored)
-                            self.load_errors.get(pid, {}).pop(stage, None)
-                            continue
-                    except (OSError, ValueError, KeyError):
-                        pass
-                computed = self._compute_core_props(method, self.savdir, pids=[pid])
-                if pid not in computed:
-                    raise ValueError('Core calculation did not return a usable result')
-                frame = computed[pid]
-                frame.attrs['derived_available'] = True
-                if cache:
-                    dataset = rprof_analysis.frame_to_dataset(frame)
-                    dataset.attrs['fingerprint'] = fingerprint
-                    rprof_analysis.write_netcdf(dataset, path)
-                result[pid] = frame
-                self.load_errors.get(pid, {}).pop(stage, None)
-            except (ValueError, OSError, KeyError, RuntimeError) as error:
-                self._report_failure(pid, stage, error)
-        self.cores_dict[method] = result
-        return result
-
-
-    def _precollapse_num(self, time):
-        eligible = [num for num in self.nums if self.times[num] <= time]
-        if not eligible:
-            raise ValueError(f'No radial-profile output at or before collapse time {time}')
-        return eligible[-1]
 
 
     def _track_core(self, pid, *, f_mul=3):
@@ -426,126 +348,55 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         return cores
 
 
-    def _profile_fingerprint(self, track):
-        records = [[int(num), int(row.leaf_id), float(row.time),
-                    rprof_analysis.file_stamp(self._get_frprof(num))]
-                   for num, row in track.iterrows()]
-        content = dict(schema=rprof_analysis.SCHEMA_VERSION, calculation=CALCULATION_VERSION,
-                       source='rprof', cs=float(self.cs), gconst=float(self.gconst),
-                       mhd=bool(self.mhd), records=records)
-        return rprof_analysis.fingerprint(content)
+    def load_rprof(self, num, center_ids=None, *, metadata_only=False):
+        """Read a snapshot and add the standard derived radial quantities."""
+        dataset = super().load_rprof(num, center_ids=center_ids, metadata_only=metadata_only)
+        if not metadata_only:
+            dataset = add_rprof_derived(dataset, cs=self.cs, gconst=self.gconst, mhd=self.mhd)
+        return dataset
 
-
-    def _validate_profile(self, track, dataset):
-        """Check provenance against the current trajectory and file headers."""
-        numbers = np.asarray(track.index, dtype=np.int64)
-        if not np.array_equal(dataset.num, numbers):
-            raise ValueError('Profile output numbers differ from the core trajectory')
-        if not np.array_equal(dataset.center_id, track.leaf_id.to_numpy(dtype=np.uint64)):
-            raise ValueError('Profile center IDs differ from the core trajectory')
-        if not np.array_equal(dataset.t, track.time.to_numpy(dtype=float)):
-            raise ValueError('Profile times differ from the core trajectory')
-        for index, (num, row) in enumerate(track.iterrows()):
-            header = self.load_rprof(num, metadata_only=True)
-            if float(row.time) != header.attrs['time']:
-                raise ValueError(f'Trajectory time disagrees with rprof output {num}')
-            if 'cycle' in track and int(row.cycle) != header.attrs['cycle']:
-                raise ValueError(f'Trajectory cycle disagrees with rprof output {num}')
-            if not np.array_equal(dataset.r, header.r):
-                raise ValueError(f'Radial coordinates differ at output {num}')
-            if int(row.leaf_id) not in header.center_id.values:
-                raise ValueError(f'Trajectory center missing at output {num}')
-            if int(dataset.cycle.values[index]) != header.attrs['cycle']:
-                raise ValueError(f'Cached cycle disagrees with rprof output {num}')
-            center = header.sel(center_id=int(row.leaf_id))
-            for coordinate in ('x1', 'x2', 'x3'):
-                if float(dataset[coordinate].values[index]) != float(center[coordinate]):
-                    raise ValueError(f'Cached center position differs at output {num}')
-
-
-    def _load_core_rprof_onthefly(self, pid, *, derived=True, cache=True, overwrite=False):
-        track = self._core_tracks[pid]
-        if track.empty or track.attrs.get('track_failed', False):
-            raise ValueError(f'Core {pid} has no valid prestellar trajectory')
-        fingerprint = self._profile_fingerprint(track)
+    def load_core_rprof(self, pid, *, cache=True, overwrite=False):
+        """Load or assemble a nonlegacy core history; refresh only on request."""
+        if self.legacy:
+            raise ValueError('In legacy mode access radial profiles through s.rprofs[pid]')
         path = Path(self.savdir, 'on_the_fly', f'core_rprof.par{pid}.nc')
-        dataset = None
         if cache and not overwrite and path.exists():
             try:
-                candidate = xr.load_dataset(path, engine='netcdf4')
-                if (candidate.attrs.get('fingerprint') == fingerprint and
-                        (not derived or candidate.attrs.get('derived_version') == CALCULATION_VERSION)):
-                    self._validate_profile(track, candidate)
-                    dataset = candidate
+                dataset = xr.load_dataset(path, engine='netcdf4')
+                if not {'rho', 'menc', 'num', 't', 'r', 'center_id'}.issubset(dataset.variables):
+                    raise ValueError('Incomplete core-profile Dataset')
             except (OSError, ValueError, KeyError) as error:
-                self.logger.warning(f'Rebuilding invalid profile cache for pid {pid}: {error}')
-        if dataset is None:
+                raise ValueError(f'Cannot load {path}; use overwrite=True to rebuild') from error
+        else:
+            track = self._core_tracks[pid]
+            if track.empty or track.attrs.get('track_failed', False):
+                raise ValueError(f'Core {pid} has no valid prestellar trajectory')
             rows, radius = [], None
             for num, core in track.iterrows():
-                source = read_radial_profile(self._get_frprof(num),
-                                             center_ids=[int(core.leaf_id)])
+                source = super().load_rprof(num, center_ids=[int(core.leaf_id)])
                 if radius is not None and not np.array_equal(source.r, radius):
                     raise ValueError(f'Radial coordinates differ at output {num}')
                 radius = source.r.values
                 row = source.isel(center_id=0, drop=True).expand_dims(t=[source.attrs['time']])
-                row = row.assign_coords(
-                    num=('t', [int(num)]), cycle=('t', [int(source.attrs['cycle'])]),
-                    center_id=('t', [np.uint64(core.leaf_id)]),
-                    **{coord: ('t', [float(source[coord].values[0])])
-                       for coord in ('x1', 'x2', 'x3')})
+                row = row.assign_coords(num=('t', [int(num)]),
+                                        center_id=('t', [np.uint64(core.leaf_id)]),
+                                        **{coord: ('t', [float(source[coord].values[0])])
+                                           for coord in ('x1', 'x2', 'x3')})
                 rows.append(row)
             dataset = xr.concat(rows, dim='t', join='exact', combine_attrs='drop_conflicts')
-            raw_variables = list(dataset.data_vars)
-            self._validate_profile(track, dataset)
-            if derived:
-                dataset = add_rprof_derived(dataset, cs=self.cs, gconst=self.gconst, mhd=self.mhd)
-            dataset.attrs.update(fingerprint=fingerprint, source='rprof', pid=int(pid),
-                                 schema_version=rprof_analysis.SCHEMA_VERSION,
-                                 derived_version=CALCULATION_VERSION if derived else 0,
-                                 raw_variables=json.dumps(raw_variables),
-                                 cs=float(self.cs), gconst=float(self.gconst), mhd=int(self.mhd))
-            if cache:
-                # A raw-only refresh must not replace a valid full derived cache.
-                preserve = False
-                if not derived and path.exists():
-                    try:
-                        with xr.open_dataset(path, engine='netcdf4') as previous:
-                            preserve = (previous.attrs.get('fingerprint') == fingerprint and
-                                        previous.attrs.get('derived_version') == CALCULATION_VERSION)
-                    except (OSError, ValueError):
-                        pass
-                if not preserve:
-                    rprof_analysis.write_netcdf(dataset, path)
-        if not derived:
-            dataset = dataset[json.loads(dataset.attrs['raw_variables'])]
-        return dataset.set_xindex('num')
-
-
-    def load_rprof(self, num, center_ids=None, *, derived=True, metadata_only=False):
-        dataset = super().load_rprof(num, center_ids=center_ids,
-                                     metadata_only=metadata_only)
-        if derived and not metadata_only:
-            dataset = add_rprof_derived(dataset, cs=self.cs,
-                                       gconst=self.gconst, mhd=self.mhd)
+            dataset = add_rprof_derived(dataset, cs=self.cs, gconst=self.gconst, mhd=self.mhd)
+            dataset.attrs.update(source='rprof', pid=int(pid), cs=float(self.cs),
+                                 gconst=float(self.gconst), mhd=int(self.mhd))
+        # Old complete caches remain readable; retire only obsolete bookkeeping.
+        dataset = dataset.drop_vars('cycle', errors='ignore')
+        for name in ('cycle', 'fingerprint', 'schema_version', 'derived_version', 'raw_variables'):
+            dataset.attrs.pop(name, None)
+        if cache and (overwrite or not path.exists()):
+            rprof_analysis.write_netcdf(dataset, path)
+        dataset = dataset.set_xindex('num')
+        self.rprofs[pid] = dataset
+        self.load_errors.get(pid, {}).pop('profiles', None)
         return dataset
-
-    def load_core_rprof(self, pid, *, derived=True, cache=True, overwrite=False):
-        if self.legacy:
-            if not derived:
-                path = Path(self.savdir, config.RPROF_DIR)
-                profiles = [xr.load_dataset(
-                    path / f'radial_profile.{int(row.leaf_id)}.{int(num):05d}.nc')
-                    for num, row in self.cores[pid].iterrows()]
-                result = xr.concat(profiles, dim='t')
-                return result.assign_coords(num=('t', list(self.cores[pid].index))).set_xindex('num')
-            if overwrite or not hasattr(self, 'rprofs'):
-                self.rprofs = self._load_radial_profiles(
-                    savdir=Path(self.savdir, config.RPROF_DIR), force_override=overwrite)
-            return self.rprofs[pid]
-        result = self._load_core_rprof_onthefly(pid, derived=derived, cache=cache, overwrite=overwrite)
-        if derived:
-            self.rprofs[pid] = result
-        return result
 
     def load_hdf5(self, num=None, sparse=False, *, rprof_num=None, **kwargs):
         """Load a native HDF5 number, or the HDF5 output at rprof_num."""
@@ -569,17 +420,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             return myio.read_sparse_hdf5(fname, chunks)
         return LoadSimBase.load_hdf5(self, num, **kwargs)
 
-    def _particle_path(self, num):
-        """Resolve the same particle snapshot as load_par, without reading it."""
-        if 'parbin' in self.files:
-            path = self._get_fparbin(self.parbin_outid, 'par0', num=num)
-        elif 'partab' in self.files:
-            path = self._get_fpartab(self.partab_outid, 'par0', num=num)
-        else:
-            path = None
-        if path is None or not Path(path).is_file():
-            raise FileNotFoundError(f'Particle snapshot {num} not found: {path}')
-        return Path(path)
 
     def load_par(self, num, **kwargs):
         """Load partab or parbin"""
@@ -611,9 +451,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             return pickle.load(handle)
 
 
-
-
-
     def select_cores(self, method):
         self.cores = ({} if self.legacy else self._core_tracks.copy())
         self.cores.update(self.cores_dict[method])
@@ -632,12 +469,48 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 good_cores.append(pid)
         return good_cores
 
-    def update_core_props(self, method,
-                          prefix=None, savdir=None, force_override=False):
-        if not self.legacy:
-            return self._update_core_props_onthefly(method, cache=self.cache, overwrite=force_override)
-        return self._update_core_props_legacy(
-            method, prefix=prefix, savdir=savdir, force_override=force_override)
+    def update_core_props(self, method, prefix=None, savdir=None, force_override=False,
+                          *, overwrite=False):
+        """Read saved core properties, or compute them when absent/requested."""
+        overwrite = bool(overwrite or force_override)
+        if self.legacy:
+            return self._update_core_props_legacy(
+                method, prefix=prefix, savdir=savdir, force_override=overwrite)
+        if method not in ('empirical', 'virial', 'virial0', 'virial1'):
+            raise ValueError(f'Unknown critical-time method {method}')
+        result = {}
+        for pid in self.pids:
+            stage = f'derived:{method}'
+            path = Path(self.savdir, 'on_the_fly', f'core_props.{method}.par{pid}.nc')
+            try:
+                if self.cache and not overwrite and path.exists():
+                    try:
+                        frame = rprof_analysis.dataset_to_frame(xr.load_dataset(path, engine='netcdf4'))
+                        if not {'leaf_id', 'time'}.issubset(frame.columns):
+                            raise ValueError('Incomplete core-property table')
+                    except (OSError, ValueError, KeyError) as error:
+                        raise ValueError(f'Cannot load {path}; use overwrite=True to rebuild') from error
+                else:
+                    missing = [cid for cid in self.pids if cid not in self._core_tracks or
+                               self._core_tracks[cid].attrs['track_failed']]
+                    if missing:
+                        raise ValueError(f'Peer trajectories incomplete for {missing}')
+                    if pid not in self.rprofs:
+                        raise ValueError('Radial profiles have not loaded successfully')
+                    computed = self._compute_core_props(method, self.savdir, pids=[pid])
+                    if pid not in computed:
+                        raise ValueError('Core calculation did not return a usable result')
+                    frame = computed[pid]
+                    frame.attrs['derived_available'] = True
+                    if self.cache:
+                        rprof_analysis.write_netcdf(rprof_analysis.frame_to_dataset(frame), path)
+                frame = frame.drop(columns=['cycle'], errors='ignore')
+                result[pid] = frame
+                self.load_errors.get(pid, {}).pop(stage, None)
+            except (OSError, ValueError, KeyError, RuntimeError) as error:
+                self._report_failure(pid, stage, error)
+        self.cores_dict[method] = result
+        return result
 
     @LoadSimBase.Decorators.check_pickle
     def _update_core_props_legacy(self, method, prefix=None, savdir=None,
@@ -1010,67 +883,44 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         if self.legacy:
             return self._load_tcoll_cores_legacy(
                 prefix=prefix, savdir=savdir, force_override=force_override)
-        return self._compute_tcoll_cores()
-
-    @LoadSimBase.Decorators.check_pickle
-    def _load_tcoll_cores_legacy(self, prefix='tcoll_cores', savdir=None,
-                                force_override=False):
-        return self._compute_tcoll_cores()
-
-    def _precollapse_output_num(self, time):
-        if self.legacy:
-            return int(np.floor(time / self.dt_output['hdf5']))
-        return self._precollapse_num(time)
-
-    def _compute_tcoll_cores(self):
-        """Read .csv output and find their collapse time and snapshot number.
-
-        Additionally store their mass, position, velocity at the time of
-        collapse.
-        """
-        x1, x2, x3, v1, v2, v3 = {}, {}, {}, {}, {}, {}
-        time, num = {}, {}
+        rows = []
+        fields = ['x1', 'x2', 'x3', 'v1', 'v2', 'v3']
         for pid in self.pids:
             try:
                 history = self.load_parhst(pid)
                 if history is None or history.empty:
                     raise ValueError('Particle history is empty or missing')
-                required = {'time', 'age', 'x1', 'x2', 'x3', 'v1', 'v2', 'v3'}
-                if not self.legacy and not required.issubset(history.columns):
-                    raise ValueError(f'Particle history lacks {sorted(required-set(history.columns))}')
-                phst = history.iloc[0]
-                if not self.legacy and not np.all(np.isfinite(phst[list(required)].to_numpy(dtype=float))):
+                first = history.iloc[0]
+                if not np.all(np.isfinite(first[fields+['time', 'age']].to_numpy(dtype=float))):
                     raise ValueError('Nonfinite collapse information in particle history')
-            except (OSError, ValueError) as error:
-                if self.legacy:
-                    raise
+                tcoll = float(first.time-first.age)
+                eligible = [num for num in self.nums if self.times[num] <= tcoll]
+                if not eligible:
+                    raise ValueError(f'No radial-profile output at or before collapse time {tcoll}')
+                num = eligible[-1]
+                rows.append(dict(pid=pid, **{name: first[name] for name in fields},
+                                 time=tcoll, num=num, output_time=self.times[num]))
+                self.load_errors.get(pid, {}).pop('collapse', None)
+            except (OSError, ValueError, KeyError) as error:
                 self._report_failure(pid, 'collapse', error)
-                continue
-            x1[pid] = phst.x1
-            x2[pid] = phst.x2
-            x3[pid] = phst.x3
-            v1[pid] = phst.v1
-            v2[pid] = phst.v2
-            v3[pid] = phst.v3
-            time[pid] = phst.time - phst.age
-            try:
-                num[pid] = self._precollapse_output_num(time[pid])
-            except ValueError as error:
-                if self.legacy:
-                    raise
-                self.load_errors.setdefault(pid, {})['collapse'] = str(error)
-                num[pid] = None
-        tcoll_cores = pd.DataFrame(
-            dict(x1=x1, x2=x2, x3=x3,
-                 v1=v1, v2=v2, v3=v3,
-                 time=time, num=num),
-            dtype=object
-        )
-        tcoll_cores.index.name = 'pid'
-        if not self.legacy:
-            tcoll_cores['output_time'] = [self.times[n] if n is not None else np.nan
-                                          for n in tcoll_cores.num]
-        return tcoll_cores
+        return pd.DataFrame(rows, columns=['pid']+fields+['time', 'num', 'output_time'],
+                            dtype=object).set_index('pid')
+
+    @LoadSimBase.Decorators.check_pickle
+    def _load_tcoll_cores_legacy(self, prefix='tcoll_cores', savdir=None, force_override=False):
+        rows = []
+        fields = ['x1', 'x2', 'x3', 'v1', 'v2', 'v3']
+        for pid in self.pids:
+            history = self.load_parhst(pid)
+            if history is None or history.empty:
+                raise ValueError('Particle history is empty or missing')
+            first = history.iloc[0]
+            tcoll = first.time-first.age
+            rows.append(dict(pid=pid, **{name:first[name] for name in fields}, time=tcoll,
+                             num=int(np.floor(tcoll/self.dt_output['hdf5']))))
+        return pd.DataFrame(rows, columns=['pid']+fields+['time', 'num'],
+                            dtype=object).set_index('pid')
+
 
     @LoadSimBase.Decorators.check_pickle
     def _load_cores(self, prefix='cores', savdir=None, force_override=False):
