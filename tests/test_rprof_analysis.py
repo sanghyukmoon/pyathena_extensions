@@ -153,6 +153,38 @@ class TestProfileCache(unittest.TestCase):
             self.assertEqual(self.s.update_core_props('virial0'), {})
             compute.assert_not_called()
 
+    def test_property_cache_false_and_overwrite(self):
+        s = self.s
+        s.load_core_rprof(1, cache=False)
+        path = Path(s.savdir, 'on_the_fly/core_props.virial0.par1.nc')
+        with patch.object(s, '_compute_core_props', return_value={1:s._core_tracks[1].copy()}) as compute:
+            s.cache = False
+            s.update_core_props('virial0')
+            self.assertFalse(path.exists())
+            s.cache = True
+            s.update_core_props('virial0')
+            stamp = path.stat().st_mtime_ns
+            s.cache = False
+            s.update_core_props('virial0', overwrite=True)
+            self.assertEqual(path.stat().st_mtime_ns, stamp)
+            s.cache = True
+            s.update_core_props('virial0', overwrite=True)
+            self.assertEqual(compute.call_count, 4)
+
+    def test_corrupt_property_cache_needs_explicit_overwrite(self):
+        s = self.s
+        s.load_core_rprof(1, cache=False)
+        path = Path(s.savdir, 'on_the_fly/core_props.virial0.par1.nc')
+        path.parent.mkdir()
+        path.write_bytes(b'not netcdf')
+        with patch.object(s, '_compute_core_props', return_value={1:s._core_tracks[1].copy()}) as compute:
+            self.assertEqual(s.update_core_props('virial0'), {})
+            self.assertIn('overwrite=True', s.load_errors[1]['derived:virial0'])
+            compute.assert_not_called()
+            self.assertIn(1, s.update_core_props('virial0', overwrite=True))
+            self.assertNotIn('derived:virial0', s.load_errors[1])
+            compute.assert_called_once()
+
 
 class TestSerialization(unittest.TestCase):
     def test_large_integer_and_attributes(self):

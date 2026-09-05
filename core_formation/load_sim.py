@@ -273,9 +273,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             self.minima[num] = header.center_id.to_numpy().copy()
         if np.any(np.diff(list(self.times.values())) <= 0):
             raise ValueError('Radial-profile times must increase with output number')
-        if hdf5:
+        if self.nums_hdf5:
             ratio = float(hdf5[0]['dt']) / self.dt_output['rprof']
-            if not np.isfinite(ratio) or ratio < 1 or abs(ratio-round(ratio)) > 64*np.finfo(float).eps*max(1., abs(ratio)):
+            if (not np.isfinite(ratio) or round(ratio) < 1 or
+                    abs(ratio-round(ratio)) > 64*np.finfo(float).eps*max(1., abs(ratio))):
                 raise ValueError('HDF5 cadence must be an integer multiple of radial-profile cadence')
             self.hdf5_stride = int(round(ratio))
 

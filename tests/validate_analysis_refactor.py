@@ -6,6 +6,7 @@ from time import perf_counter
 from unittest.mock import patch
 
 import xarray as xr
+from pyathena.io.read_radial_profile import read_radial_profile
 
 from core_formation import load_sim
 
@@ -35,8 +36,11 @@ def main():
     with patch.object(load_sim.LoadSim, 'load_hdf5', side_effect=AssertionError('HDF5 read')):
         with patch.object(load_sim.LoadSim, '_compute_core_props',
                           side_effect=AssertionError('Unexpected property cache miss')):
-            with patch.object(load_sim, 'read_radial_profile',
-                              side_effect=AssertionError('Unexpected profile cache miss')):
+            def metadata_only(*args, **kwargs):
+                assert kwargs.get('metadata_only'), 'Unexpected profile cache miss'
+                return read_radial_profile(*args, **kwargs)
+
+            with patch('pyathena.load_sim.read_radial_profile', side_effect=metadata_only):
                 s = load_sim.LoadSim(work/'real-data/hdf5-free', legacy=False,
                                     savdir=str(after.parent))
     assert not s.load_errors, s.load_errors

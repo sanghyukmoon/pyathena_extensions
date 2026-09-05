@@ -44,7 +44,7 @@ def main():
         assert len(s.cores) == len(s.pids) == len(s.rprofs)
         assert not s.load_errors, s.load_errors
         assert all(s.tcoll_cores.output_time <= s.tcoll_cores.time)
-        assert not s.nums
+        assert not s.nums_hdf5
         assert all(len(value) == len(s.pids) for value in s.cores_dict.values())
     report = dict(cores=len(s.pids), initial_cache_aware_seconds=perf_counter()-start,
                   no_hdf5=True)

@@ -3,9 +3,6 @@ import numpy as np
 import xarray as xr
 from . import tools
 
-CALCULATION_VERSION = 1
-
-
 def add_rprof_derived(rprofs, *, cs, gconst, mhd):
     """Return derived fields along r without I/O or changing raw variables."""
     rprofs = rprofs.copy()

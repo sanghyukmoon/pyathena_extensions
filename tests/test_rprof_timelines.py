@@ -53,6 +53,12 @@ class TestTimelines(unittest.TestCase):
         self.assertEqual(s.times_hdf5, {})
         with self.assertRaises(FileNotFoundError):
             s.load_hdf5(rprof_num=0)
+        s = simulation()
+        s.ff.nums_hdf5 = {'cons': []}
+        s._par['output2']['dt'] = -1  # Disabled HDF5 is also profile-only.
+        self.initialize(s)
+        self.assertEqual(s.nums_hdf5, [])
+        self.assertEqual(s.times_hdf5, {})
 
     def test_hdf5_config_errors(self):
         s = simulation()
@@ -70,6 +76,35 @@ class TestTimelines(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Gap'):
             self.initialize(s)
 
+    def test_no_radial_profiles(self):
+        s = simulation()
+        s.nums_rprof = []
+        with self.assertRaisesRegex(FileNotFoundError, 'No radial-profile'):
+            self.initialize(s)
+
+    def test_cadence_ratio(self):
+        s = simulation()
+        s._par['output2']['dt'] = .25
+        with self.assertRaisesRegex(ValueError, 'integer multiple'):
+            self.initialize(s)
+        s._par['output2']['dt'] = .2 + np.finfo(float).eps
+        self.initialize(s)
+        self.assertEqual(s.hdf5_stride, 2)
+        s._par['output2']['dt'] = .1 - np.finfo(float).eps
+        self.initialize(s)
+        self.assertEqual(s.hdf5_stride, 1)
+
+    def test_header_consistency(self):
+        s = simulation(hdf5=False)
+        with patch.object(s, 'load_rprof', return_value=xr.Dataset(
+                coords={'center_id': [10]}, attrs={'num': 8, 'time': 0})):
+            with self.assertRaisesRegex(ValueError, 'Inconsistent'):
+                s._initialize_timelines()
+        with patch.object(s, 'load_rprof', side_effect=lambda num, **kw: xr.Dataset(
+                coords={'center_id': [10]}, attrs={'num': num, 'time': 0})):
+            with self.assertRaisesRegex(ValueError, 'must increase'):
+                s._initialize_timelines()
+
     def test_selectors(self):
         s = simulation()
         self.initialize(s)
@@ -83,6 +118,9 @@ class TestTimelines(unittest.TestCase):
                 s.load_hdf5(2, rprof_num=4)
             with self.assertRaisesRegex(ValueError, 'exactly one'):
                 s.load_hdf5()
+            s.legacy = True
+            with self.assertRaisesRegex(ValueError, 'nonlegacy'):
+                s.load_hdf5(rprof_num=4)
 
 
 if __name__ == '__main__':
