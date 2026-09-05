@@ -933,10 +933,7 @@ def plot_core_evolution(s, pid, num, hw=0.1, method='virial'):
     xc, yc, zc = s.flatindex_to_cartesian(core.leaf_id)
 
     # Load sink particles
-    if s.legacy:
-        pds = s.load_par(num)
-    else:
-        pds = s._load_particles(num)
+    pds = s.load_par(num)
     pds = pds[((pds.x1 > xc - hw) & (pds.x1 < xc + hw)
              & (pds.x2 > yc - hw) & (pds.x2 < yc + hw)
              & (pds.x3 > zc - hw) & (pds.x3 < zc + hw))]
@@ -1357,11 +1354,7 @@ def plot_sinkhistory(s, num):
         ds = s.load_hdf5(num, quantities=['dens', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
     else:
         ds = s.load_hdf5(num, quantities=['dens',], load_method='xarray')
-    if s.legacy:
-        pds = s.load_par(num)
-    else:
-        from .rprof_analysis import read_particle_output
-        pds = read_particle_output(s._match_particle_time(s.num_to_time(num)))
+    pds = s.load_par(s.core_num_for_hdf5(num))
 
     # find end time
     ds_end = s.load_hdf5(s.nums[-1], header_only=True)

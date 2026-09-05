@@ -8,18 +8,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from pyathena.io.read_particles import read_parbin, read_partab
 
 SCHEMA_VERSION = 1
-
-
-def read_particle_output(output):
-    reader = read_parbin if output.kind == 'parbin' else read_partab
-    frames = [reader(path) for path in output.paths]
-    result = pd.concat(frames).sort_index()
-    if not result.index.is_unique:
-        raise ValueError(f'Duplicate particle IDs at time {output.time}')
-    return result
 
 
 def frame_to_dataset(frame):

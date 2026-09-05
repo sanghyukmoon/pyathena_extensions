@@ -12,7 +12,6 @@ import pandas as pd
 import xarray as xr
 
 from core_formation.load_sim import LoadSim
-from core_formation import rprof_analysis as analysis
 from core_formation.rprof_derived import add_rprof_derived
 from pyathena.io.read_radial_profile import read_radial_profile
 
@@ -113,7 +112,7 @@ def main():
     for pid, track in s._core_tracks.items():
         old.cores[pid] = track.join(s.cores_dict['empirical'][pid][tes_columns])
         old.cores[pid].attrs = track.attrs.copy()
-    old.load_par = lambda num: s._load_particles(num)
+    old.load_par = s.load_par
     empty = args.workdir/'no-legacy-products'
     empty.mkdir(exist_ok=True)
     report['derived_core_comparisons'] = {}

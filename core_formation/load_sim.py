@@ -1,7 +1,6 @@
 import os.path as osp
 import hashlib
 import json
-import re
 from time import perf_counter
 import warnings
 import pandas as pd
@@ -24,7 +23,6 @@ from pyathena.io.timing_reader import TimingReader
 
 from . import models, tools, config, hst, slc_prj, myio, rprof_analysis
 from pyathena.io.read_radial_profile import read_radial_profile
-from pyathena.io.read_particles import read_parbin, read_partab
 from .rprof_derived import add_rprof_derived, rprof_cumsum_r, CALCULATION_VERSION
 
 
@@ -264,73 +262,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         self.logger.warning(f'On-the-fly pid {pid}, {stage}: {error}')
 
 
-    def _particle_outputs(self):
-        """Index one contiguous particle stream; do not equate its counter to rprof."""
-        pattern = re.compile(re.escape(self.problem_id) +
-                             r'(?:\.block(\d+))?\.(out\d+)\.(\d+)\.par0\.(parbin|tab)$')
-        groups, streams = {}, set()
-        for directory in (Path(self.basedir), Path(self.basedir, 'parbin'),
-                          Path(self.basedir, 'partab')):
-            for path in sorted(directory.glob(self.problem_id+'*.par0.*')):
-                match = pattern.fullmatch(path.name)
-                if match is None:
-                    continue
-                block, stream, number, kind = match.groups()
-                streams.add((stream, kind))
-                groups.setdefault(int(number), []).append((block, path))
-        if len(streams) != 1:
-            raise ValueError(f'Expected one particle output stream, found {sorted(streams)}')
-        numbers = sorted(groups)
-        if np.any(np.diff(numbers) != 1):
-            raise ValueError('Gap in particle output numbering')
-        kind = next(iter(streams))[1]
-        reader = read_parbin if kind == 'parbin' else read_partab
-        records = []
-        for num in numbers:
-            entries = groups[num]
-            blocks = [block for block, _ in entries]
-            if blocks == [None]:
-                pass
-            elif None in blocks or len(set(blocks)) != len(blocks):
-                raise ValueError(f'Duplicate/ambiguous particle output {num}')
-            else:
-                nblocks = int(np.prod([self.par['mesh'][f'nx{i}']//
-                                      self.par['meshblock'][f'nx{i}'] for i in (1, 2, 3)]))
-                if set(map(int, blocks)) != set(range(nblocks)):
-                    raise ValueError(f'Incomplete particle MeshBlock coverage at {num}')
-            paths = [path for _, path in entries]
-            times = [reader(path, header_only=True).get('time', np.nan) for path in paths]
-            if not np.all(np.isfinite(times)) or not np.all(np.asarray(times) == times[0]):
-                raise ValueError(f'Missing or inconsistent particle time at output {num}')
-            records.append(dict(num=num, time=times[0], paths=paths, kind=kind))
-        result = pd.DataFrame(records).set_index('num')
-        if np.any(np.diff(result.time) <= 0):
-            raise ValueError('Particle output times must increase')
-        return result
-
-
-    def _match_particles(self, num):
-        """Match recorded times within 32 float64 eps * max(1, |time|)."""
-        time = float(self.rprof_outputs.loc[num, 'time'])
-        return self._match_particle_time(time)
-
-
-    def _match_particle_time(self, time):
-        tolerance = 32*np.finfo(float).eps*max(1., abs(time))
-        if self.particle_outputs is None:
-            raise ValueError('No valid particle output index')
-        matches = self.particle_outputs.loc[np.abs(self.particle_outputs.time-time) <= tolerance]
-        if len(matches) != 1:
-            raise ValueError(f'Expected one particle snapshot at time {time}; '
-                             f'found {len(matches)}')
-        return matches.iloc[0]
-
-
-    def _load_particles(self, num):
-        output = self._match_particles(num)
-        return rprof_analysis.read_particle_output(output)
-
-
     def _initialize_onthefly(self, *, method, load_rprofs, load_derived_cores, overwrite):
         """Eagerly populate independent results, gating each dependent calculation."""
         self.cores, self.rprofs, self.cores_dict, self._core_tracks = {}, {}, {}, {}
@@ -356,12 +287,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 self._report_failure(pid, 'tracking', error)
         self.cores = self._core_tracks.copy()
         self.load_timings['tracking_seconds'] = perf_counter()-start
-        try:
-            self.particle_outputs = self._particle_outputs()
-        except (ValueError, OSError) as error:
-            self.particle_outputs = None
-            for pid in self.pids:
-                self._report_failure(pid, 'particles', error)
         if load_rprofs:
             start = perf_counter()
             for pid, track in self._core_tracks.items():
@@ -385,13 +310,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         if method not in ('empirical', 'virial', 'virial0', 'virial1'):
             raise ValueError(f'Unknown critical-time method {method}')
         result = {}
-        self.particle_outputs = None
-        try:
-            self.particle_outputs = self._particle_outputs()
-        except (ValueError, OSError) as error:
-            for pid in self.pids:
-                self._report_failure(pid, f'derived:{method}', error)
-            return result
         peer_missing = [pid for pid in self.pids if pid not in self._core_tracks or
                         self._core_tracks[pid].attrs['track_failed']]
         for pid in self.pids:
@@ -406,13 +324,13 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 current_fingerprint = self._profile_fingerprint(track, self.rprof_outputs)
                 if self.rprofs[pid].attrs.get('fingerprint') != current_fingerprint:
                     raise ValueError('In-memory profiles are stale; reload load_core_rprof first')
-                matched = [self._match_particles(num) for num in track.index]
+                particle_paths = [self._particle_path(num) for num in track.index]
                 content = dict(schema=rprof_analysis.SCHEMA_VERSION, method=method,
                                profiles=self._profile_fingerprint(track, self.rprof_outputs),
                                peers={int(cid): self._profile_fingerprint(other, self.rprof_outputs)
                                       for cid, other in self._core_tracks.items()},
                                track_attributes=track.attrs,
-                               particles=[rprof_analysis.file_stamp(path) for row in matched for path in row.paths],
+                               particles=[rprof_analysis.file_stamp(path) for path in particle_paths],
                                history=rprof_analysis.file_stamp(self._get_fparhst(pid)))
                 fingerprint = hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
                 path = Path(self.savdir, 'on_the_fly', f'core_props.{method}.par{pid}.nc')
@@ -638,6 +556,18 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         else:
             return LoadSimBase.load_hdf5(self, num, **kwargs)
 
+    def _particle_path(self, num):
+        """Resolve the same particle snapshot as load_par, without reading it."""
+        if 'parbin' in self.files:
+            path = self._get_fparbin(self.parbin_outid, 'par0', num=num)
+        elif 'partab' in self.files:
+            path = self._get_fpartab(self.partab_outid, 'par0', num=num)
+        else:
+            path = None
+        if path is None or not Path(path).is_file():
+            raise FileNotFoundError(f'Particle snapshot {num} not found: {path}')
+        return Path(path)
+
     def load_par(self, num, **kwargs):
         """Load partab or parbin"""
         if 'parbin' in self.files:
@@ -687,6 +617,19 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             raise ValueError(f'Expected one HDF5 snapshot at core output {num}, time {time}; '
                              f'found {len(matches)}')
         return matches[0]
+
+    def core_num_for_hdf5(self, num):
+        """Map a coarse HDF5 snapshot to the core timeline without interpolation."""
+        if self.legacy:
+            return num
+        time = self.num_to_time(num)
+        outputs = self.rprof_outputs
+        tolerance = 32*np.finfo(float).eps*max(1., abs(time))
+        matches = outputs.index[np.abs(outputs.time-time) <= tolerance]
+        if len(matches) != 1:
+            raise ValueError(f'Expected one radial-profile snapshot at HDF5 output '
+                             f'{num}, time {time}; found {len(matches)}')
+        return int(matches[0])
 
     def select_cores(self, method):
         self.cores = ({} if self.legacy else self._core_tracks.copy())
@@ -753,8 +696,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             min_dst, mw_dst, min_dst_to_core = [], [], []
             for num in cores.index:
-                pds = (self.load_par(num) if self.legacy else
-                       self._load_particles(num))
+                pds = self.load_par(num)
                 core = cores.loc[num]
                 dst, mass = [], []
                 if len(pds) == 0:

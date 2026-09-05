@@ -156,14 +156,6 @@ class TestParticlesAndTables(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'found 0'):
             s.hdf5_num_for_core(15)
 
-    def test_time_matching_not_number_matching(self):
-        s = simulation_state(rprof_outputs=pd.DataFrame({'time': [1.]}, index=[15]),
-                            particle_outputs=pd.DataFrame({'time': [1.]}, index=[104]))
-        self.assertEqual(s._match_particles(15).name, 104)
-        s.particle_outputs.loc[104, 'time'] = 1.000001
-        with self.assertRaisesRegex(ValueError, 'found 0'):
-            s._match_particles(15)
-
     def test_table_roundtrip(self):
         frame = pd.DataFrame({'leaf_id': [2**54+1], 'time': [np.array(np.nan)]},
                              index=pd.Index([5], name='num'), dtype=object)
@@ -179,23 +171,8 @@ class TestParticlesAndTables(unittest.TestCase):
     def test_missing_peer_gates_all_dependents(self):
         s = simulation_state(pids=[1, 2], _core_tracks={}, load_errors={},
                             logger=logging.getLogger('test'))
-        with patch.object(LoadSim, '_particle_outputs', return_value=pd.DataFrame()):
-            self.assertEqual(s._update_core_props_onthefly('virial0'), {})
+        self.assertEqual(s._update_core_props_onthefly('virial0'), {})
         self.assertIn('Peer trajectories', s.load_errors[1]['derived:virial0'])
-
-    def test_particle_gap_and_duplicate_rejected(self):
-        with tempfile.TemporaryDirectory() as directory:
-            s = simulation_state(basedir=directory, problem_id='test')
-            for number in (1, 3):
-                Path(directory, f'test.out3.{number:05d}.par0.parbin').touch()
-            with self.assertRaisesRegex(ValueError, 'Gap'):
-                s._particle_outputs()
-            Path(directory, 'test.out3.00002.par0.parbin').touch()
-            Path(directory, 'parbin').mkdir()
-            Path(directory, 'parbin/test.out3.00002.par0.parbin').touch()
-            with patch.object(loader, 'read_parbin', return_value={'time': 1.}):
-                with self.assertRaisesRegex(ValueError, 'Duplicate'):
-                    s._particle_outputs()
 
     def test_obsolete_tasks_do_not_write(self):
         from core_formation import tasks
@@ -205,7 +182,7 @@ class TestParticlesAndTables(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'already exist'):
             tasks.radial_profile(s)
 
-    def test_valid_core_continues_with_missing_particle_time_for_another(self):
+    def test_valid_core_continues_with_missing_particle_file_for_another(self):
         with tempfile.TemporaryDirectory() as directory:
             s = simulation(directory)
             s.pids = [1, 2]
@@ -216,18 +193,64 @@ class TestParticlesAndTables(unittest.TestCase):
                 return s._rprof_headers[int(Path(path).stem)].sel(center_id=center_ids)
             with patch.object(loader, 'read_radial_profile', side_effect=reader):
                 s.rprofs = {pid: s._load_core_rprof_onthefly(pid, cache=False) for pid in s.pids}
-            particle_index = pd.DataFrame(dict(time=[0., 1.], paths=[[], []],
-                                               kind=['parbin', 'parbin']), index=[100, 101])
+            def particle_path(num):
+                if num > 1:
+                    raise FileNotFoundError(f'Particle snapshot {num} not found')
+                return Path(directory, f'{num}.rprof')
+            s._particle_path = particle_path
             computed = []
             def compute(method, savdir, pids):
                 computed.extend(pids)
                 return {pid: s._core_tracks[pid].copy() for pid in pids}
             s._compute_core_props = compute
-            with patch.object(LoadSim, '_particle_outputs', return_value=particle_index):
-                result = s._update_core_props_onthefly('virial0', cache=False)
+            result = s._update_core_props_onthefly('virial0', cache=False)
             self.assertEqual(list(result), [2])
             self.assertEqual(computed, [2])
-            self.assertIn('particle snapshot', s.load_errors[1]['derived:virial0'])
+            self.assertIn('Particle snapshot', s.load_errors[1]['derived:virial0'])
+
+    def test_hdf5_to_core_mapping(self):
+        s = simulation_state(rprof_outputs=pd.DataFrame({'time': [0., 1.]}, index=[14, 15]))
+        s.num_to_time = lambda num: 1.
+        self.assertEqual(s.core_num_for_hdf5(101), 15)
+        s.num_to_time = lambda num: 2.
+        with self.assertRaisesRegex(ValueError, 'found 0'):
+            s.core_num_for_hdf5(101)
+        s._fixture_outputs.loc[16] = [1.]
+        s.num_to_time = lambda num: 1.
+        with self.assertRaisesRegex(ValueError, 'found 2'):
+            s.core_num_for_hdf5(101)
+        s.legacy = True
+        self.assertEqual(s.core_num_for_hdf5(101), 101)
+
+    def test_particle_resolver_and_reader_use_same_number(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for kind in ('parbin', 'partab'):
+                with self.subTest(kind=kind):
+                    path = Path(directory, f'test.{kind}')
+                    path.touch()
+                    s = simulation_state(files={kind: {'par0': [str(path)]}})
+                    setattr(s, kind+'_outid', 3)
+                    with patch.object(s, '_get_f'+kind, return_value=str(path)) as resolve:
+                        self.assertEqual(s._particle_path(15), path)
+                        resolve.assert_called_once_with(3, 'par0', num=15)
+                    empty = pd.DataFrame(columns=['x1', 'x2', 'x3', 'mass'])
+                    with patch.object(s, 'load_'+kind, return_value=empty) as read:
+                        self.assertTrue(s.load_par(15).empty)
+                        read.assert_called_once_with(15)
+                    with patch.object(s, '_get_f'+kind, return_value=str(path)+'missing'):
+                        with self.assertRaisesRegex(FileNotFoundError, 'snapshot 15'):
+                            s._particle_path(15)
+                    with patch.object(s, 'load_'+kind, side_effect=ValueError('truncated')):
+                        with self.assertRaisesRegex(ValueError, 'truncated'):
+                            s.load_par(15)
+
+    def test_core_calculation_requests_profile_number(self):
+        s = simulation_state(_core_tracks={1: pd.DataFrame(index=[15])}, rprofs={1: None})
+        s._core_tracks[1].attrs['track_failed'] = False
+        with patch.object(s, 'load_par', side_effect=ValueError('stop after read')) as read:
+            with self.assertRaisesRegex(ValueError, 'stop after read'):
+                s._compute_core_props('virial0', None, pids=[1])
+            read.assert_called_once_with(15)
 
 
 if __name__ == '__main__':
