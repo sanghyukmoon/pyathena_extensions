@@ -265,7 +265,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         self.cores, self.rprofs, self.cores_dict, self._core_tracks = {}, {}, {}, {}
         outputs = self.rprof_outputs  # Global numbering errors are not recoverable per core.
         self.logger.info(f'Radial-profile coverage: {outputs.index.min()}..{outputs.index.max()}')
-        self.pids = list(getattr(self, 'pids', []))
         self.tcoll_cores = self._load_tcoll_cores()
         for pid in self.pids:
             if 'collapse' in self.load_errors.get(pid, {}):
