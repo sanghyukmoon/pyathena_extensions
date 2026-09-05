@@ -47,12 +47,11 @@ def main():
         assert not s.nums
         assert all(len(value) == len(s.pids) for value in s.cores_dict.values())
     report = dict(cores=len(s.pids), initial_cache_aware_seconds=perf_counter()-start,
-                  initial_cache_aware_timings=s.load_timings, no_hdf5=True)
+                  no_hdf5=True)
     start = perf_counter()
     with patch.object(LoadSim, 'load_hdf5', side_effect=AssertionError('HDF5 accessed')):
         cached = LoadSim(fixture, legacy=False, savdir=s.savdir)
     report['warm_seconds'] = perf_counter()-start
-    report['warm_timings'] = cached.load_timings
     for pid in s.pids:
         xr.testing.assert_identical(s.rprofs[pid], cached.rprofs[pid])
         for method in s.cores_dict:

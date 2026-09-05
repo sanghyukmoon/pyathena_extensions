@@ -297,6 +297,7 @@ class TestDerivedDependencies(unittest.TestCase):
                         self.assertEqual(profiles.call_count, 4)  # two profile loads + two dependencies
                         self.assertEqual(particles.call_count, 4)
         self.assertEqual(len(s.cores_dict), 4)
+        self.assertFalse(hasattr(s, 'load_timings'))
 
     def test_cached_properties_require_existing_particles(self):
         s = self.s

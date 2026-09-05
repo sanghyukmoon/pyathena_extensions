@@ -1,6 +1,5 @@
 import os.path as osp
 import json
-from time import perf_counter
 import warnings
 import pandas as pd
 import xarray as xr
@@ -264,16 +263,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
     def _initialize_onthefly(self, *, method, load_rprofs, load_derived_cores, overwrite):
         """Eagerly populate independent results, gating each dependent calculation."""
         self.cores, self.rprofs, self.cores_dict, self._core_tracks = {}, {}, {}, {}
-        self.load_timings = {}
-        start = perf_counter()
         outputs = self.rprof_outputs  # Global numbering errors are not recoverable per core.
         self.logger.info(f'Radial-profile coverage: {outputs.index.min()}..{outputs.index.max()}')
-        self.load_timings['index_seconds'] = perf_counter()-start
-        start = perf_counter()
         self.pids = list(getattr(self, 'pids', []))
         self.tcoll_cores = self._load_tcoll_cores()
-        self.load_timings['collapse_seconds'] = perf_counter()-start
-        start = perf_counter()
         for pid in self.pids:
             if 'collapse' in self.load_errors.get(pid, {}):
                 continue
@@ -285,9 +278,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             except (ValueError, OSError) as error:
                 self._report_failure(pid, 'tracking', error)
         self.cores = self._core_tracks.copy()
-        self.load_timings['tracking_seconds'] = perf_counter()-start
         if load_rprofs:
-            start = perf_counter()
             for pid, track in self._core_tracks.items():
                 if track.attrs['track_failed']:
                     continue
@@ -295,14 +286,11 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     self.load_core_rprof(pid, cache=self.cache, overwrite=overwrite)
                 except (ValueError, OSError, KeyError) as error:
                     self._report_failure(pid, 'profiles', error)
-            self.load_timings['profiles_seconds'] = perf_counter()-start
         if load_derived_cores and load_rprofs:
             dependencies = {'profiles': {}, 'particles': {}}
             for name in ('empirical', 'virial', 'virial0', 'virial1'):
-                start = perf_counter()
                 self._update_core_props_onthefly(
                     name, cache=self.cache, overwrite=overwrite, dependencies=dependencies)
-                self.load_timings[f'{name}_seconds'] = perf_counter()-start
             self.select_cores(method)
 
 

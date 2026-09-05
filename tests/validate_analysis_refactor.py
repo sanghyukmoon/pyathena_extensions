@@ -42,7 +42,7 @@ def main():
     assert not s.load_errors, s.load_errors
     assert stamps == {name: (after/name).stat().st_mtime_ns for name in names}
     report = dict(identical_datasets=len(names), cores=len(s.pids),
-                  warm_seconds=perf_counter()-start, warm_timings=s.load_timings,
+                  warm_seconds=perf_counter()-start,
                   no_hdf5=True, no_recomputation=True, no_cache_rewrites=True)
     (work/'refactor-comparison.json').write_text(json.dumps(report, indent=2)+'\n')
     print(json.dumps(report, indent=2))
