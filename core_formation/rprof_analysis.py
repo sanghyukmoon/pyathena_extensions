@@ -71,21 +71,31 @@ def particle_outputs(s):
 def match_particles(s, num):
     """Match recorded times within 32 float64 eps * max(1, |time|)."""
     time = float(s.rprof_outputs.loc[num, 'time'])
+    return match_particle_time(s, time)
+
+
+def match_particle_time(s, time):
     tolerance = 32*np.finfo(float).eps*max(1., abs(time))
+    if s.particle_outputs is None:
+        raise ValueError('No valid particle output index')
     matches = s.particle_outputs.loc[np.abs(s.particle_outputs.time-time) <= tolerance]
     if len(matches) != 1:
-        raise ValueError(f'Expected one particle snapshot at rprof {num}, time {time}; '
+        raise ValueError(f'Expected one particle snapshot at time {time}; '
                          f'found {len(matches)}')
     return matches.iloc[0]
 
 
 def load_particles(s, num):
     output = match_particles(s, num)
+    return read_particle_output(output)
+
+
+def read_particle_output(output):
     reader = read_parbin if output.kind == 'parbin' else read_partab
     frames = [reader(path) for path in output.paths]
     result = pd.concat(frames).sort_index()
     if not result.index.is_unique:
-        raise ValueError(f'Duplicate particle IDs at rprof {num}')
+        raise ValueError(f'Duplicate particle IDs at time {output.time}')
     return result
 
 

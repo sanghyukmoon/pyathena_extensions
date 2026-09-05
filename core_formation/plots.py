@@ -919,10 +919,11 @@ def plot_diagnostics(s, pid, normalize_time=True):
 
 def plot_core_evolution(s, pid, num, hw=0.1, method='virial'):
     # Load data
+    hdf5_num = s.hdf5_num_for_core(num)
     if s.mhd:
-        ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
+        ds = s.load_hdf5(hdf5_num, quantities=['dens', 'mom1', 'mom2', 'mom3', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
     else:
-        ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3'], load_method='xarray')
+        ds = s.load_hdf5(hdf5_num, quantities=['dens', 'mom1', 'mom2', 'mom3'], load_method='xarray')
     core = s.cores[pid].loc[num]
     if 'radius' not in core:
         core['radius'] = np.nan
@@ -932,7 +933,11 @@ def plot_core_evolution(s, pid, num, hw=0.1, method='virial'):
     xc, yc, zc = s.flatindex_to_cartesian(core.leaf_id)
 
     # Load sink particles
-    pds = s.load_par(num)
+    if s.legacy:
+        pds = s.load_par(num)
+    else:
+        from .rprof_analysis import load_particles
+        pds = load_particles(s, num)
     pds = pds[((pds.x1 > xc - hw) & (pds.x1 < xc + hw)
              & (pds.x2 > yc - hw) & (pds.x2 < yc + hw)
              & (pds.x3 > zc - hw) & (pds.x3 < zc + hw))]
@@ -948,7 +953,8 @@ def plot_core_evolution(s, pid, num, hw=0.1, method='virial'):
 
     # Load minima positions
     pos_minima = {}
-    for lid in s.minima[num]:
+    minima = s.minima[num] if s.legacy else s._rprof_headers[num].center_id.values
+    for lid in minima:
         x, y, z = s.flatindex_to_cartesian(lid)
         if (x > xc - hw) and (x < xc + hw) and (y > yc - hw) and (y < yc + hw) and (z > zc - hw) and (z < zc + hw):
             pos_minima[lid] = x, y, z
@@ -1352,7 +1358,11 @@ def plot_sinkhistory(s, num):
         ds = s.load_hdf5(num, quantities=['dens', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
     else:
         ds = s.load_hdf5(num, quantities=['dens',], load_method='xarray')
-    pds = s.load_par(num)
+    if s.legacy:
+        pds = s.load_par(num)
+    else:
+        from .rprof_analysis import match_particle_time, read_particle_output
+        pds = read_particle_output(match_particle_time(s, s.num_to_time(num)))
 
     # find end time
     ds_end = s.load_hdf5(s.nums[-1], header_only=True)

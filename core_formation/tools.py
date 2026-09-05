@@ -135,6 +135,10 @@ def track_cores(s, pid):
     track_protostellar_cores : Forward core tracking after t_coll into
                                the protostellar stage.
     """
+    if not getattr(s, 'legacy', True):
+        from .rprof_analysis import track_core
+        return track_core(s, pid)
+
     # start from t = t_coll and track backward
     numcoll = s.tcoll_cores.loc[pid].num
     nums = np.arange(numcoll, config.GRID_NUM_START-1, -1)
@@ -1024,7 +1028,8 @@ def observable(s, core, rprf):
     num = core.name
     obsprops = dict()
     obsprops['num'] = num
-    prj = s.read_prj(num)
+    hdf5_num = s.hdf5_num_for_core(num)
+    prj = s.read_prj(hdf5_num)
     xc, yc, zc = s.flatindex_to_cartesian(core.leaf_id)
     xycoordnames = dict(z=['x', 'y'],
                         x=['y', 'z'],
@@ -1034,7 +1039,7 @@ def observable(s, core, rprf):
                      y=[zc, xc])
 
     # Read 3d data cube
-    dens_3d = s.load_hdf5(num, quantities=['dens']).dens
+    dens_3d = s.load_hdf5(hdf5_num, quantities=['dens']).dens
     dens_3d, new_center_3d, _ = recenter_dataset(dens_3d, dict(x=xc, y=yc, z=zc))
     for i, ax in enumerate(['x', 'y', 'z']):
         x1, x2 = xycoordnames[ax]
@@ -1287,7 +1292,7 @@ def critical_time_old(s, cores, rprofs, *, method):
             # critical time, throughout the collapse.
             rcrit = core.virial_rcrit
             if np.isnan(rcrit):
-                raise Exception(f"{s.basename}: virial_rcrit is NaN at num = {num} for pid = {pid}. Cannot calculate net force at r_crit.")
+                raise ValueError(f"{s.basename}: virial_rcrit is NaN at num = {num} for pid = {pid}. Cannot calculate net force at r_crit.")
             rprf = rprf.interp(r=rcrit)
             if method in ['virial', 'virial0']:
                 if rcrit <= 3*s.dx:

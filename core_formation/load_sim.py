@@ -18,7 +18,7 @@ from pyathena.load_sim import LoadSim as LoadSimBase
 from pyathena.util.units import Units
 from pyathena.io.timing_reader import TimingReader
 
-from . import models, tools, config, hst, slc_prj, myio
+from . import models, tools, config, hst, slc_prj, myio, rprof_analysis
 from .rprof_derived import add_rprof_derived, rprof_cumsum_r
 
 
@@ -61,7 +61,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
     def __init__(self, basedir_or_Mach=None, method='virial0', savdir=None,
                  verbose=False, override_all=False, override_cores=False,
                  override_rprofs=False, override_derived_cores=False,
-                 load_derived_cores=True):
+                 load_derived_cores=True, *, legacy=True, cache=True,
+                 overwrite=False, load_rprofs=True):
         """The constructor for LoadSim class for core formation simulations.
 
         Parameters
@@ -81,7 +82,21 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             ('NOTSET', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
             Numerical values from 0 ('NOTSET') to 50 ('CRITICAL') are also
             accepted.
+        legacy : bool
+            Select the existing HDF5/pickle workflow (default True), or the
+            on-the-fly profile/NetCDF workflow. All core loaders use this mode.
+        cache, overwrite : bool
+            New-mode disk-cache policy: read/write valid NetCDF caches by
+            default; overwrite forces reconstruction. cache=False bypasses disk.
+        load_rprofs : bool
+            Load core profile histories eagerly (default True). False is a
+            lightweight trajectory-only initialization and skips derived cores.
         """
+
+        self.legacy = bool(legacy)
+        self.cache = bool(cache)
+        self.overwrite = bool(overwrite or override_all)
+        self.load_errors = {}
 
         # Set unit system
         # [L] = L_{J,0}, [M] = M_{J,0}, [V] = c_s
@@ -96,7 +111,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             override_derived_cores = True
 
         if isinstance(basedir_or_Mach, (Path, str)):
-            basedir = basedir_or_Mach
+            basedir = str(basedir_or_Mach)
             super().__init__(basedir, savdir=savdir, load_method='xarray',
                              units=Units('code'), verbose=verbose)
 
@@ -147,7 +162,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             # Set nums dictionary (when hdf5 is stored in elsewhere for storage reasons)
             if not hasattr(self, 'nums'):
-                if hasattr(self, 'nums_parbin'):
+                if not self.legacy:
+                    self.nums = []
+                elif hasattr(self, 'nums_parbin'):
                     self.nums = self.nums_parbin['par0']
                 elif hasattr(self, 'nums_partab'):
                     self.nums = self.nums_partab['par0']
@@ -163,6 +180,13 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             self.tcr = 0.5*self.Lbox/self.Mach
             self.sonic_length = tools.get_sonic(self.Mach, self.Lbox)
+
+            if not self.legacy:
+                rprof_analysis.initialize(
+                    self, method=method, load_rprofs=load_rprofs,
+                    load_derived_cores=load_derived_cores,
+                    overwrite=self.overwrite or override_rprofs or override_derived_cores)
+                return
 
             # Find the collapse time and corresponding snapshot numbers
             self.tcoll_cores = self._load_tcoll_cores(
@@ -188,7 +212,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     self.logger.warning("Cannot find core files to load.")
                     pass
 
-            if hasattr(self, 'cores'):
+            if hasattr(self, 'cores') and load_rprofs:
                 try:
                     # Load radial profiles
                     savdir = Path(self.savdir, config.RPROF_DIR)
@@ -229,6 +253,33 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             pass
         else:
             raise ValueError("Unknown parameter type for basedir_or_Mach")
+
+    def load_rprof(self, num, center_ids=None, *, derived=True, metadata_only=False):
+        dataset = super().load_rprof(num, center_ids=center_ids,
+                                     metadata_only=metadata_only)
+        if derived and not metadata_only:
+            dataset = add_rprof_derived(dataset, cs=self.cs,
+                                       gconst=self.gconst, mhd=self.mhd)
+        return dataset
+
+    def load_core_rprof(self, pid, *, derived=True, cache=True, overwrite=False):
+        if self.legacy:
+            if not derived:
+                path = Path(self.savdir, config.RPROF_DIR)
+                profiles = [xr.load_dataset(
+                    path / f'radial_profile.{int(row.leaf_id)}.{int(num):05d}.nc')
+                    for num, row in self.cores[pid].iterrows()]
+                result = xr.concat(profiles, dim='t')
+                return result.assign_coords(num=('t', list(self.cores[pid].index))).set_xindex('num')
+            if overwrite or not hasattr(self, 'rprofs'):
+                self.rprofs = self._load_radial_profiles(
+                    savdir=Path(self.savdir, config.RPROF_DIR), force_override=overwrite)
+            return self.rprofs[pid]
+        result = rprof_analysis.load_core_rprof(
+            self, pid, derived=derived, cache=cache, overwrite=overwrite)
+        if derived:
+            self.rprofs[pid] = result
+        return result
 
     def load_hdf5(self, num, sparse=False, **kwargs):
         """Load hdf5 file
@@ -291,13 +342,33 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         ds = self.load_hdf5(num, header_only=True)
         return ds['Time']
 
+    def core_num_to_time(self, num):
+        """Time on the selected core-analysis timeline (distinct from HDF5)."""
+        return (self.num_to_time(num) if self.legacy else
+                float(self.rprof_outputs.loc[num, 'time']))
+
+    def hdf5_num_for_core(self, num):
+        """Require an actual-time match; never interpolate between HDF5 files."""
+        if self.legacy:
+            return num
+        time = self.core_num_to_time(num)
+        tolerance = 32*np.finfo(float).eps*max(1., abs(time))
+        matches = [n for n in self.nums if abs(self.num_to_time(n)-time) <= tolerance]
+        if len(matches) != 1:
+            raise ValueError(f'Expected one HDF5 snapshot at core output {num}, time {time}; '
+                             f'found {len(matches)}')
+        return matches[0]
+
     def select_cores(self, method):
-        self.cores = self.cores_dict[method].copy()
+        self.cores = ({} if self.legacy else self._core_tracks.copy())
+        self.cores.update(self.cores_dict[method])
 
     def good_cores(self, nres=8):
         """List of resolved cores"""
         good_cores = []
         for pid, cores in self.cores.items():
+            if not self.legacy and not cores.attrs.get('derived_available', False):
+                continue
             if cores.attrs['track_failed']:
                 # Exclude cores that failed to be tracked before collapse.
                 continue
@@ -306,9 +377,20 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 good_cores.append(pid)
         return good_cores
 
-    @LoadSimBase.Decorators.check_pickle
     def update_core_props(self, method,
                           prefix=None, savdir=None, force_override=False):
+        if not self.legacy:
+            return rprof_analysis.update_core_props(
+                self, method, cache=self.cache, overwrite=force_override)
+        return self._update_core_props_legacy(
+            method, prefix=prefix, savdir=savdir, force_override=force_override)
+
+    @LoadSimBase.Decorators.check_pickle
+    def _update_core_props_legacy(self, method, prefix=None, savdir=None,
+                                  force_override=False):
+        return self._compute_core_props(method, savdir)
+
+    def _compute_core_props(self, method, savdir, pids=None):
         """Update core properties
 
         Calculate lagrangian core properties using the radial profiles
@@ -323,17 +405,28 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             Updated core dataframe.
         """
         core_dict = {}
-        for pid in self.pids:
-            cores = self.cores[pid].copy()
+        tracks = self.cores if self.legacy else self._core_tracks
+        for pid in (self.pids if pids is None else pids):
+            cores = tracks[pid].copy()
             if cores.attrs['track_failed']:
                 core_dict[pid] = cores
                 continue
 
             rprofs = self.rprofs[pid]
 
+            if not self.legacy and method == 'empirical':
+                # TES fits use only the already-loaded radial profiles.
+                # Keep the existing scientific calculation, without pickle tasks.
+                tes_rows = [tools.critical_tes_property(self, rprofs.sel(num=num), core)
+                            for num, core in cores.iterrows()]
+                attrs = cores.attrs.copy()
+                cores = cores.join(pd.DataFrame(tes_rows, index=cores.index))
+                cores.attrs = attrs
+
             min_dst, mw_dst, min_dst_to_core = [], [], []
             for num in cores.index:
-                pds = self.load_par(num)
+                pds = (self.load_par(num) if self.legacy else
+                       rprof_analysis.load_particles(self, num))
                 core = cores.loc[num]
                 dst, mass = [], []
                 if len(pds) == 0:
@@ -347,7 +440,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     min_dst.append(min(dst))
                     mw_dst.append(np.average(dst, weights=mass))
                 for cid in self.pids:
-                    other_cores = self.cores[cid]
+                    other_cores = tracks[cid]
                     if num not in other_cores.index:
                         continue
                     other_core = other_cores.loc[num]
@@ -438,7 +531,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             # Load Lagrangian props
             fname = Path(savdir, f'lprops_tcrit_{method}.par{pid}.p')
-            if fname.exists():
+            if self.legacy and fname.exists():
                 lprops = pd.read_pickle(fname).sort_index()
                 if set(lprops.columns).issubset(cores.columns):
                     cores = cores.drop(lprops.columns, axis=1)
@@ -499,7 +592,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 oprops = []
                 for num, core in prestellar_cores.iterrows():
                     fname = Path(savdir, 'observables.par{}.{:05d}.p'.format(pid, num))
-                    if fname.exists():
+                    if self.legacy and fname.exists():
                         oprops.append(pd.read_pickle(fname))
                 if len(oprops) > 0:
                     oprops = pd.DataFrame(oprops).set_index('num').sort_index()
@@ -660,8 +753,23 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                            self.domain['le'][2], self.domain['re'][2])
         return x, y, z
 
-    @LoadSimBase.Decorators.check_pickle
     def _load_tcoll_cores(self, prefix='tcoll_cores', savdir=None, force_override=False):
+        if self.legacy:
+            return self._load_tcoll_cores_legacy(
+                prefix=prefix, savdir=savdir, force_override=force_override)
+        return self._compute_tcoll_cores()
+
+    @LoadSimBase.Decorators.check_pickle
+    def _load_tcoll_cores_legacy(self, prefix='tcoll_cores', savdir=None,
+                                force_override=False):
+        return self._compute_tcoll_cores()
+
+    def _precollapse_output_num(self, time):
+        if self.legacy:
+            return int(np.floor(time / self.dt_output['hdf5']))
+        return rprof_analysis.precollapse_num(self, time)
+
+    def _compute_tcoll_cores(self):
         """Read .csv output and find their collapse time and snapshot number.
 
         Additionally store their mass, position, velocity at the time of
@@ -670,7 +778,16 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         x1, x2, x3, v1, v2, v3 = {}, {}, {}, {}, {}, {}
         time, num = {}, {}
         for pid in self.pids:
-            phst = self.load_parhst(pid).iloc[0]
+            try:
+                history = self.load_parhst(pid)
+                if history is None or history.empty:
+                    raise ValueError('Particle history is empty or missing')
+                phst = history.iloc[0]
+            except (OSError, ValueError) as error:
+                if self.legacy:
+                    raise
+                rprof_analysis.report_failure(self, pid, 'collapse', error)
+                continue
             x1[pid] = phst.x1
             x2[pid] = phst.x2
             x3[pid] = phst.x3
@@ -678,7 +795,13 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             v2[pid] = phst.v2
             v3[pid] = phst.v3
             time[pid] = phst.time - phst.age
-            num[pid] = np.floor(time[pid] / self.dt_output['hdf5']).astype('int')
+            try:
+                num[pid] = self._precollapse_output_num(time[pid])
+            except ValueError as error:
+                if self.legacy:
+                    raise
+                self.load_errors.setdefault(pid, {})['collapse'] = str(error)
+                num[pid] = None
         tcoll_cores = pd.DataFrame(
             dict(x1=x1, x2=x2, x3=x3,
                  v1=v1, v2=v2, v3=v3,
@@ -686,6 +809,14 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             dtype=object
         )
         tcoll_cores.index.name = 'pid'
+        if not self.legacy:
+            outputs = self.rprof_outputs
+            tcoll_cores['output_time'] = [
+                outputs.loc[n, 'time'] if n is not None else np.nan
+                for n in tcoll_cores.num]
+            tcoll_cores['output_cycle'] = [
+                int(outputs.loc[n, 'cycle']) if n is not None else None
+                for n in tcoll_cores.num]
         return tcoll_cores
 
     @LoadSimBase.Decorators.check_pickle
