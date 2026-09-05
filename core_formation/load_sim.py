@@ -162,14 +162,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             tools.LognormalPDF.__init__(self, self.Mach)
             TimingReader.__init__(self, self.basedir, self.problem_id)
 
-            # Set nums dictionary (when hdf5 is stored in elsewhere for storage reasons)
-            if not hasattr(self, 'nums'):
-                if not self.legacy:
-                    self.nums = []
-                elif hasattr(self, 'nums_parbin'):
-                    self.nums = self.nums_parbin['par0']
-                elif hasattr(self, 'nums_partab'):
-                    self.nums = self.nums_partab['par0']
+            self._initialize_timelines()
 
             # Set domain
             Lbox = set(self.domain['Lx'])
@@ -255,6 +248,39 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         else:
             raise ValueError("Unknown parameter type for basedir_or_Mach")
 
+    def _initialize_timelines(self):
+        """Read times and minimum IDs once from the files found by FindFiles."""
+        hdf5 = [v for key, v in self.par.items()
+                if key.startswith('output') and v.get('file_type') == 'hdf5']
+        if len(hdf5) > 1 or (hdf5 and hdf5[0].get('variable') != 'cons'):
+            raise ValueError('Core formation requires at most one cons HDF5 output')
+        self.nums_hdf5 = list(self.ff.nums_hdf5.get('cons') or []) if hdf5 else []
+        self.times_hdf5 = {num: float(self.load_hdf5(num, header_only=True)['Time'])
+                           for num in self.nums_hdf5}
+        if self.legacy:
+            self.nums = self.nums_hdf5
+            self.times = self.times_hdf5
+            return
+        self.nums = list(self.nums_rprof) if hasattr(self, 'nums_rprof') else []
+        if not self.nums:
+            raise FileNotFoundError('No radial-profile outputs found')
+        if np.any(np.diff(self.nums) != 1):
+            raise ValueError('Gap in radial-profile output numbering')
+        self.times, self.minima = {}, {}
+        for num in self.nums:
+            header = self.load_rprof(num, metadata_only=True)
+            if int(header.attrs['num']) != num:
+                raise ValueError(f'Inconsistent radial-profile number at output {num}')
+            self.times[num] = float(header.attrs['time'])
+            self.minima[num] = header.center_id.to_numpy().copy()
+        if np.any(np.diff(list(self.times.values())) <= 0):
+            raise ValueError('Radial-profile times must increase with output number')
+        if hdf5:
+            ratio = float(hdf5[0]['dt']) / self.dt_output['rprof']
+            if not np.isfinite(ratio) or ratio < 1 or abs(ratio-round(ratio)) > 64*np.finfo(float).eps*max(1., abs(ratio)):
+                raise ValueError('HDF5 cadence must be an integer multiple of radial-profile cadence')
+            self.hdf5_stride = int(round(ratio))
+
     def _report_failure(self, pid, stage, error):
         self.load_errors.setdefault(pid, {})[stage] = str(error)
         self.logger.warning(f'On-the-fly pid {pid}, {stage}: {error}')
@@ -263,8 +289,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
     def _initialize_onthefly(self, *, method, load_rprofs, load_derived_cores, overwrite):
         """Eagerly populate independent results, gating each dependent calculation."""
         self.cores, self.rprofs, self.cores_dict, self._core_tracks = {}, {}, {}, {}
-        outputs = self.rprof_outputs  # Global numbering errors are not recoverable per core.
-        self.logger.info(f'Radial-profile coverage: {outputs.index.min()}..{outputs.index.max()}')
         self.tcoll_cores = self._load_tcoll_cores()
         for pid in self.pids:
             if 'collapse' in self.load_errors.get(pid, {}):
@@ -306,7 +330,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         particle_stamps = dependencies['particles']
         peer_missing = [pid for pid in self.pids if pid not in self._core_tracks or
                         self._core_tracks[pid].attrs['track_failed']]
-        outputs = self.rprof_outputs if not peer_missing else None
         for pid in self.pids:
             stage = f'derived:{method}'
             try:
@@ -318,7 +341,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 self._validate_profile(track, self.rprofs[pid])
                 for cid, other in self._core_tracks.items():
                     if int(cid) not in fingerprints:
-                        fingerprints[int(cid)] = self._profile_fingerprint(other, outputs)
+                        fingerprints[int(cid)] = self._profile_fingerprint(other)
                 current_fingerprint = fingerprints[int(pid)]
                 if self.rprofs[pid].attrs.get('fingerprint') != current_fingerprint:
                     raise ValueError('In-memory profiles are stale; reload load_core_rprof first')
@@ -360,24 +383,22 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
 
     def _precollapse_num(self, time):
-        outputs = self.rprof_outputs
-        eligible = outputs.index[outputs.time <= time]
-        if len(eligible) == 0:
-            raise ValueError(f"No radial-profile output at or before collapse time {time}")
-        return int(eligible[-1])
+        eligible = [num for num in self.nums if self.times[num] <= time]
+        if not eligible:
+            raise ValueError(f'No radial-profile output at or before collapse time {time}')
+        return eligible[-1]
 
 
     def _track_core(self, pid, *, f_mul=3):
         """Follow nearest periodic minima backward until continuity fails."""
-        outputs = self.rprof_outputs
         collapse = self.tcoll_cores.loc[pid]
         numcoll = int(collapse.num)
         position = collapse[['x1', 'x2', 'x3']].to_numpy(dtype=float)
         rows, positions = [], []
         reason = 'coverage_start'
-        for num in outputs.loc[:numcoll].index[::-1]:
-            header = self._rprof_headers[int(num)]
-            candidates = np.column_stack([header[c].values for c in ('x1', 'x2', 'x3')])
+        for num in reversed([n for n in self.nums if n <= numcoll]):
+            center_ids = self.minima[num]
+            candidates = np.array([self.flatindex_to_cartesian(int(lid)) for lid in center_ids])
             if not len(candidates):
                 reason = 'empty_minima'
                 break
@@ -393,9 +414,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     break
             position = candidate
             positions.append(position)
-            rows.append(dict(num=int(num), time=float(header.attrs['time']),
-                             cycle=int(header.attrs['cycle']),
-                             leaf_id=int(header.center_id.values[chosen])))
+            rows.append(dict(num=int(num), time=self.times[num],
+                             leaf_id=int(center_ids[chosen])))
         if not rows:
             raise ValueError(f"No minimum at the pre-collapse output for pid {pid}")
         cores = pd.DataFrame(rows, dtype=object).set_index('num').sort_index()
@@ -406,9 +426,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         return cores
 
 
-    def _profile_fingerprint(self, track, outputs):
+    def _profile_fingerprint(self, track):
         records = [[int(num), int(row.leaf_id), float(row.time),
-                    rprof_analysis.file_stamp(outputs.loc[num, 'path'])]
+                    rprof_analysis.file_stamp(self._get_frprof(num))]
                    for num, row in track.iterrows()]
         content = dict(schema=rprof_analysis.SCHEMA_VERSION, calculation=CALCULATION_VERSION,
                        source='rprof', cs=float(self.cs), gconst=float(self.gconst),
@@ -426,7 +446,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         if not np.array_equal(dataset.t, track.time.to_numpy(dtype=float)):
             raise ValueError('Profile times differ from the core trajectory')
         for index, (num, row) in enumerate(track.iterrows()):
-            header = self._rprof_headers[int(num)]
+            header = self.load_rprof(num, metadata_only=True)
             if float(row.time) != header.attrs['time']:
                 raise ValueError(f'Trajectory time disagrees with rprof output {num}')
             if 'cycle' in track and int(row.cycle) != header.attrs['cycle']:
@@ -447,8 +467,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         track = self._core_tracks[pid]
         if track.empty or track.attrs.get('track_failed', False):
             raise ValueError(f'Core {pid} has no valid prestellar trajectory')
-        outputs = self.rprof_outputs
-        fingerprint = self._profile_fingerprint(track, outputs)
+        fingerprint = self._profile_fingerprint(track)
         path = Path(self.savdir, 'on_the_fly', f'core_rprof.par{pid}.nc')
         dataset = None
         if cache and not overwrite and path.exists():
@@ -463,7 +482,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         if dataset is None:
             rows, radius = [], None
             for num, core in track.iterrows():
-                source = read_radial_profile(outputs.loc[num, 'path'],
+                source = read_radial_profile(self._get_frprof(num),
                                              center_ids=[int(core.leaf_id)])
                 if radius is not None and not np.array_equal(source.r, radius):
                     raise ValueError(f'Radial coordinates differ at output {num}')
@@ -528,33 +547,27 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             self.rprofs[pid] = result
         return result
 
-    def load_hdf5(self, num, sparse=False, **kwargs):
-        """Load hdf5 file
-
-        Parameters
-        ----------
-        num : int
-            Snapshot number.
-        sparse : bool
-            If True, load only the header information.
-        """
+    def load_hdf5(self, num=None, sparse=False, *, rprof_num=None, **kwargs):
+        """Load a native HDF5 number, or the HDF5 output at rprof_num."""
+        if (num is None) == (rprof_num is None):
+            raise ValueError('Specify exactly one of num and rprof_num')
+        if rprof_num is not None:
+            if self.legacy:
+                raise ValueError('rprof_num requires nonlegacy mode')
+            if not self.nums_hdf5 or rprof_num not in self.nums:
+                raise FileNotFoundError(f'No HDF5 snapshot at radial-profile output {rprof_num}')
+            num, remainder = divmod(rprof_num, self.hdf5_stride)
+            if remainder:
+                raise ValueError(f'No HDF5 snapshot at radial-profile output {rprof_num}')
         if sparse:
-            outid = self._hdf5_outid_def
-            outvar = self._hdf5_outvar_def
-            fname = Path(
-                self.basedir, "sparse", f"{self.problem_id}.{num:05d}.athdf"
-            )
+            fname = Path(self.basedir, 'sparse', f'{self.problem_id}.{num:05d}.athdf')
             if not fname.exists():
                 raise FileNotFoundError('sparse hdf5 file does not exist.')
-            if 'chunks' in kwargs:
-                chunks = (kwargs['chunks']['x'],
-                          kwargs['chunks']['y'],
-                          kwargs['chunks']['z'])
-            else:
-                raise ValueError("chunks must be specified for sparse hdf5")
+            if 'chunks' not in kwargs:
+                raise ValueError('chunks must be specified for sparse hdf5')
+            chunks = tuple(kwargs['chunks'][axis] for axis in ('x', 'y', 'z'))
             return myio.read_sparse_hdf5(fname, chunks)
-        else:
-            return LoadSimBase.load_hdf5(self, num, **kwargs)
+        return LoadSimBase.load_hdf5(self, num, **kwargs)
 
     def _particle_path(self, num):
         """Resolve the same particle snapshot as load_par, without reading it."""
@@ -597,39 +610,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         with open(fname, 'rb') as handle:
             return pickle.load(handle)
 
-    def num_to_time(self, num):
-        ds = self.load_hdf5(num, header_only=True)
-        return ds['Time']
 
-    def core_num_to_time(self, num):
-        """Time on the selected core-analysis timeline (distinct from HDF5)."""
-        return (self.num_to_time(num) if self.legacy else
-                float(self.rprof_outputs.loc[num, 'time']))
 
-    def hdf5_num_for_core(self, num):
-        """Require an actual-time match; never interpolate between HDF5 files."""
-        if self.legacy:
-            return num
-        time = self.core_num_to_time(num)
-        tolerance = 32*np.finfo(float).eps*max(1., abs(time))
-        matches = [n for n in (self.nums or []) if abs(self.num_to_time(n)-time) <= tolerance]
-        if len(matches) != 1:
-            raise ValueError(f'Expected one HDF5 snapshot at core output {num}, time {time}; '
-                             f'found {len(matches)}')
-        return matches[0]
 
-    def core_num_for_hdf5(self, num):
-        """Map a coarse HDF5 snapshot to the core timeline without interpolation."""
-        if self.legacy:
-            return num
-        time = self.num_to_time(num)
-        outputs = self.rprof_outputs
-        tolerance = 32*np.finfo(float).eps*max(1., abs(time))
-        matches = outputs.index[np.abs(outputs.time-time) <= tolerance]
-        if len(matches) != 1:
-            raise ValueError(f'Expected one radial-profile snapshot at HDF5 output '
-                             f'{num}, time {time}; found {len(matches)}')
-        return int(matches[0])
 
     def select_cores(self, method):
         self.cores = ({} if self.legacy else self._core_tracks.copy())
@@ -1085,13 +1068,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         )
         tcoll_cores.index.name = 'pid'
         if not self.legacy:
-            outputs = self.rprof_outputs
-            tcoll_cores['output_time'] = [
-                outputs.loc[n, 'time'] if n is not None else np.nan
-                for n in tcoll_cores.num]
-            tcoll_cores['output_cycle'] = [
-                int(outputs.loc[n, 'cycle']) if n is not None else None
-                for n in tcoll_cores.num]
+            tcoll_cores['output_time'] = [self.times[n] if n is not None else np.nan
+                                          for n in tcoll_cores.num]
         return tcoll_cores
 
     @LoadSimBase.Decorators.check_pickle
@@ -1272,12 +1250,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         """
         savdir = Path(self.savdir, config.FOURIER_DIR)
         pspec = []
-        for num in self.nums:
+        for num in self.nums_hdf5:
             fname = Path(savdir, f'power_spectrum.{num:05d}.p')
             ps = xr.open_dataset(fname)
             pspec.append(ps)
         pspec = xr.concat(pspec, 't')
-        pspec = pspec.assign_coords(dict(num=('t', self.nums)))
+        pspec = pspec.assign_coords(dict(num=('t', self.nums_hdf5)))
         return pspec
 
 

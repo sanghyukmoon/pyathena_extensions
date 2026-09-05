@@ -919,11 +919,11 @@ def plot_diagnostics(s, pid, normalize_time=True):
 
 def plot_core_evolution(s, pid, num, hw=0.1, method='virial'):
     # Load data
-    hdf5_num = s.hdf5_num_for_core(num)
+    selector = {'num': num} if s.legacy else {'rprof_num': num}
     if s.mhd:
-        ds = s.load_hdf5(hdf5_num, quantities=['dens', 'mom1', 'mom2', 'mom3', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
+        ds = s.load_hdf5(**selector, quantities=['dens', 'mom1', 'mom2', 'mom3', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
     else:
-        ds = s.load_hdf5(hdf5_num, quantities=['dens', 'mom1', 'mom2', 'mom3'], load_method='xarray')
+        ds = s.load_hdf5(**selector, quantities=['dens', 'mom1', 'mom2', 'mom3'], load_method='xarray')
     core = s.cores[pid].loc[num]
     if 'radius' not in core:
         core['radius'] = np.nan
@@ -949,7 +949,7 @@ def plot_core_evolution(s, pid, num, hw=0.1, method='virial'):
 
     # Load minima positions
     pos_minima = {}
-    minima = s.minima[num] if s.legacy else s._rprof_headers[num].center_id.values
+    minima = s.minima[num]
     for lid in minima:
         x, y, z = s.flatindex_to_cartesian(lid)
         if (x > xc - hw) and (x < xc + hw) and (y > yc - hw) and (y < yc + hw) and (z > zc - hw) and (z < zc + hw):
@@ -1354,10 +1354,10 @@ def plot_sinkhistory(s, num):
         ds = s.load_hdf5(num, quantities=['dens', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
     else:
         ds = s.load_hdf5(num, quantities=['dens',], load_method='xarray')
-    pds = s.load_par(s.core_num_for_hdf5(num))
+    pds = s.load_par(num if s.legacy else num*s.hdf5_stride)
 
     # find end time
-    ds_end = s.load_hdf5(s.nums[-1], header_only=True)
+    ds_end = s.load_hdf5(s.nums_hdf5[-1], header_only=True)
     tend = ds_end['Time']
 
     # create figure

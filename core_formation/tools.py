@@ -153,7 +153,7 @@ def track_cores(s, pid):
     dt_hdf5 = s.par['output2']['dt']
 
     nums_track = [num,]
-    time = [s.num_to_time(num),]
+    time = [s.times_hdf5[num],]
     leaf_id = [lid,]
     for num in nums[1:]:
         print(f'[track_cores] processing model {s.basename} pid {pid} num {num}')
@@ -165,7 +165,7 @@ def track_cores(s, pid):
         lid = minima[np.argmin(dst)]
 
         nums_track.append(num)
-        time.append(s.num_to_time(num))
+        time.append(s.times_hdf5[num])
         leaf_id.append(lid)
     # SMOON: Using dtype=object is to prevent automatic upcasting from int to float
     # when indexing a single row. Maybe there is a better approach.
@@ -1025,7 +1025,10 @@ def observable(s, core, rprf):
     num = core.name
     obsprops = dict()
     obsprops['num'] = num
-    hdf5_num = s.hdf5_num_for_core(num)
+    # Loading through the selector validates whether a coarse output exists.
+    dens_3d = (s.load_hdf5(num, quantities=['dens']) if s.legacy else
+               s.load_hdf5(rprof_num=num, quantities=['dens'])).dens
+    hdf5_num = num if s.legacy else num // s.hdf5_stride
     prj = s.read_prj(hdf5_num)
     xc, yc, zc = s.flatindex_to_cartesian(core.leaf_id)
     xycoordnames = dict(z=['x', 'y'],
@@ -1036,7 +1039,6 @@ def observable(s, core, rprf):
                      y=[zc, xc])
 
     # Read 3d data cube
-    dens_3d = s.load_hdf5(hdf5_num, quantities=['dens']).dens
     dens_3d, new_center_3d, _ = recenter_dataset(dens_3d, dict(x=xc, y=yc, z=zc))
     for i, ax in enumerate(['x', 'y', 'z']):
         x1, x2 = xycoordnames[ax]
