@@ -936,8 +936,7 @@ def plot_core_evolution(s, pid, num, hw=0.1, method='virial'):
     if s.legacy:
         pds = s.load_par(num)
     else:
-        from .rprof_analysis import load_particles
-        pds = load_particles(s, num)
+        pds = s._load_particles(num)
     pds = pds[((pds.x1 > xc - hw) & (pds.x1 < xc + hw)
              & (pds.x2 > yc - hw) & (pds.x2 < yc + hw)
              & (pds.x3 > zc - hw) & (pds.x3 < zc + hw))]
@@ -1361,8 +1360,8 @@ def plot_sinkhistory(s, num):
     if s.legacy:
         pds = s.load_par(num)
     else:
-        from .rprof_analysis import match_particle_time, read_particle_output
-        pds = read_particle_output(match_particle_time(s, s.num_to_time(num)))
+        from .rprof_analysis import read_particle_output
+        pds = read_particle_output(s._match_particle_time(s.num_to_time(num)))
 
     # find end time
     ds_end = s.load_hdf5(s.nums[-1], header_only=True)

@@ -136,8 +136,7 @@ def track_cores(s, pid):
                                the protostellar stage.
     """
     if not getattr(s, 'legacy', True):
-        from .rprof_analysis import track_core
-        return track_core(s, pid)
+        return s._track_core(pid)
 
     # start from t = t_coll and track backward
     numcoll = s.tcoll_cores.loc[pid].num

@@ -1,4 +1,8 @@
 import os.path as osp
+import hashlib
+import json
+import re
+from time import perf_counter
 import warnings
 import pandas as pd
 import xarray as xr
@@ -19,7 +23,9 @@ from pyathena.util.units import Units
 from pyathena.io.timing_reader import TimingReader
 
 from . import models, tools, config, hst, slc_prj, myio, rprof_analysis
-from .rprof_derived import add_rprof_derived, rprof_cumsum_r
+from pyathena.io.read_radial_profile import read_radial_profile
+from pyathena.io.read_particles import read_parbin, read_partab
+from .rprof_derived import add_rprof_derived, rprof_cumsum_r, CALCULATION_VERSION
 
 
 class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
@@ -182,8 +188,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             self.sonic_length = tools.get_sonic(self.Mach, self.Lbox)
 
             if not self.legacy:
-                rprof_analysis.initialize(
-                    self, method=method, load_rprofs=load_rprofs,
+                self._initialize_onthefly(method=method, load_rprofs=load_rprofs,
                     load_derived_cores=load_derived_cores,
                     overwrite=self.overwrite or override_rprofs or override_derived_cores)
                 return
@@ -254,6 +259,331 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         else:
             raise ValueError("Unknown parameter type for basedir_or_Mach")
 
+    def _report_failure(self, pid, stage, error):
+        self.load_errors.setdefault(pid, {})[stage] = str(error)
+        self.logger.warning(f'On-the-fly pid {pid}, {stage}: {error}')
+
+
+    def _particle_outputs(self):
+        """Index one contiguous particle stream; do not equate its counter to rprof."""
+        pattern = re.compile(re.escape(self.problem_id) +
+                             r'(?:\.block(\d+))?\.(out\d+)\.(\d+)\.par0\.(parbin|tab)$')
+        groups, streams = {}, set()
+        for directory in (Path(self.basedir), Path(self.basedir, 'parbin'),
+                          Path(self.basedir, 'partab')):
+            for path in sorted(directory.glob(self.problem_id+'*.par0.*')):
+                match = pattern.fullmatch(path.name)
+                if match is None:
+                    continue
+                block, stream, number, kind = match.groups()
+                streams.add((stream, kind))
+                groups.setdefault(int(number), []).append((block, path))
+        if len(streams) != 1:
+            raise ValueError(f'Expected one particle output stream, found {sorted(streams)}')
+        numbers = sorted(groups)
+        if np.any(np.diff(numbers) != 1):
+            raise ValueError('Gap in particle output numbering')
+        kind = next(iter(streams))[1]
+        reader = read_parbin if kind == 'parbin' else read_partab
+        records = []
+        for num in numbers:
+            entries = groups[num]
+            blocks = [block for block, _ in entries]
+            if blocks == [None]:
+                pass
+            elif None in blocks or len(set(blocks)) != len(blocks):
+                raise ValueError(f'Duplicate/ambiguous particle output {num}')
+            else:
+                nblocks = int(np.prod([self.par['mesh'][f'nx{i}']//
+                                      self.par['meshblock'][f'nx{i}'] for i in (1, 2, 3)]))
+                if set(map(int, blocks)) != set(range(nblocks)):
+                    raise ValueError(f'Incomplete particle MeshBlock coverage at {num}')
+            paths = [path for _, path in entries]
+            times = [reader(path, header_only=True).get('time', np.nan) for path in paths]
+            if not np.all(np.isfinite(times)) or not np.all(np.asarray(times) == times[0]):
+                raise ValueError(f'Missing or inconsistent particle time at output {num}')
+            records.append(dict(num=num, time=times[0], paths=paths, kind=kind))
+        result = pd.DataFrame(records).set_index('num')
+        if np.any(np.diff(result.time) <= 0):
+            raise ValueError('Particle output times must increase')
+        return result
+
+
+    def _match_particles(self, num):
+        """Match recorded times within 32 float64 eps * max(1, |time|)."""
+        time = float(self.rprof_outputs.loc[num, 'time'])
+        return self._match_particle_time(time)
+
+
+    def _match_particle_time(self, time):
+        tolerance = 32*np.finfo(float).eps*max(1., abs(time))
+        if self.particle_outputs is None:
+            raise ValueError('No valid particle output index')
+        matches = self.particle_outputs.loc[np.abs(self.particle_outputs.time-time) <= tolerance]
+        if len(matches) != 1:
+            raise ValueError(f'Expected one particle snapshot at time {time}; '
+                             f'found {len(matches)}')
+        return matches.iloc[0]
+
+
+    def _load_particles(self, num):
+        output = self._match_particles(num)
+        return rprof_analysis.read_particle_output(output)
+
+
+    def _initialize_onthefly(self, *, method, load_rprofs, load_derived_cores, overwrite):
+        """Eagerly populate independent results, gating each dependent calculation."""
+        self.cores, self.rprofs, self.cores_dict, self._core_tracks = {}, {}, {}, {}
+        self.load_timings = {}
+        start = perf_counter()
+        outputs = self.rprof_outputs  # Global numbering errors are not recoverable per core.
+        self.logger.info(f'Radial-profile coverage: {outputs.index.min()}..{outputs.index.max()}')
+        self.load_timings['index_seconds'] = perf_counter()-start
+        start = perf_counter()
+        self.pids = list(getattr(self, 'pids', []))
+        self.tcoll_cores = self._load_tcoll_cores()
+        self.load_timings['collapse_seconds'] = perf_counter()-start
+        start = perf_counter()
+        for pid in self.pids:
+            if 'collapse' in self.load_errors.get(pid, {}):
+                continue
+            try:
+                track = self._track_core(pid)
+                self._core_tracks[pid] = track
+                if track.attrs['track_failed']:
+                    self._report_failure(pid, 'tracking', track.attrs['stop_reason'])
+            except (ValueError, OSError) as error:
+                self._report_failure(pid, 'tracking', error)
+        self.cores = self._core_tracks.copy()
+        self.load_timings['tracking_seconds'] = perf_counter()-start
+        try:
+            self.particle_outputs = self._particle_outputs()
+        except (ValueError, OSError) as error:
+            self.particle_outputs = None
+            for pid in self.pids:
+                self._report_failure(pid, 'particles', error)
+        if load_rprofs:
+            start = perf_counter()
+            for pid, track in self._core_tracks.items():
+                if track.attrs['track_failed']:
+                    continue
+                try:
+                    self.load_core_rprof(pid, cache=self.cache, overwrite=overwrite)
+                except (ValueError, OSError, KeyError) as error:
+                    self._report_failure(pid, 'profiles', error)
+            self.load_timings['profiles_seconds'] = perf_counter()-start
+        if load_derived_cores and load_rprofs:
+            for name in ('empirical', 'virial', 'virial0', 'virial1'):
+                start = perf_counter()
+                self.cores_dict[name] = self._update_core_props_onthefly(name, cache=self.cache, overwrite=overwrite)
+                self.load_timings[f'{name}_seconds'] = perf_counter()-start
+            self.select_cores(method)
+
+
+    def _update_core_props_onthefly(self, method, *, cache=True, overwrite=False):
+        """Explicit per-core dependency checks and mode-separated NetCDF caches."""
+        if method not in ('empirical', 'virial', 'virial0', 'virial1'):
+            raise ValueError(f'Unknown critical-time method {method}')
+        result = {}
+        self.particle_outputs = None
+        try:
+            self.particle_outputs = self._particle_outputs()
+        except (ValueError, OSError) as error:
+            for pid in self.pids:
+                self._report_failure(pid, f'derived:{method}', error)
+            return result
+        peer_missing = [pid for pid in self.pids if pid not in self._core_tracks or
+                        self._core_tracks[pid].attrs['track_failed']]
+        for pid in self.pids:
+            stage = f'derived:{method}'
+            try:
+                if peer_missing:
+                    raise ValueError(f'Peer trajectories incomplete for {peer_missing}')
+                if pid not in self.rprofs:
+                    raise ValueError('Radial profiles have not loaded successfully')
+                track = self._core_tracks[pid]
+                self._validate_profile(track, self.rprofs[pid])
+                current_fingerprint = self._profile_fingerprint(track, self.rprof_outputs)
+                if self.rprofs[pid].attrs.get('fingerprint') != current_fingerprint:
+                    raise ValueError('In-memory profiles are stale; reload load_core_rprof first')
+                matched = [self._match_particles(num) for num in track.index]
+                content = dict(schema=rprof_analysis.SCHEMA_VERSION, method=method,
+                               profiles=self._profile_fingerprint(track, self.rprof_outputs),
+                               peers={int(cid): self._profile_fingerprint(other, self.rprof_outputs)
+                                      for cid, other in self._core_tracks.items()},
+                               track_attributes=track.attrs,
+                               particles=[rprof_analysis.file_stamp(path) for row in matched for path in row.paths],
+                               history=rprof_analysis.file_stamp(self._get_fparhst(pid)))
+                fingerprint = hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
+                path = Path(self.savdir, 'on_the_fly', f'core_props.{method}.par{pid}.nc')
+                if cache and not overwrite and path.exists():
+                    try:
+                        stored = xr.load_dataset(path, engine='netcdf4')
+                        if stored.attrs.get('fingerprint') == fingerprint:
+                            result[pid] = rprof_analysis.dataset_to_frame(stored)
+                            self.load_errors.get(pid, {}).pop(stage, None)
+                            continue
+                    except (OSError, ValueError, KeyError):
+                        pass
+                computed = self._compute_core_props(method, self.savdir, pids=[pid])
+                if pid not in computed:
+                    raise ValueError('Core calculation did not return a usable result')
+                frame = computed[pid]
+                frame.attrs['derived_available'] = True
+                if cache:
+                    dataset = rprof_analysis.frame_to_dataset(frame)
+                    dataset.attrs['fingerprint'] = fingerprint
+                    rprof_analysis.write_netcdf(dataset, path)
+                result[pid] = frame
+                self.load_errors.get(pid, {}).pop(stage, None)
+            except (ValueError, OSError, KeyError, RuntimeError) as error:
+                self._report_failure(pid, stage, error)
+        return result
+
+
+    def _precollapse_num(self, time):
+        outputs = self.rprof_outputs
+        eligible = outputs.index[outputs.time <= time]
+        if len(eligible) == 0:
+            raise ValueError(f"No radial-profile output at or before collapse time {time}")
+        return int(eligible[-1])
+
+
+    def _track_core(self, pid, *, f_mul=3):
+        """Follow nearest periodic minima backward until continuity fails."""
+        outputs = self.rprof_outputs
+        collapse = self.tcoll_cores.loc[pid]
+        numcoll = int(collapse.num)
+        position = collapse[['x1', 'x2', 'x3']].to_numpy(dtype=float)
+        rows, positions = [], []
+        reason = 'coverage_start'
+        for num in outputs.loc[:numcoll].index[::-1]:
+            header = self._rprof_headers[int(num)]
+            candidates = np.column_stack([header[c].values for c in ('x1', 'x2', 'x3')])
+            if not len(candidates):
+                reason = 'empty_minima'
+                break
+            distances = np.linalg.norm(rprof_analysis.periodic_displacement(candidates-position, self.Lbox), axis=1)
+            chosen = int(np.argmin(distances))
+            candidate = candidates[chosen]
+            if len(positions) >= 2:
+                displacement = rprof_analysis.periodic_displacement(positions[-1]-positions[-2], self.Lbox)
+                prediction = positions[-1] + displacement
+                error = np.linalg.norm(rprof_analysis.periodic_displacement(candidate-prediction, self.Lbox))
+                if error > f_mul*max(np.linalg.norm(displacement), self.dx):
+                    reason = 'continuity'
+                    break
+            position = candidate
+            positions.append(position)
+            rows.append(dict(num=int(num), time=float(header.attrs['time']),
+                             cycle=int(header.attrs['cycle']),
+                             leaf_id=int(header.center_id.values[chosen])))
+        if not rows:
+            raise ValueError(f"No minimum at the pre-collapse output for pid {pid}")
+        cores = pd.DataFrame(rows, dtype=object).set_index('num').sort_index()
+        cores.attrs.update(pid=int(pid), numcoll=numcoll, tcoll=float(collapse.time),
+                           source='rprof', f_mul=float(f_mul), stop_reason=reason,
+                           num_start=int(cores.index[0]),
+                           track_failed=len(cores) < 2 or reason == 'empty_minima')
+        return cores
+
+
+    def _profile_fingerprint(self, track, outputs):
+        records = [[int(num), int(row.leaf_id), float(row.time),
+                    rprof_analysis.file_stamp(outputs.loc[num, 'path'])]
+                   for num, row in track.iterrows()]
+        content = dict(schema=rprof_analysis.SCHEMA_VERSION, calculation=CALCULATION_VERSION,
+                       source='rprof', cs=float(self.cs), gconst=float(self.gconst),
+                       mhd=bool(self.mhd), records=records)
+        return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
+
+
+    def _validate_profile(self, track, dataset):
+        """Check provenance against the current trajectory and file headers."""
+        numbers = np.asarray(track.index, dtype=np.int64)
+        if not np.array_equal(dataset.num, numbers):
+            raise ValueError('Profile output numbers differ from the core trajectory')
+        if not np.array_equal(dataset.center_id, track.leaf_id.to_numpy(dtype=np.uint64)):
+            raise ValueError('Profile center IDs differ from the core trajectory')
+        if not np.array_equal(dataset.t, track.time.to_numpy(dtype=float)):
+            raise ValueError('Profile times differ from the core trajectory')
+        for index, (num, row) in enumerate(track.iterrows()):
+            header = self._rprof_headers[int(num)]
+            if float(row.time) != header.attrs['time']:
+                raise ValueError(f'Trajectory time disagrees with rprof output {num}')
+            if 'cycle' in track and int(row.cycle) != header.attrs['cycle']:
+                raise ValueError(f'Trajectory cycle disagrees with rprof output {num}')
+            if not np.array_equal(dataset.r, header.r):
+                raise ValueError(f'Radial coordinates differ at output {num}')
+            if int(row.leaf_id) not in header.center_id.values:
+                raise ValueError(f'Trajectory center missing at output {num}')
+            if int(dataset.cycle.values[index]) != header.attrs['cycle']:
+                raise ValueError(f'Cached cycle disagrees with rprof output {num}')
+            center = header.sel(center_id=int(row.leaf_id))
+            for coordinate in ('x1', 'x2', 'x3'):
+                if float(dataset[coordinate].values[index]) != float(center[coordinate]):
+                    raise ValueError(f'Cached center position differs at output {num}')
+
+
+    def _load_core_rprof_onthefly(self, pid, *, derived=True, cache=True, overwrite=False):
+        track = self._core_tracks[pid]
+        if track.empty or track.attrs.get('track_failed', False):
+            raise ValueError(f'Core {pid} has no valid prestellar trajectory')
+        outputs = self.rprof_outputs
+        fingerprint = self._profile_fingerprint(track, outputs)
+        path = Path(self.savdir, 'on_the_fly', f'core_rprof.par{pid}.nc')
+        dataset = None
+        if cache and not overwrite and path.exists():
+            try:
+                candidate = xr.load_dataset(path, engine='netcdf4')
+                if (candidate.attrs.get('fingerprint') == fingerprint and
+                        (not derived or candidate.attrs.get('derived_version') == CALCULATION_VERSION)):
+                    self._validate_profile(track, candidate)
+                    dataset = candidate
+            except (OSError, ValueError, KeyError) as error:
+                self.logger.warning(f'Rebuilding invalid profile cache for pid {pid}: {error}')
+        if dataset is None:
+            rows, radius = [], None
+            for num, core in track.iterrows():
+                source = read_radial_profile(outputs.loc[num, 'path'],
+                                             center_ids=[int(core.leaf_id)])
+                if radius is not None and not np.array_equal(source.r, radius):
+                    raise ValueError(f'Radial coordinates differ at output {num}')
+                radius = source.r.values
+                row = source.isel(center_id=0, drop=True).expand_dims(t=[source.attrs['time']])
+                row = row.assign_coords(
+                    num=('t', [int(num)]), cycle=('t', [int(source.attrs['cycle'])]),
+                    center_id=('t', [np.uint64(core.leaf_id)]),
+                    **{coord: ('t', [float(source[coord].values[0])])
+                       for coord in ('x1', 'x2', 'x3')})
+                rows.append(row)
+            dataset = xr.concat(rows, dim='t', join='exact', combine_attrs='drop_conflicts')
+            raw_variables = list(dataset.data_vars)
+            self._validate_profile(track, dataset)
+            if derived:
+                dataset = add_rprof_derived(dataset, cs=self.cs, gconst=self.gconst, mhd=self.mhd)
+            dataset.attrs.update(fingerprint=fingerprint, source='rprof', pid=int(pid),
+                                 schema_version=rprof_analysis.SCHEMA_VERSION,
+                                 derived_version=CALCULATION_VERSION if derived else 0,
+                                 raw_variables=json.dumps(raw_variables),
+                                 cs=float(self.cs), gconst=float(self.gconst), mhd=int(self.mhd))
+            if cache:
+                # A raw-only refresh must not replace a valid full derived cache.
+                preserve = False
+                if not derived and path.exists():
+                    try:
+                        with xr.open_dataset(path, engine='netcdf4') as previous:
+                            preserve = (previous.attrs.get('fingerprint') == fingerprint and
+                                        previous.attrs.get('derived_version') == CALCULATION_VERSION)
+                    except (OSError, ValueError):
+                        pass
+                if not preserve:
+                    rprof_analysis.write_netcdf(dataset, path)
+        if not derived:
+            dataset = dataset[json.loads(dataset.attrs['raw_variables'])]
+        return dataset.set_xindex('num')
+
+
     def load_rprof(self, num, center_ids=None, *, derived=True, metadata_only=False):
         dataset = super().load_rprof(num, center_ids=center_ids,
                                      metadata_only=metadata_only)
@@ -275,8 +605,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 self.rprofs = self._load_radial_profiles(
                     savdir=Path(self.savdir, config.RPROF_DIR), force_override=overwrite)
             return self.rprofs[pid]
-        result = rprof_analysis.load_core_rprof(
-            self, pid, derived=derived, cache=cache, overwrite=overwrite)
+        result = self._load_core_rprof_onthefly(pid, derived=derived, cache=cache, overwrite=overwrite)
         if derived:
             self.rprofs[pid] = result
         return result
@@ -380,8 +709,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
     def update_core_props(self, method,
                           prefix=None, savdir=None, force_override=False):
         if not self.legacy:
-            return rprof_analysis.update_core_props(
-                self, method, cache=self.cache, overwrite=force_override)
+            return self._update_core_props_onthefly(method, cache=self.cache, overwrite=force_override)
         return self._update_core_props_legacy(
             method, prefix=prefix, savdir=savdir, force_override=force_override)
 
@@ -426,7 +754,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             min_dst, mw_dst, min_dst_to_core = [], [], []
             for num in cores.index:
                 pds = (self.load_par(num) if self.legacy else
-                       rprof_analysis.load_particles(self, num))
+                       self._load_particles(num))
                 core = cores.loc[num]
                 dst, mass = [], []
                 if len(pds) == 0:
@@ -767,7 +1095,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
     def _precollapse_output_num(self, time):
         if self.legacy:
             return int(np.floor(time / self.dt_output['hdf5']))
-        return rprof_analysis.precollapse_num(self, time)
+        return self._precollapse_num(time)
 
     def _compute_tcoll_cores(self):
         """Read .csv output and find their collapse time and snapshot number.
@@ -791,7 +1119,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             except (OSError, ValueError) as error:
                 if self.legacy:
                     raise
-                rprof_analysis.report_failure(self, pid, 'collapse', error)
+                self._report_failure(pid, 'collapse', error)
                 continue
             x1[pid] = phst.x1
             x2[pid] = phst.x2

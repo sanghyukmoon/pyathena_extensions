@@ -113,7 +113,7 @@ def main():
     for pid, track in s._core_tracks.items():
         old.cores[pid] = track.join(s.cores_dict['empirical'][pid][tes_columns])
         old.cores[pid].attrs = track.attrs.copy()
-    old.load_par = lambda num: analysis.load_particles(s, num)
+    old.load_par = lambda num: s._load_particles(num)
     empty = args.workdir/'no-legacy-products'
     empty.mkdir(exist_ok=True)
     report['derived_core_comparisons'] = {}
