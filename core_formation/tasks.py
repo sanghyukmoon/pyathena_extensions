@@ -229,6 +229,11 @@ def core_tracking(s, pids=None, overwrite=False):
                 track = tools.track_cores(s, pid)
                 s._core_tracks[pid] = track
                 s.cores[pid] = track
+                if track.attrs['track_failed']:
+                    rprof_analysis.report_failure(s, pid, 'tracking',
+                                                  track.attrs['stop_reason'])
+                else:
+                    s.load_errors.get(pid, {}).pop('tracking', None)
                 s.rprofs.pop(pid, None)
                 for method in s.cores_dict.values():
                     method.pop(pid, None)
@@ -577,6 +582,7 @@ def core_profiles(s, pids=None, overwrite=False):
     for pid in (s.pids if pids is None else pids):
         try:
             s.rprofs[pid] = s.load_core_rprof(pid, cache=s.cache, overwrite=overwrite)
+            s.load_errors.get(pid, {}).pop('profiles', None)
         except (OSError, ValueError, KeyError) as error:
             rprof_analysis.report_failure(s, pid, 'profiles', error)
     return s.rprofs

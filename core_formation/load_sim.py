@@ -353,7 +353,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             return num
         time = self.core_num_to_time(num)
         tolerance = 32*np.finfo(float).eps*max(1., abs(time))
-        matches = [n for n in self.nums if abs(self.num_to_time(n)-time) <= tolerance]
+        matches = [n for n in (self.nums or []) if abs(self.num_to_time(n)-time) <= tolerance]
         if len(matches) != 1:
             raise ValueError(f'Expected one HDF5 snapshot at core output {num}, time {time}; '
                              f'found {len(matches)}')
@@ -782,7 +782,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 history = self.load_parhst(pid)
                 if history is None or history.empty:
                     raise ValueError('Particle history is empty or missing')
+                required = {'time', 'age', 'x1', 'x2', 'x3', 'v1', 'v2', 'v3'}
+                if not self.legacy and not required.issubset(history.columns):
+                    raise ValueError(f'Particle history lacks {sorted(required-set(history.columns))}')
                 phst = history.iloc[0]
+                if not self.legacy and not np.all(np.isfinite(phst[list(required)].to_numpy(dtype=float))):
+                    raise ValueError('Nonfinite collapse information in particle history')
             except (OSError, ValueError) as error:
                 if self.legacy:
                     raise

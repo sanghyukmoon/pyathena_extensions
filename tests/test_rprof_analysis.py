@@ -126,6 +126,17 @@ class TestProfileCache(unittest.TestCase):
 
 
 class TestParticlesAndTables(unittest.TestCase):
+    def test_explicit_hdf5_time_matching(self):
+        from core_formation.load_sim import LoadSim
+        s = LoadSim(None, legacy=False)
+        s.nums = [100, 101]
+        s.core_num_to_time = lambda num: 1.
+        s.num_to_time = lambda num: {100: 0., 101: 1.}[num]
+        self.assertEqual(s.hdf5_num_for_core(15), 101)
+        s.nums = None
+        with self.assertRaisesRegex(ValueError, 'found 0'):
+            s.hdf5_num_for_core(15)
+
     def test_time_matching_not_number_matching(self):
         s = SimpleNamespace(rprof_outputs=pd.DataFrame({'time': [1.]}, index=[15]),
                             particle_outputs=pd.DataFrame({'time': [1.]}, index=[104]))
