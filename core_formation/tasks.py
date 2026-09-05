@@ -169,8 +169,6 @@ def critical_tes(s, pid, num, overwrite=False):
     overwrite : str, optional
         If true, overwrites the existing pickle file.
     """
-    if not s.legacy:
-        return tools.critical_tes_property(s, s.rprofs[pid].sel(num=num), s.cores[pid].loc[num])
     # Check if file exists
     ofname = Path(s.savdir, config.CORE_DIR,
                   'critical_tes.par{}.{:05d}.p'.format(pid, num))
@@ -222,24 +220,6 @@ def core_tracking(s, pids=None, overwrite=False):
     if pids is None:
         pids = s.pids
 
-    if not s.legacy:
-        from . import rprof_analysis
-        for pid in pids:
-            try:
-                track = tools.track_cores(s, pid)
-                s._core_tracks[pid] = track
-                s.cores[pid] = track
-                if track.attrs['track_failed']:
-                    s._report_failure(pid, 'tracking',
-                                                  track.attrs['stop_reason'])
-                else:
-                    s.load_errors.get(pid, {}).pop('tracking', None)
-                s.rprofs.pop(pid, None)
-                for method in s.cores_dict.values():
-                    method.pop(pid, None)
-            except ValueError as error:
-                s._report_failure(pid, 'tracking', error)
-        return s._core_tracks
 
     for pid in pids:
         # Check if file exists
@@ -268,9 +248,6 @@ def radial_profile(s, nums=None, pids=None, overwrite=False, all_minima=False):
         If true, overwrites the existing pickle file.
     """
 
-    if not s.legacy:
-        raise ValueError('Raw radial profiles already exist in .rprof outputs; '
-                         'use core_profiles to assemble core histories')
     if pids is None:
         pids = s.pids
 
@@ -424,12 +401,6 @@ def power_spectrum(s, nums=None, overwrite=False):
 
 
 def lagrangian_props(s, pid, *, method, overwrite=False):
-    if not s.legacy:
-        s.select_cores(method)
-        if 'critical_radius' not in s.cores[pid]:
-            raise ValueError('Lagrangian properties require TES critical radii; '
-                             'use the empirical core table or provide those prerequisites')
-        return tools.lagrangian_property(s, s.cores[pid], s.rprofs[pid])
     # Check if file exists
     ofname = Path(s.savdir, config.CORE_DIR, f'lprops_tcrit_{method}.par{pid}.p')
     ofname.parent.mkdir(exist_ok=True)
@@ -505,8 +476,6 @@ def projections(s, nums=None, overwrite=False):
         prj.to_netcdf(ofname)
 
 def observables(s, pid, num, overwrite=False):
-    if not s.legacy:
-        return tools.observable(s, s.cores[pid].loc[num], s.rprofs[pid].sel(num=num))
     # Check if file exists
     ofname = Path(s.savdir, config.CORE_DIR,
                   'observables.par{}.{:05d}.p'.format(pid, num))
@@ -548,8 +517,6 @@ def save_minima(s, overwrite=False):
     num : int
         Snapshot number.
     """
-    if not s.legacy:
-        raise ValueError('Minima already exist in .rprof headers; use core_tracking')
     # Check if file exists
     ofname = Path(s.savdir, 'GRID', 'minima.p')
     ofname.parent.mkdir(exist_ok=True)
@@ -576,26 +543,8 @@ def save_minima(s, overwrite=False):
         pickle.dump(minima, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def core_profiles(s, pids=None, overwrite=False):
-    """Assemble profile histories; new-mode loaders persist NetCDF automatically."""
-    from . import rprof_analysis
-    for pid in (s.pids if pids is None else pids):
-        try:
-            s.rprofs[pid] = s.load_core_rprof(pid, cache=s.cache, overwrite=overwrite)
-            s.load_errors.get(pid, {}).pop('profiles', None)
-        except (OSError, ValueError, KeyError) as error:
-            s._report_failure(pid, 'profiles', error)
-    return s.rprofs
 
 
-def core_properties(s, overwrite=False):
-    """Load derived core properties after trajectories and profiles succeed."""
-    for method in ('empirical', 'virial', 'virial0', 'virial1'):
-        s.cores_dict[method] = s.update_core_props(
-            method, prefix=f'cores_tcrit_{method}',
-            savdir=Path(s.savdir, config.CORE_DIR), force_override=overwrite)
-    s.select_cores('virial0')
-    return s.cores_dict
 
 
 def run_grid(s, num, overwrite=False):

@@ -1,4 +1,5 @@
 """On-the-fly core tracking and explicit NetCDF profile persistence."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,11 @@ import xarray as xr
 
 
 SCHEMA_VERSION = 1
+
+
+def fingerprint(content):
+    """Hash explicit provenance without depending on simulation state."""
+    return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
 
 
 def frame_to_dataset(frame):

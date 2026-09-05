@@ -135,8 +135,6 @@ def track_cores(s, pid):
     track_protostellar_cores : Forward core tracking after t_coll into
                                the protostellar stage.
     """
-    if not getattr(s, 'legacy', True):
-        return s._track_core(pid)
 
     # start from t = t_coll and track backward
     numcoll = s.tcoll_cores.loc[pid].num

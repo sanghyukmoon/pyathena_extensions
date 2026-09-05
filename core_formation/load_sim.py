@@ -1,5 +1,4 @@
 import os.path as osp
-import hashlib
 import json
 from time import perf_counter
 import warnings
@@ -298,20 +297,29 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     self._report_failure(pid, 'profiles', error)
             self.load_timings['profiles_seconds'] = perf_counter()-start
         if load_derived_cores and load_rprofs:
+            dependencies = {'profiles': {}, 'particles': {}}
             for name in ('empirical', 'virial', 'virial0', 'virial1'):
                 start = perf_counter()
-                self.cores_dict[name] = self._update_core_props_onthefly(name, cache=self.cache, overwrite=overwrite)
+                self._update_core_props_onthefly(
+                    name, cache=self.cache, overwrite=overwrite, dependencies=dependencies)
                 self.load_timings[f'{name}_seconds'] = perf_counter()-start
             self.select_cores(method)
 
 
-    def _update_core_props_onthefly(self, method, *, cache=True, overwrite=False):
+    def _update_core_props_onthefly(self, method, *, cache=True, overwrite=False,
+                                   dependencies=None):
         """Explicit per-core dependency checks and mode-separated NetCDF caches."""
         if method not in ('empirical', 'virial', 'virial0', 'virial1'):
             raise ValueError(f'Unknown critical-time method {method}')
         result = {}
+        # Shared only within this loading operation, never across explicit calls.
+        if dependencies is None:
+            dependencies = {'profiles': {}, 'particles': {}}
+        fingerprints = dependencies['profiles']
+        particle_stamps = dependencies['particles']
         peer_missing = [pid for pid in self.pids if pid not in self._core_tracks or
                         self._core_tracks[pid].attrs['track_failed']]
+        outputs = self.rprof_outputs if not peer_missing else None
         for pid in self.pids:
             stage = f'derived:{method}'
             try:
@@ -321,18 +329,22 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     raise ValueError('Radial profiles have not loaded successfully')
                 track = self._core_tracks[pid]
                 self._validate_profile(track, self.rprofs[pid])
-                current_fingerprint = self._profile_fingerprint(track, self.rprof_outputs)
+                for cid, other in self._core_tracks.items():
+                    if int(cid) not in fingerprints:
+                        fingerprints[int(cid)] = self._profile_fingerprint(other, outputs)
+                current_fingerprint = fingerprints[int(pid)]
                 if self.rprofs[pid].attrs.get('fingerprint') != current_fingerprint:
                     raise ValueError('In-memory profiles are stale; reload load_core_rprof first')
-                particle_paths = [self._particle_path(num) for num in track.index]
+                for num in track.index:
+                    if num not in particle_stamps:
+                        particle_stamps[num] = rprof_analysis.file_stamp(self._particle_path(num))
                 content = dict(schema=rprof_analysis.SCHEMA_VERSION, method=method,
-                               profiles=self._profile_fingerprint(track, self.rprof_outputs),
-                               peers={int(cid): self._profile_fingerprint(other, self.rprof_outputs)
-                                      for cid, other in self._core_tracks.items()},
+                               profiles=current_fingerprint,
+                               peers=fingerprints,
                                track_attributes=track.attrs,
-                               particles=[rprof_analysis.file_stamp(path) for path in particle_paths],
+                               particles=[particle_stamps[num] for num in track.index],
                                history=rprof_analysis.file_stamp(self._get_fparhst(pid)))
-                fingerprint = hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
+                fingerprint = rprof_analysis.fingerprint(content)
                 path = Path(self.savdir, 'on_the_fly', f'core_props.{method}.par{pid}.nc')
                 if cache and not overwrite and path.exists():
                     try:
@@ -356,6 +368,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 self.load_errors.get(pid, {}).pop(stage, None)
             except (ValueError, OSError, KeyError, RuntimeError) as error:
                 self._report_failure(pid, stage, error)
+        self.cores_dict[method] = result
         return result
 
 
@@ -413,7 +426,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         content = dict(schema=rprof_analysis.SCHEMA_VERSION, calculation=CALCULATION_VERSION,
                        source='rprof', cs=float(self.cs), gconst=float(self.gconst),
                        mhd=bool(self.mhd), records=records)
-        return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
+        return rprof_analysis.fingerprint(content)
 
 
     def _validate_profile(self, track, dataset):
