@@ -158,6 +158,22 @@ class Tracking(unittest.TestCase):
         self.assertEqual(legacy.leaf_id.tolist(), [1, 2, 3])
         self.assertEqual(legacy.time.tolist(), [.101, .201, .301])
 
+    def test_gradient_is_periodic_before_cropping(self):
+        n = 16
+        x = (np.arange(n)+.5)/n
+        phi = np.broadcast_to(np.sin(2*np.pi*x), (n, n, n)).copy()
+        ds = xr.Dataset({'phi': (('z', 'y', 'x'), phi)},
+                        coords={'x': x, 'y': x, 'z': x})
+        s = SimpleNamespace(dx=1/n)
+        class Cropped(Exception):
+            pass
+        with patch.object(xr.Dataset, 'sel', side_effect=Cropped), self.assertRaises(Cropped):
+            tools.radial_profile(s, ds, (.5, .5, .5), rmax=.2)
+        expected = -(np.roll(phi, -1, axis=2)-np.roll(phi, 1, axis=2))*n/2
+        np.testing.assert_array_equal(ds.gaccx, expected)
+        np.testing.assert_array_equal(ds.gaccy, np.zeros_like(phi))
+        np.testing.assert_array_equal(ds.gaccz, np.zeros_like(phi))
+
 
 if __name__ == '__main__':
     unittest.main()

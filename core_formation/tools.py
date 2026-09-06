@@ -446,6 +446,11 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
     assert nbin > 0, f"nbin must be positive, got {nbin}"
     hdx = 0.5*s.dx
     redge = (nbin + 0.5)*s.dx
+    # Differentiate on the full periodic grid before selecting the profile cube.
+    for dim in ['x', 'y', 'z']:
+        phi_right = ds.phi.roll({dim: -1}, roll_coords=False)
+        phi_left = ds.phi.roll({dim: 1}, roll_coords=False)
+        ds[f'gacc{dim}'] = -(phi_right - phi_left)/(2*s.dx)
     ds = ds.sel(x=slice(origin[0] - redge, origin[0] + redge),
                 y=slice(origin[1] - redge, origin[1] + redge),
                 z=slice(origin[2] - redge, origin[2] + redge))
@@ -463,10 +468,6 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
     ds['Ldens_x'] = ds.rho*((ds.y - origin[1])*ds.velz - (ds.z - origin[2])*ds.vely)
     ds['Ldens_y'] = ds.rho*((ds.z - origin[2])*ds.velx - (ds.x - origin[0])*ds.velz)
     ds['Ldens_z'] = ds.rho*((ds.x - origin[0])*ds.vely - (ds.y - origin[1])*ds.velx)
-    # Gravitational accelerations
-    for dim in ['x', 'y', 'z']:
-        ds[f'gacc{dim}'] = -ds.phi.differentiate(dim)
-
     # Transform vector fields to spherical coordinates
     _, (ds['vel1'], ds['vel2'], ds['vel3'])\
         = transform.to_spherical((ds.velx, ds.vely, ds.velz), origin)
