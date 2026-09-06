@@ -139,55 +139,9 @@ class TestProfileCache(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 's.rprofs'):
             self.s.load_core_rprof(1)
 
-    def test_property_cache_has_no_source_dependencies(self):
-        s = self.s
-        s.load_core_rprof(1, cache=False)
-        with patch.object(s, '_compute_core_props', return_value={1:s._core_tracks[1].copy()}) as compute:
-            original = s.update_core_props('virial0')[1]
-            self.assertEqual(compute.call_count, 1)
-            with patch.object(s, 'load_par', side_effect=AssertionError('particle read')):
-                s._core_tracks, s.rprofs = {}, {}
-                pd.testing.assert_frame_equal(original.astype(float), s.update_core_props('virial0')[1].astype(float), check_index_type=False)
-                self.assertEqual(compute.call_count, 1)
-            self.assertEqual(s.update_core_props('virial0', overwrite=True), {})
-            self.assertEqual(compute.call_count, 1)
 
-    def test_missing_profile_gates_computation(self):
-        with patch.object(self.s, '_compute_core_props') as compute:
-            self.assertEqual(self.s.update_core_props('virial0'), {})
-            compute.assert_not_called()
 
-    def test_property_cache_false_and_overwrite(self):
-        s = self.s
-        s.load_core_rprof(1, cache=False)
-        path = Path(s.savdir, 'on_the_fly/core_props.virial0.par1.nc')
-        with patch.object(s, '_compute_core_props', return_value={1:s._core_tracks[1].copy()}) as compute:
-            s.cache = False
-            s.update_core_props('virial0')
-            self.assertFalse(path.exists())
-            s.cache = True
-            s.update_core_props('virial0')
-            stamp = path.stat().st_mtime_ns
-            s.cache = False
-            s.update_core_props('virial0', overwrite=True)
-            self.assertEqual(path.stat().st_mtime_ns, stamp)
-            s.cache = True
-            s.update_core_props('virial0', overwrite=True)
-            self.assertEqual(compute.call_count, 4)
 
-    def test_corrupt_property_cache_needs_explicit_overwrite(self):
-        s = self.s
-        s.load_core_rprof(1, cache=False)
-        path = Path(s.savdir, 'on_the_fly/core_props.virial0.par1.nc')
-        path.parent.mkdir()
-        path.write_bytes(b'not netcdf')
-        with patch.object(s, '_compute_core_props', return_value={1:s._core_tracks[1].copy()}) as compute:
-            self.assertEqual(s.update_core_props('virial0'), {})
-            self.assertIn('overwrite=True', s.load_errors[1]['derived:virial0'])
-            compute.assert_not_called()
-            self.assertIn(1, s.update_core_props('virial0', overwrite=True))
-            self.assertNotIn('derived:virial0', s.load_errors[1])
-            compute.assert_called_once()
 
 
 class TestSerialization(unittest.TestCase):

@@ -86,8 +86,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             Select the existing HDF5/pickle workflow (default True), or the
             on-the-fly profile/NetCDF workflow. All core loaders use this mode.
         cache, overwrite : bool
-            New-mode disk-cache policy: read/write valid NetCDF caches by
-            default; overwrite forces reconstruction. cache=False bypasses disk.
+            Profile-assembly cache policy only. TES and Lagrangian products
+            are read-only here; use the task runner to compute or overwrite them.
         load_rprofs : bool
             Load core profile histories eagerly (default True). False is a
             lightweight trajectory-only initialization and skips derived cores.
@@ -174,70 +174,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             self.tcr = 0.5*self.Lbox/self.Mach
             self.sonic_length = tools.get_sonic(self.Mach, self.Lbox)
 
-            if not self.legacy:
-                self._initialize_onthefly(method=method, load_rprofs=load_rprofs,
-                    load_derived_cores=load_derived_cores,
-                    overwrite=self.overwrite or override_rprofs or override_derived_cores)
-                return
-
-            # Find the collapse time and corresponding snapshot numbers
-            self.tcoll_cores = self._load_tcoll_cores(
-                savdir=Path(self.savdir, config.CORE_DIR),
-                force_override=override_cores
-            )
-            try:
-                fname = Path(self.savdir, 'GRID', 'minima.p')
-                with open(fname, 'rb') as handle:
-                    self.minima = pickle.load(handle)
-            except FileNotFoundError:
-                pass
-
-            if len(self.tcoll_cores) > 0:
-                try:
-                    # Load cores
-                    savdir = Path(self.savdir, config.CORE_DIR)
-                    self.cores = self._load_cores(
-                        savdir=savdir,
-                        force_override=override_cores
-                    )
-                except FileNotFoundError:
-                    self.logger.warning("Cannot find core files to load.")
-                    pass
-
-            if hasattr(self, 'cores') and load_rprofs:
-                try:
-                    # Load radial profiles
-                    savdir = Path(self.savdir, config.RPROF_DIR)
-                    self.rprofs = self._load_radial_profiles(
-                        savdir = savdir,
-                        force_override = override_rprofs
-                    )
-                except FileNotFoundError:
-                    self.logger.warning("Cannot find radial profile files to load. "
-                                        "Have you run concat_radial_profiles() to "
-                                        "concatenate individual radial profiles "
-                                        "into one file?")
-                    pass
-            # Load derived core informations using various alternative critical times
-            if load_derived_cores:
-                self.cores_dict = {}
-                for mtd in ['empirical', 'virial', 'virial0', 'virial1']:
-                    savdir = Path(self.savdir, config.CORE_DIR)
-                    try:
-                        self.cores_dict[mtd] = self.update_core_props(
-                            method = mtd,
-                            prefix = f'cores_tcrit_{mtd}',
-                            savdir = savdir,
-                            force_override = override_derived_cores
-                        )
-                    except (AttributeError, KeyError):
-                        self.logger.warning(
-                            f"Failed to update core props for method {mtd}, model {self.basename}"
-                        )
-                try:
-                    self.select_cores(method)
-                except KeyError:
-                    self.logger.warning(f"Failed to select core with method {method} for model {self.basename}")
+            self._initialize_analysis(method, load_rprofs, load_derived_cores,
+                                      self.overwrite or override_rprofs)
         elif isinstance(basedir_or_Mach, (float, int)):
             self.Mach = basedir_or_Mach
             tools.LognormalPDF.__init__(self, self.Mach)
@@ -283,42 +221,57 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             self.minima[num] = header.center_id.to_numpy().copy()
         if np.any(np.diff(list(self.times.values())) <= 0):
             raise ValueError('Radial-profile times must increase with output number')
-        if self.nums_hdf5:
-            ratio = self.dt_output['hdf5'] / self.dt_output['rprof']
-            if (not np.isfinite(ratio) or round(ratio) < 1 or
-                    abs(ratio-round(ratio)) > 64*np.finfo(float).eps*max(1., abs(ratio))):
-                raise ValueError('HDF5 cadence must be an integer multiple of radial-profile cadence')
-            self.hdf5_stride = int(round(ratio))
 
     def _report_failure(self, pid, stage, error):
         self.load_errors.setdefault(pid, {})[stage] = str(error)
-        self.logger.warning(f'On-the-fly pid {pid}, {stage}: {error}')
+        self.logger.warning(f'Core {pid}, {stage}: {error}')
 
 
-    def _initialize_onthefly(self, *, method, load_rprofs, load_derived_cores, overwrite):
-        """Eagerly populate independent results, gating each dependent calculation."""
+    def _initialize_analysis(self, method, load_rprofs, load_derived_cores, overwrite):
+        """Load common analysis products; TES/Lagrangian calculations belong to tasks."""
         self.cores, self.rprofs, self.cores_dict, self._core_tracks = {}, {}, {}, {}
         self.tcoll_cores = self._load_tcoll_cores()
-        for pid in self.pids:
-            if 'collapse' in self.load_errors.get(pid, {}):
-                continue
+        if self.legacy:
+            path = Path(self.savdir, 'GRID', 'minima.p')
+            if not path.exists():
+                path = Path(self.basedir, 'GRID', 'minima.p')
             try:
-                track = self._track_core(pid)
-                self._core_tracks[pid] = track
-                if track.attrs['track_failed']:
-                    self._report_failure(pid, 'tracking', track.attrs['stop_reason'])
-            except (ValueError, OSError) as error:
-                self._report_failure(pid, 'tracking', error)
+                with path.open('rb') as handle:
+                    self.minima = pickle.load(handle)
+            except FileNotFoundError:
+                self.logger.warning('Minima not found; run save_minima before tracking')
+        self._core_tracks = self._load_cores()
         self.cores = self._core_tracks.copy()
         if load_rprofs:
+            if self.legacy:
+                try:
+                    self.rprofs = self._load_radial_profiles(
+                        savdir=Path(self.savdir, config.RPROF_DIR), force_override=overwrite)
+                except (OSError, ValueError, KeyError) as error:
+                    for pid in self.pids:
+                        self._report_failure(pid, 'profiles', error)
+            else:
+                for pid in self.pids:
+                    try:
+                        self.load_core_rprof(pid, cache=self.cache, overwrite=overwrite)
+                    except (OSError, ValueError, KeyError) as error:
+                        self._report_failure(pid, 'profiles', error)
+            # Existing assembled profiles can cover more times than the common track.
+            for pid, track in self._core_tracks.items():
+                if pid in self.rprofs:
+                    try:
+                        self.rprofs[pid] = self.rprofs[pid].sel(num=track.index.to_numpy(dtype=int))
+                    except KeyError as error:
+                        self.rprofs.pop(pid)
+                        self._report_failure(pid, 'profiles', error)
+        if load_derived_cores:
             for pid in self.pids:
                 try:
-                    self.load_core_rprof(pid, cache=self.cache, overwrite=overwrite)
-                except (ValueError, OSError, KeyError) as error:
-                    self._report_failure(pid, 'profiles', error)
-        if load_derived_cores and load_rprofs:
+                    self.load_critical_tes(pid)
+                except (OSError, ValueError, KeyError) as error:
+                    self._report_failure(pid, 'tes', error)
             for name in ('empirical', 'virial', 'virial0', 'virial1'):
-                self.update_core_props(name, overwrite=overwrite)
+                self.load_core_props(name)
             self.select_cores(method)
 
 
@@ -409,18 +362,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         self.load_errors.get(pid, {}).pop('profiles', None)
         return dataset
 
-    def load_hdf5(self, num=None, sparse=False, *, rprof_num=None, **kwargs):
-        """Load a native HDF5 number, or the HDF5 output at rprof_num."""
-        if (num is None) == (rprof_num is None):
-            raise ValueError('Specify exactly one of num and rprof_num')
-        if rprof_num is not None:
-            if self.legacy:
-                raise ValueError('rprof_num requires nonlegacy mode')
-            if not self.nums_hdf5 or rprof_num not in self.nums:
-                raise FileNotFoundError(f'No HDF5 snapshot at radial-profile output {rprof_num}')
-            num, remainder = divmod(rprof_num, self.hdf5_stride)
-            if remainder:
-                raise ValueError(f'No HDF5 snapshot at radial-profile output {rprof_num}')
+    def load_hdf5(self, num, sparse=False, **kwargs):
+        """Load a native HDF5 output number."""
         if sparse:
             fname = Path(self.basedir, 'sparse', f'{self.problem_id}.{num:05d}.athdf')
             if not fname.exists():
@@ -463,14 +406,14 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
 
     def select_cores(self, method):
-        self.cores = ({} if self.legacy else self._core_tracks.copy())
+        self.cores = self._core_tracks.copy()
         self.cores.update(self.cores_dict[method])
 
     def good_cores(self, nres=8):
         """List of resolved cores"""
         good_cores = []
         for pid, cores in self.cores.items():
-            if not self.legacy and not cores.attrs.get('derived_available', False):
+            if not cores.attrs.get('derived_available', False):
                 continue
             if cores.attrs['track_failed']:
                 # Exclude cores that failed to be tracked before collapse.
@@ -480,52 +423,51 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 good_cores.append(pid)
         return good_cores
 
-    def update_core_props(self, method, prefix=None, savdir=None, force_override=False,
-                          *, overwrite=False):
-        """Read saved core properties, or compute them when absent/requested."""
-        overwrite = bool(overwrite or force_override)
-        if self.legacy:
-            return self._update_core_props_legacy(
-                method, prefix=prefix, savdir=savdir, force_override=overwrite)
-        if method not in ('empirical', 'virial', 'virial0', 'virial1'):
-            raise ValueError(f'Unknown critical-time method {method}')
+    def load_critical_tes(self, pid):
+        """Read task-produced TES parameters; never compute or write them."""
+        path = Path(self.savdir, config.CORE_DIR, f'critical_tes.par{pid}.nc')
+        if not path.exists():
+            raise FileNotFoundError(f'{path} missing; run --critical-tes')
+        table = rprof_analysis.dataset_to_frame(xr.load_dataset(path, engine='netcdf4'))
+        if pid in self._core_tracks:
+            track = self._core_tracks[pid]
+            table = table.loc[track.index]
+            self._core_tracks[pid] = track.assign(**{name: table[name] for name in table})
+            self.cores[pid] = self._core_tracks[pid].copy()
+        self.load_errors.get(pid, {}).pop('tes', None)
+        return table
+
+    def load_core_props(self, method, pids=None):
+        """Read complete task-produced method tables without calculation or writes."""
         result = {}
-        for pid in self.pids:
+        for pid in (self.pids if pids is None else pids):
             stage = f'derived:{method}'
-            path = Path(self.savdir, 'on_the_fly', f'core_props.{method}.par{pid}.nc')
+            path = Path(self.savdir, config.CORE_DIR, f'core_props.{method}.par{pid}.nc')
             try:
-                if self.cache and not overwrite and path.exists():
-                    try:
-                        frame = rprof_analysis.dataset_to_frame(xr.load_dataset(path, engine='netcdf4'))
-                        if not {'leaf_id', 'time'}.issubset(frame.columns):
-                            raise ValueError('Incomplete core-property table')
-                    except (OSError, ValueError, KeyError) as error:
-                        raise ValueError(f'Cannot load {path}; use overwrite=True to rebuild') from error
-                else:
-                    missing = [cid for cid in self.pids if cid not in self._core_tracks or
-                               self._core_tracks[cid].attrs['track_failed']]
-                    if missing:
-                        raise ValueError(f'Peer trajectories incomplete for {missing}')
-                    if pid not in self.rprofs:
-                        raise ValueError('Radial profiles have not loaded successfully')
-                    computed = self._compute_core_props(method, self.savdir, pids=[pid])
-                    if pid not in computed:
-                        raise ValueError('Core calculation did not return a usable result')
-                    frame = computed[pid]
-                    frame.attrs['derived_available'] = True
-                    if self.cache:
-                        rprof_analysis.write_netcdf(rprof_analysis.frame_to_dataset(frame), path)
-                result[pid] = frame
+                if not path.exists():
+                    raise FileNotFoundError(f'{path} missing; run --lagrangian-props --methods {method}')
+                result[pid] = rprof_analysis.dataset_to_frame(xr.load_dataset(path, engine='netcdf4'))
                 self.load_errors.get(pid, {}).pop(stage, None)
-            except (OSError, ValueError, KeyError, RuntimeError) as error:
+            except (OSError, ValueError, KeyError) as error:
                 self._report_failure(pid, stage, error)
         self.cores_dict[method] = result
         return result
 
-    @LoadSimBase.Decorators.check_pickle
-    def _update_core_props_legacy(self, method, prefix=None, savdir=None,
-                                  force_override=False):
-        return self._compute_core_props(method, savdir)
+    def update_core_props(self, method, prefix=None, savdir=None, force_override=False,
+                          *, pids=None):
+        """Explicitly calculate critical-time properties for tasks; no cache I/O."""
+        if method not in ('empirical', 'virial', 'virial0', 'virial1'):
+            raise ValueError(f'Unknown critical-time method {method}')
+        selected = list(self.pids if pids is None else pids)
+        if any(pid not in self._core_tracks for pid in self.pids):
+            raise ValueError('Peer trajectories incomplete')
+        for pid in selected:
+            if pid not in self.rprofs:
+                raise ValueError(f'Radial profiles missing for core {pid}')
+            if 'critical_radius' not in self._core_tracks[pid]:
+                raise ValueError(f'TES parameters missing for core {pid}; run --critical-tes')
+        return self._compute_core_props(method, savdir or Path(self.savdir, config.CORE_DIR), pids=selected)
+
 
     def _compute_core_props(self, method, savdir, pids=None):
         """Update core properties
@@ -542,7 +484,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             Updated core dataframe.
         """
         core_dict = {}
-        tracks = self.cores if self.legacy else self._core_tracks
+        tracks = self._core_tracks
         for pid in (self.pids if pids is None else pids):
             cores = tracks[pid].copy()
             if cores.attrs['track_failed']:
@@ -550,15 +492,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 continue
 
             rprofs = self.rprofs[pid]
-
-            if not self.legacy and method == 'empirical':
-                # TES fits use only the already-loaded radial profiles.
-                # Keep the existing scientific calculation, without pickle tasks.
-                tes_rows = [tools.critical_tes_property(self, rprofs.sel(num=num), core)
-                            for num, core in cores.iterrows()]
-                attrs = cores.attrs.copy()
-                cores = cores.join(pd.DataFrame(tes_rows, index=cores.index))
-                cores.attrs = attrs
 
             min_dst, mw_dst, min_dst_to_core = [], [], []
             for num in cores.index:
@@ -665,26 +598,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 cores.attrs['mean_density'] = mean_density
                 cores.attrs['tff_crit'] = tff_crit
 
-            # Load Lagrangian props
-            fname = Path(savdir, f'lprops_tcrit_{method}.par{pid}.p')
-            if self.legacy and fname.exists():
-                lprops = pd.read_pickle(fname).sort_index()
-                if set(lprops.columns).issubset(cores.columns):
-                    cores = cores.drop(lprops.columns, axis=1)
-
-                # Save attributes before performing join, which will drop them.
-                attrs = cores.attrs.copy()
-                attrs.update(lprops.attrs)
-                cores = cores.join(lprops)
-                # Reattach attributes
-                cores.attrs = attrs
-
-                # Net force
-                Fnet = cores.Fthm + cores.Ftrb + cores.Fcen + cores.Fani - cores.Fgrv
-                if self.mhd:
-                    Fnet += cores.Fmag
-                cores['Fnet'] = Fnet / cores.Fgrv
-
             mcore = cores.attrs['mcore']
             rcore = cores.attrs['rcore']
 
@@ -728,7 +641,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 oprops = []
                 for num, core in prestellar_cores.iterrows():
                     fname = Path(savdir, 'observables.par{}.{:05d}.p'.format(pid, num))
-                    if self.legacy and fname.exists():
+                    if fname.exists():
                         oprops.append(pd.read_pickle(fname))
                 if len(oprops) > 0:
                     oprops = pd.DataFrame(oprops).set_index('num').sort_index()
@@ -915,76 +828,26 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
 
 
-    @LoadSimBase.Decorators.check_pickle
     def _load_cores(self, prefix='cores', savdir=None, force_override=False):
-        cores_dict = {}
-        pids_not_found = []
-
-        # Try reading the go15 mass
-        try:
-            fname = Path(savdir, 'mcore_go15.p')
-            with open(fname, 'rb') as f:
-                mcore_go15 = pickle.load(f)
-            mcore_go15_found = True
-        except FileNotFoundError:
-            mcore_go15_found = False
-
-
+        """Build the same inexpensive prestellar tracks for either profile source."""
+        result = {}
         for pid in self.pids:
-            fname = Path(savdir, f'cores.par{pid}.p')
-            cores = pd.read_pickle(fname).sort_index()
-            num_start = self.trajectory_start_num(cores, f_mul=3.0)
-
-            num_start_min = int(
-                (self.tcoll_cores.loc[1].time - 1.5 / self.u.Myr)
-                / self.dt_output['hdf5']
-            )
-            # Prevent excessive back-tracking to early times
-            num_start = max(num_start, num_start_min)
-
-            cores = cores.loc[num_start:]
-
-            # Read critical TES info and concatenate to self.cores
-            # Try reading critical TES pickles
-            tes_crit = []
-            for num in cores.index:
-                try:
-                    fname = Path(savdir, f'critical_tes.par{pid}.{num:05d}.p')
-                    tes_crit.append(pd.read_pickle(fname))
-                except FileNotFoundError:
-                    pids_not_found.append(pid)
-                    break
-            if len(tes_crit) > 0:
-                tes_crit = pd.DataFrame(tes_crit).set_index('num').sort_index()
-
-                # Save attributes before performing join, which will drop them.
-                attrs = cores.attrs.copy()
-                attrs.update(tes_crit.attrs)
-                cores = cores.join(tes_crit)
-
-                # Reattach attributes
-                cores.attrs = attrs
-            if mcore_go15_found:
-                cores.attrs['mcore_go15'] = mcore_go15[pid]
-
-            # Find collapse time
-            cores.attrs['tcoll'] = self.tcoll_cores.loc[pid].time
-
-            # Add attributes
-            if len(cores) == 1 and cores.index[0] == cores.attrs['numcoll']:
-                cores.attrs['track_failed'] = True
-            else:
-                cores.attrs['track_failed'] = False
-
-            # Sort attributes
-            cores.attrs = {k: cores.attrs[k] for k in sorted(cores.attrs)}
-
-            cores_dict[pid] = cores
-
-        if len(pids_not_found) > 0:
-            msg = f"{self.basename}: Some critical TES files are missing for pid {pids_not_found}"
-            self.logger.warning(msg)
-        return cores_dict
+            if pid not in self.tcoll_cores.index:
+                continue
+            try:
+                track = self._track_core(pid)
+                result[pid] = track
+                if track.attrs['track_failed']:
+                    self._report_failure(pid, 'tracking', track.attrs['stop_reason'])
+            except (OSError, ValueError, KeyError, AttributeError) as error:
+                self._report_failure(pid, 'tracking', error)
+        path = Path(self.savdir, config.CORE_DIR, 'mcore_go15.p')
+        if path.exists():
+            with path.open('rb') as handle:
+                masses = pickle.load(handle)
+            for pid, track in result.items():
+                track.attrs['mcore_go15'] = masses[pid]
+        return result
 
     def concat_radial_profiles(self):
         """Concatenate per-snapshot 3D radial profiles into one pickle file."""

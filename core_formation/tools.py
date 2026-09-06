@@ -968,10 +968,8 @@ def observable(s, core, rprf):
     obsprops = dict()
     obsprops['num'] = num
     # Loading through the selector validates whether a coarse output exists.
-    dens_3d = (s.load_hdf5(num, quantities=['dens']) if s.legacy else
-               s.load_hdf5(rprof_num=num, quantities=['dens'])).dens
-    hdf5_num = num if s.legacy else num // s.hdf5_stride
-    prj = s.read_prj(hdf5_num)
+    dens_3d = s.load_hdf5(num, quantities=['dens']).dens
+    prj = s.read_prj(num)
     xc, yc, zc = s.flatindex_to_cartesian(core.leaf_id)
     xycoordnames = dict(z=['x', 'y'],
                         x=['y', 'z'],

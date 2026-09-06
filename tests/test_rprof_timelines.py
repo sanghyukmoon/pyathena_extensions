@@ -37,7 +37,6 @@ class TestTimelines(unittest.TestCase):
         self.assertEqual(s.times[3], .1*3)
         self.assertEqual(s.times_hdf5[2], .4)
         np.testing.assert_array_equal(s.minima[2], [12])
-        self.assertEqual(s.hdf5_stride, 2)
         self.assertFalse(hasattr(s, '_rprof_headers'))
 
     def test_legacy(self):
@@ -51,8 +50,6 @@ class TestTimelines(unittest.TestCase):
         self.initialize(s)
         self.assertEqual(s.nums_hdf5, [])
         self.assertEqual(s.times_hdf5, {})
-        with self.assertRaises(FileNotFoundError):
-            s.load_hdf5(rprof_num=0)
         s = simulation()
         s.ff.nums_hdf5 = {'cons': []}
         s.dt_output['hdf5'] = -1  # Disabled HDF5 is also profile-only.
@@ -94,17 +91,6 @@ class TestTimelines(unittest.TestCase):
         with self.assertRaisesRegex(FileNotFoundError, 'No radial-profile'):
             self.initialize(s)
 
-    def test_cadence_ratio(self):
-        s = simulation()
-        s.dt_output['hdf5'] = .25
-        with self.assertRaisesRegex(ValueError, 'integer multiple'):
-            self.initialize(s)
-        s.dt_output['hdf5'] = .2 + np.finfo(float).eps
-        self.initialize(s)
-        self.assertEqual(s.hdf5_stride, 2)
-        s.dt_output['hdf5'] = .1 - np.finfo(float).eps
-        self.initialize(s)
-        self.assertEqual(s.hdf5_stride, 1)
 
     def test_header_consistency(self):
         s = simulation(hdf5=False)
@@ -117,22 +103,14 @@ class TestTimelines(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'must increase'):
                 s._initialize_timelines()
 
-    def test_selectors(self):
-        s = simulation()
-        self.initialize(s)
-        with patch.object(LoadSimBase, 'load_hdf5', return_value='dataset') as reader:
-            self.assertEqual(s.load_hdf5(rprof_num=4), 'dataset')
-            reader.assert_called_once_with(s, 2)
-            self.assertEqual(s.load_hdf5(1), 'dataset')
-            with self.assertRaisesRegex(ValueError, 'No HDF5'):
-                s.load_hdf5(rprof_num=3)
-            with self.assertRaisesRegex(ValueError, 'exactly one'):
-                s.load_hdf5(2, rprof_num=4)
-            with self.assertRaisesRegex(ValueError, 'exactly one'):
-                s.load_hdf5()
-            s.legacy = True
-            with self.assertRaisesRegex(ValueError, 'nonlegacy'):
-                s.load_hdf5(rprof_num=4)
+    def test_native_hdf5(self):
+        for legacy in (True, False):
+            s = simulation(legacy=legacy)
+            self.initialize(s)
+            with patch.object(LoadSimBase, 'load_hdf5', return_value='dataset') as reader:
+                self.assertEqual(s.load_hdf5(2, header_only=True), 'dataset')
+                reader.assert_called_once_with(s, 2, header_only=True)
+        self.assertFalse(hasattr(s, 'hdf5_stride'))
 
 
 if __name__ == '__main__':

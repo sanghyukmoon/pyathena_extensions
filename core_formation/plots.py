@@ -919,11 +919,10 @@ def plot_diagnostics(s, pid, normalize_time=True):
 
 def plot_core_evolution(s, pid, num, hw=0.1, method='virial'):
     # Load data
-    selector = {'num': num} if s.legacy else {'rprof_num': num}
     if s.mhd:
-        ds = s.load_hdf5(**selector, quantities=['dens', 'mom1', 'mom2', 'mom3', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
+        ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
     else:
-        ds = s.load_hdf5(**selector, quantities=['dens', 'mom1', 'mom2', 'mom3'], load_method='xarray')
+        ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3'], load_method='xarray')
     core = s.cores[pid].loc[num]
     if 'radius' not in core:
         core['radius'] = np.nan
@@ -1354,7 +1353,7 @@ def plot_sinkhistory(s, num):
         ds = s.load_hdf5(num, quantities=['dens', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
     else:
         ds = s.load_hdf5(num, quantities=['dens',], load_method='xarray')
-    pds = s.load_par(num if s.legacy else num*s.hdf5_stride)
+    pds = s.load_par(num)
 
     # find end time
     ds_end = s.load_hdf5(s.nums_hdf5[-1], header_only=True)
