@@ -311,9 +311,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         with open(fname, 'rb') as handle:
             return pickle.load(handle)
 
-    def num_to_time(self, num):
-        return self.times[num]
-
     def select_cores(self, method):
         self.cores = self.cores_dict[method].copy()
 
