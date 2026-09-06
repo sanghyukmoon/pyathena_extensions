@@ -1,7 +1,11 @@
 """Regression tests for the baseline-preserving profile source integration."""
 import logging
+import ast
+import inspect
 import pickle
+import subprocess
 import tempfile
+import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -106,6 +110,19 @@ class Timelines(unittest.TestCase):
 
 
 class Profiles(unittest.TestCase):
+    def test_scientific_loop_is_identical_to_baseline(self):
+        baseline = subprocess.check_output(
+            ['git', 'show', 'a9d530169a2f143eb57be3:core_formation/load_sim.py'], text=True)
+        old = ast.parse(baseline)
+        cls = next(n for n in old.body if isinstance(n, ast.ClassDef) and n.name == 'LoadSim')
+        method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == '_load_radial_profiles')
+        current = ast.parse(textwrap.dedent(inspect.getsource(LoadSim._load_radial_profiles.__wrapped__))).body[0]
+        before = next(n for n in method.body if isinstance(n, ast.For))
+        after = next(n for n in current.body if isinstance(n, ast.For))
+        # Only the two statements installing the num index precede the old loop body.
+        after.body = [n for n in after.body if not (isinstance(n, ast.If) and 'xindexes' in ast.unparse(n.test))]
+        self.assertEqual(ast.dump(before), ast.dump(after))
+
     def test_assembly_derived_parity_and_cache(self):
         for mhd in (False, True):
             with self.subTest(mhd=mhd), tempfile.TemporaryDirectory(dir=TEST_ROOT) as tmp:
