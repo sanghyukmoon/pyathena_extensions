@@ -33,7 +33,10 @@ def compare_arrays(left, right):
                       max_relative_error=float(relative.max(initial=0)),
                       nonfinite_mismatches=int((~finite & ~same_special).sum()))
     else:
-        passed = np.array([bool(x == y) for x, y in zip(av, bv)])
+        passed = np.array([bool(x == y) or
+                           (isinstance(x, Real) and isinstance(y, Real) and
+                            np.isnan(x) and np.isnan(y))
+                           for x, y in zip(av, bv)], dtype=bool)
     bad = np.flatnonzero(~passed)
     result.update(passed=not bad.size, count=int(a.size), failed_count=int(bad.size),
                   examples=[{'index': list(map(int, np.unravel_index(int(i), a.shape))),

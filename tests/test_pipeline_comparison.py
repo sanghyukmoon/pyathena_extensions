@@ -47,6 +47,12 @@ def test_object_numeric_values():
     assert result['passed']
 
 
+def test_empty_and_mixed_arrays():
+    assert compare_arrays([], [])['passed']
+    assert compare_arrays(np.array(['missing', np.nan], dtype=object),
+                          np.array(['missing', np.nan], dtype=object))['passed']
+
+
 if __name__ == '__main__':
     import unittest
     suite = unittest.TestSuite(unittest.FunctionTestCase(value)
