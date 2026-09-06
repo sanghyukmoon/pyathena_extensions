@@ -388,10 +388,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             dataset = add_rprof_derived(dataset, cs=self.cs, gconst=self.gconst, mhd=self.mhd)
             dataset.attrs.update(source='rprof', pid=int(pid), cs=float(self.cs),
                                  gconst=float(self.gconst), mhd=int(self.mhd))
-        # Old complete caches remain readable; retire only obsolete bookkeeping.
-        dataset = dataset.drop_vars('cycle', errors='ignore')
-        for name in ('cycle', 'fingerprint', 'schema_version', 'derived_version', 'raw_variables'):
-            dataset.attrs.pop(name, None)
         if cache and (overwrite or not path.exists()):
             rprof_analysis.write_netcdf(dataset, path)
         dataset = dataset.set_xindex('num')
@@ -505,7 +501,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     frame.attrs['derived_available'] = True
                     if self.cache:
                         rprof_analysis.write_netcdf(rprof_analysis.frame_to_dataset(frame), path)
-                frame = frame.drop(columns=['cycle'], errors='ignore')
                 result[pid] = frame
                 self.load_errors.get(pid, {}).pop(stage, None)
             except (OSError, ValueError, KeyError, RuntimeError) as error:

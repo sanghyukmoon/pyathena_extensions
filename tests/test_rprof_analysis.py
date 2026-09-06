@@ -95,19 +95,6 @@ class TestProfileCache(unittest.TestCase):
         self.s.load_core_rprof(1, cache=False)
         self.assertEqual(stamp, self.path.stat().st_mtime_ns)
 
-    def test_old_cache_metadata_removed_without_rewrite(self):
-        self.s.load_core_rprof(1)
-        data = xr.load_dataset(self.path)
-        data['cycle'] = ('t', [0, 10, 20, 30])
-        data.attrs.update(fingerprint='old', schema_version=1, derived_version=1, raw_variables='[]')
-        analysis.write_netcdf(data, self.path)
-        stamp = self.path.stat().st_mtime_ns
-        self.s._core_tracks = {}  # Saved profiles do not need tracking to be repeated.
-        loaded = self.s.load_core_rprof(1)
-        self.assertNotIn('cycle', loaded)
-        self.assertNotIn('fingerprint', loaded.attrs)
-        self.assertEqual(stamp, self.path.stat().st_mtime_ns)
-
     def test_corrupt_cache_is_not_rebuilt(self):
         self.path.parent.mkdir()
         self.path.write_bytes(b'not netcdf')
