@@ -71,6 +71,8 @@ def products(s, destination):
             inventory['missing'].append(f'cores_dict/{method}')
             continue
         s.select_cores(method)
+        inventory['missing'].extend(f'cores_dict/{method}/{pid}'
+                                    for pid in s.pids if pid not in s.cores)
         inventory['expected'][method] = {'eligible_lagrangian': list(map(int, s.good_cores(0))),
                                        'tracked_snapshots': {str(pid): list(map(int, c.index))
                                                              for pid, c in s.cores.items()}}
@@ -219,6 +221,7 @@ def pdf_report(work, report, stages):
         if report:
             lines += [f'{k}: {v["failed_checks"]} failed / {v["checks"]} checks' for k,v in report['groups'].items()]
         ax.text(.02, .52, '\n\n'.join(lines), fontsize=10, va='top')
+        fig.savefig(work / 'comparison' / 'report-summary.png', dpi=120)
         pdf.savefig(fig); plt.close(fig)
         if report:
             bad = [r for r in report['records'] if not r['passed']]

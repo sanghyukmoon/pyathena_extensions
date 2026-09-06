@@ -53,6 +53,16 @@ def test_empty_and_mixed_arrays():
                           np.array(['missing', np.nan], dtype=object))['passed']
 
 
+def test_paths_are_reported_separately_from_scientific_attributes():
+    a = xr.Dataset(attrs={'path': 'legacy/input', 'rmax': 0.53})
+    b = xr.Dataset(attrs={'path': 'onthefly/input', 'rmax': 0.53})
+    records = compare_products(a, b)
+    assert all(r['passed'] for r in records)
+    assert any(r.get('comparison') == 'path provenance only' for r in records)
+    b.attrs['rmax'] = 0.54
+    assert any(not r['passed'] for r in compare_products(a, b))
+
+
 if __name__ == '__main__':
     import unittest
     suite = unittest.TestSuite(unittest.FunctionTestCase(value)

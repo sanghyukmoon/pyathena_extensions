@@ -89,6 +89,13 @@ def compare_products(left, right, path='root', records=None):
                     example['row'] = repr(left.index[example['index'][0]])
                 records.append(dict(path=path + f'/{name}', **result))
     elif isinstance(left, Mapping) and isinstance(right, Mapping):
+        if path.endswith('/attrs'):
+            path_keys = {'path', 'basedir', 'savdir', 'filename'} & (set(left) | set(right))
+            for key in sorted(path_keys):
+                record({'passed': True, 'comparison': 'path provenance only',
+                        'left': str(left.get(key)), 'right': str(right.get(key))}, '/' + key)
+            left = {k: v for k, v in left.items() if k not in path_keys}
+            right = {k: v for k, v in right.items() if k not in path_keys}
         keys(left, right, '/keys')
         for key in left:
             if key in right:
