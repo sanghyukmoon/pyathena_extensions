@@ -229,7 +229,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Load derived core informations using various alternative critical times
             if load_derived_cores:
                 self.cores_dict = {}
-                for mtd in ['empirical', 'virial', 'virial0', 'virial1']:
+                for mtd in ['empirical', 'virial0', 'virial1']:
                     savdir = Path(self.savdir, config.CORE_DIR)
                     try:
                         self.cores_dict[mtd] = self.update_core_props(
@@ -382,10 +382,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             cores['mw_dst_to_star'] = mw_dst
             cores['min_dst_to_pscore'] = min_dst_to_core
 
-            if method in ['virial', 'virial0', 'virial1']:
-                if method == 'virial':
-                    mmax = 'mmax_all'
-                elif method in ['virial0', 'virial1']:
+            if method in ['virial0', 'virial1']:
+                if method in ['virial0', 'virial1']:
                     mmax = 'mmax_all0'
                 else:
                     raise ValueError(f"Unknown method {method}")

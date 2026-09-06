@@ -28,7 +28,7 @@ from . import tools, models, load_sim
 class SpaceTimePlotter():
     """Helper class to create space-time plots with a consistent layout and formatting.
     """
-    def plot_spacetime(self, s, pid, *, size='compact', mtd_crit='virial'):
+    def plot_spacetime(self, s, pid, *, size='compact', mtd_crit='virial0'):
         s.select_cores(mtd_crit)
         cores = s.cores[pid]
         rprofs = s.rprofs[pid].transpose('t', 'r', ...)
@@ -449,7 +449,7 @@ def plot_lookback_profiles(
     xlim=(1e-2, 1e0),
     line_kwargs=None,
     nres = 0,
-    method = 'virial'
+    method = 'virial0'
 ):
     """Plot radial quantities by row and lookback times by column.
 
@@ -917,7 +917,7 @@ def plot_diagnostics(s, pid, normalize_time=True):
     return fig
 
 
-def plot_core_evolution(s, pid, num, hw=0.1, method='virial'):
+def plot_core_evolution(s, pid, num, hw=0.1, method='virial0'):
     # Load data
     if s.mhd:
         ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')

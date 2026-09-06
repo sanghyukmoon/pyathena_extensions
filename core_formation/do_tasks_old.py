@@ -68,7 +68,7 @@ if __name__ == "__main__":
 
     # Select models
     for mdl in args.models:
-        s = sa.set_model(mdl, legacy=args.legacy)
+        s = sa.set_model(mdl, legacy=args.legacy, load_derived_cores=False)
         if args.pid_start is not None and args.pid_end is not None:
             pids = np.arange(args.pid_start, args.pid_end+1)
         else:
@@ -129,7 +129,7 @@ if __name__ == "__main__":
         if args.lagrangian_props:
             s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
             def wrapper(pid):
-                method_list = ['empirical', 'virial', 'virial0', 'virial1'] # virial, pred_be, pred_xis
+                method_list = ['empirical', 'virial0', 'virial1'] # virial, pred_be, pred_xis
                 for method in method_list:
                     s.select_cores(method)
                     if pid in s.good_cores(0):
