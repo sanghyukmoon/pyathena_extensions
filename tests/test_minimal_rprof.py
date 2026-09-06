@@ -119,8 +119,6 @@ class Profiles(unittest.TestCase):
         current = ast.parse(textwrap.dedent(inspect.getsource(LoadSim._load_radial_profiles.__wrapped__))).body[0]
         before = next(n for n in method.body if isinstance(n, ast.For))
         after = next(n for n in current.body if isinstance(n, ast.For))
-        # Only the two statements installing the num index precede the old loop body.
-        after.body = [n for n in after.body if not (isinstance(n, ast.If) and 'xindexes' in ast.unparse(n.test))]
         self.assertEqual(ast.dump(before), ast.dump(after))
 
     def test_assembly_derived_parity_and_cache(self):
@@ -149,6 +147,7 @@ class Profiles(unittest.TestCase):
                     actual = s._load_radial_profiles(savdir=root/'onthefly')[7]
                     self.assertEqual(reader.call_count, 2)
                     xr.testing.assert_identical(actual, expected)
+                    self.assertNotIn('num', actual.xindexes)
                     np.testing.assert_allclose(actual.menc.isel(t=0), 4*np.pi*raw.r**3/3, atol=1e-15)
                     self.assertEqual(actual.sel(num=1).sizes['r'], 9)
                     cached = s._load_radial_profiles(savdir=root/'onthefly')[7]

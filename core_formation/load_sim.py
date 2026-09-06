@@ -885,8 +885,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         rprofs_dict = {}
         for pid, rprofs in raw_rprofs_dict.items():
             rprofs = rprofs.copy()
-            if 'num' not in rprofs.xindexes:
-                rprofs = rprofs.set_xindex('num')
             for axis in [1, 2, 3, 'x', 'y', 'z']:
                 rprofs[f'dvel{axis}_sq_mw'] = (rprofs[f'vel{axis}_sq_mw']
                                              - rprofs[f'vel{axis}_mw']**2)
