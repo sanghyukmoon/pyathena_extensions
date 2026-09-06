@@ -849,9 +849,8 @@ def lagrangian_property(s, cores, rprofs):
     lprops : pandas.DataFrame
         Object containing Lagrangian properties of cores.
     """
-    # Slice cores that have corresponding radial profiles
-    common_indices = sorted(set(cores.index) & set(rprofs.num.data))
-    cores = cores.loc[common_indices]
+    # Require radial profiles for every snapshot in the core trajectory.
+    cores = cores.sort_index()
     ncrit = cores.attrs['numcrit']
     ncoll = cores.attrs['numcoll']
     rcore = cores.attrs['rcore']
@@ -860,7 +859,7 @@ def lagrangian_property(s, cores, rprofs):
     if np.isnan(ncrit) or np.isnan(rcore):
         raise ValueError('ncrit and rcore must be defined to calculate Lagrangian properties')
     else:
-        rprofs = rprofs.sel(num=common_indices)
+        rprofs = rprofs.sel(num=cores.index)
 
         idx_hi = (rprofs.menc >= mcore).argmax('r')
         if np.any(idx_hi == 0):

@@ -399,8 +399,13 @@ def power_spectrum(s, nums=None, overwrite=False):
 
 
 def lagrangian_props(s, pid, *, method, overwrite=False):
+    """Calculate and save one core/method's Lagrangian properties as NetCDF.
+
+    Missing trajectory profiles raise KeyError before writing. Existing files
+    are skipped unless overwrite=True; refresh derived-core caches afterward.
+    """
     # Check if file exists
-    ofname = Path(s.savdir, config.CORE_DIR, f'lprops_tcrit_{method}.par{pid}.p')
+    ofname = Path(s.savdir, config.CORE_DIR, f'lprops_tcrit_{method}.par{pid}.nc')
     ofname.parent.mkdir(exist_ok=True)
     if ofname.exists() and not overwrite:
         print('[lagrangian_props] file already exists. Skipping...')
@@ -411,7 +416,9 @@ def lagrangian_props(s, pid, *, method, overwrite=False):
     rprofs = s.rprofs[pid]
     print(f'[lagrangian_props] Calculate Lagrangian props for core {pid} with version {method}')
     lprops = tools.lagrangian_property(s, cores, rprofs)
-    lprops.to_pickle(ofname, protocol=pickle.HIGHEST_PROTOCOL)
+    dataset = lprops.rename_axis('num').to_xarray()
+    dataset.attrs = lprops.attrs.copy()
+    dataset.to_netcdf(ofname)
 
 
 def projections(s, nums=None, overwrite=False):

@@ -453,9 +453,11 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 cores.attrs['tff_crit'] = tff_crit
 
             # Load Lagrangian props
-            fname = Path(savdir, f'lprops_tcrit_{method}.par{pid}.p')
+            fname = Path(savdir, f'lprops_tcrit_{method}.par{pid}.nc')
             if fname.exists():
-                lprops = pd.read_pickle(fname).sort_index()
+                dataset = xr.load_dataset(fname)
+                lprops = dataset.to_dataframe().sort_index()
+                lprops.attrs = dataset.attrs.copy()
                 if set(lprops.columns).issubset(cores.columns):
                     cores = cores.drop(lprops.columns, axis=1)
 
