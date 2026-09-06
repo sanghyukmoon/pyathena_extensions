@@ -117,8 +117,65 @@ def find_tcoll_core(s, pid):
     return lid
 
 def track_cores(s, pid):
-    """Use the common prestellar tracker for either profile source."""
-    return s._track_core(pid)
+    """Perform reverse core tracking
+
+    Parameters
+    ----------
+    s : LoadSim
+    pid : int
+    ncells_min : int, optional
+        Minimum number of cells in a leaf. Default to 27.
+
+    Returns
+    -------
+    cores : pandas.DataFrame
+
+    See also
+    --------
+    track_protostellar_cores : Forward core tracking after t_coll into
+                               the protostellar stage.
+    """
+    # start from t = t_coll and track backward
+    numcoll = s.tcoll_cores.loc[pid].num
+    nums = np.arange(numcoll, config.GRID_NUM_START-1, -1)
+    num = nums[0]
+    msg = f'[track_cores] processing model {s.basename} pid {pid} num {num}'
+    print(msg)
+
+    lid = find_tcoll_core(s, pid)
+
+    # Test if any star particle is contained inside t_coll core.
+    # TODO: This requires dendrogram construction; We should change algorithm
+    # for usage in AthenaK
+
+    assert s.par['output2']['file_type'] == 'hdf5' and s.par['output2']['variable'] == 'cons'
+    dt_hdf5 = s.par['output2']['dt']
+
+    nums_track = [num,]
+    time = [s.num_to_time(num),]
+    leaf_id = [lid,]
+    for num in nums[1:]:
+        print(f'[track_cores] processing model {s.basename} pid {pid} num {num}')
+        minima = s.minima[num]
+        lid_old = lid
+
+        # find closeast leaf to the previous preimage
+        dst = [s.distance_between(lid, lid_old) for lid in minima]
+        lid = minima[np.argmin(dst)]
+
+        nums_track.append(num)
+        time.append(s.num_to_time(num))
+        leaf_id.append(lid)
+    # SMOON: Using dtype=object is to prevent automatic upcasting from int to float
+    # when indexing a single row. Maybe there is a better approach.
+    cores = pd.DataFrame(dict(time=time, leaf_id=leaf_id),
+                         index=nums_track, dtype=object).sort_index()
+
+    # Set attributes
+    cores.attrs['pid'] = pid
+    cores.attrs['numcoll'] = numcoll
+
+    return cores
 
 
 def tidal_radius():
@@ -392,12 +449,6 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
     assert nbin > 0, f"nbin must be positive, got {nbin}"
     hdx = 0.5*s.dx
     redge = (nbin + 0.5)*s.dx
-    # Compute the potential gradient before cropping so the centered stencil
-    # wraps across the periodic domain at every selected cube face.
-    for dim in ['x', 'y', 'z']:
-        phi_right = ds.phi.roll({dim: -1}, roll_coords=False)
-        phi_left = ds.phi.roll({dim: 1}, roll_coords=False)
-        ds[f'gacc{dim}'] = -(phi_right - phi_left)/(2*s.dx)
     ds = ds.sel(x=slice(origin[0] - redge, origin[0] + redge),
                 y=slice(origin[1] - redge, origin[1] + redge),
                 z=slice(origin[2] - redge, origin[2] + redge))
@@ -415,6 +466,10 @@ def radial_profile(s, ds, origin, rmax=None, nsub=4, compute_flux=False):
     ds['Ldens_x'] = ds.rho*((ds.y - origin[1])*ds.velz - (ds.z - origin[2])*ds.vely)
     ds['Ldens_y'] = ds.rho*((ds.z - origin[2])*ds.velx - (ds.x - origin[0])*ds.velz)
     ds['Ldens_z'] = ds.rho*((ds.x - origin[0])*ds.vely - (ds.y - origin[1])*ds.velx)
+    # Gravitational accelerations
+    for dim in ['x', 'y', 'z']:
+        ds[f'gacc{dim}'] = -ds.phi.differentiate(dim)
+
     # Transform vector fields to spherical coordinates
     _, (ds['vel1'], ds['vel2'], ds['vel3'])\
         = transform.to_spherical((ds.velx, ds.vely, ds.velz), origin)
@@ -1230,7 +1285,7 @@ def critical_time_old(s, cores, rprofs, *, method):
             # critical time, throughout the collapse.
             rcrit = core.virial_rcrit
             if np.isnan(rcrit):
-                raise ValueError(f"{s.basename}: virial_rcrit is NaN at num = {num} for pid = {pid}. Cannot calculate net force at r_crit.")
+                raise Exception(f"{s.basename}: virial_rcrit is NaN at num = {num} for pid = {pid}. Cannot calculate net force at r_crit.")
             rprf = rprf.interp(r=rcrit)
             if method in ['virial', 'virial0']:
                 if rcrit <= 3*s.dx:

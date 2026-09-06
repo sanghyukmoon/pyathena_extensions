@@ -12,6 +12,8 @@ from core_formation import config, tasks, models, load_sim
 Pool = mp.get_context("fork").Pool
 
 if __name__ == "__main__":
+    sa = load_sim.LoadSimAll(models.models)
+
     parser = argparse.ArgumentParser()
     parser.add_argument("models", nargs='+', type=str,
                         help="List of models to process")
@@ -20,7 +22,7 @@ if __name__ == "__main__":
     parser.add_argument("--np", type=int, default=1,
                         help="Number of processors")
     parser.add_argument("-o", "--overwrite", action="store_true",
-                        help="Overwrite the requested task products")
+                        help="Overwrite everything")
     parser.add_argument("-r", "--reverse", action="store_true",
                         help="Loop through nums in revserse direction")
     parser.add_argument("--combine-partab", action="store_true",
@@ -59,17 +61,11 @@ if __name__ == "__main__":
     parser.add_argument("--pid-start", type=int)
     parser.add_argument("--pid-end", type=int)
 
-    parser.add_argument('--legacy', action=argparse.BooleanOptionalAction, default=True,
-                        help='Use Python-generated profiles (default); --no-legacy reads .rprof')
-    parser.add_argument('--methods', nargs='+', default=['empirical', 'virial', 'virial0', 'virial1'],
-                        choices=['empirical', 'virial', 'virial0', 'virial1'])
     args = parser.parse_args()
-    sa = load_sim.LoadSimAll(models.models)
 
     # Select models
     for mdl in args.models:
-        s = sa.set_model(mdl, legacy=args.legacy,
-                         load_derived_cores=not (args.critical_tes or args.lagrangian_props))
+        s = sa.set_model(mdl)
         if args.pid_start is not None and args.pid_end is not None:
             pids = np.arange(args.pid_start, args.pid_end+1)
         else:
@@ -89,7 +85,7 @@ if __name__ == "__main__":
 
         # Run GRID-dendro.
         if args.run_grid:
-            s = sa.set_model(mdl, legacy=args.legacy)
+            s = sa.set_model(mdl)
             def wrapper(num):
                 tasks.run_grid(s, num, overwrite=args.overwrite)
             print(f"Run GRID-dendro for model {mdl}")
@@ -98,7 +94,7 @@ if __name__ == "__main__":
 
         # Run GRID-dendro.
         if args.prune:
-            s = sa.set_model(mdl, legacy=args.legacy)
+            s = sa.set_model(mdl)
             def wrapper(num):
                 tasks.prune(s, num, overwrite=args.overwrite)
             print(f"Run GRID-dendro for model {mdl}")
@@ -107,32 +103,40 @@ if __name__ == "__main__":
 
         # Find t_coll cores and save their GRID-dendro node ID's.
         if args.track_cores:
-            s = sa.set_model(mdl, legacy=args.legacy, load_derived_cores=False)
+            s = sa.set_model(mdl, load_derived_cores=False)
             def wrapper(pid):
                 tasks.core_tracking(s, [pid,], overwrite=args.overwrite)
             print(f"Perform core tracking for model {mdl}")
             with Pool(args.np) as p:
                 p.map(wrapper, pids)
 
-        # Both profile sources use the same explicit task calculations.
+        # Find critical tes
         if args.critical_tes:
-            def wrapper(pid):
-                tasks.critical_tes(s, pid, overwrite=args.overwrite)
-            print(f"Find critical TES for cores for model {mdl}")
-            with Pool(args.np) as p:
-                p.map(wrapper, pids)
+            s = sa.set_model(mdl, override_cores=True, override_rprofs=True,
+                             load_derived_cores=False)
+            print(f"find critical tes for cores for model {mdl}")
+            for pid in pids:
+                cores = s.cores[pid]
+                def wrapper(num):
+                    tasks.critical_tes(s, pid, num, overwrite=args.overwrite)
+                with Pool(args.np) as p:
+                    p.map(wrapper, cores.index)
 
+        # Calculate Lagrangian properties
         if args.lagrangian_props:
+            s = sa.set_model(mdl, override_all=True)
             def wrapper(pid):
-                # TES is stable across methods. Read it once per core/worker.
-                for method in args.methods:
-                    tasks.lagrangian_props(s, pid, method=method, overwrite=args.overwrite)
+                method_list = ['empirical', 'virial', 'virial0', 'virial1'] # virial, pred_be, pred_xis
+                for method in method_list:
+                    s.select_cores(method)
+                    if pid in s.good_cores(0):
+                        tasks.lagrangian_props(s, pid, method=method, overwrite=args.overwrite)
             print(f"Calculate Lagrangian properties for model {mdl}")
             with Pool(args.np) as p:
                 p.map(wrapper, pids)
 
         if args.projections:
-            s = sa.set_model(mdl, legacy=args.legacy)
+            s = sa.set_model(mdl)
             msg = ("calculate and save projections for " f"model {mdl}")
             print(msg)
             def wrapper(num):
@@ -141,7 +145,7 @@ if __name__ == "__main__":
                 p.map(wrapper, s.nums)
 
         if args.prj_radial_profile:
-            s = sa.set_model(mdl, legacy=args.legacy, override_cores=True)
+            s = sa.set_model(mdl, override_cores=True)
             msg = ("calculate and save projected radial profiles for "
                    f"model {mdl}")
             print(msg)
@@ -152,7 +156,7 @@ if __name__ == "__main__":
 
         # Find observables
         if args.observables:
-            s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
+            s = sa.set_model(mdl, override_all=True)
             print(f"Calculate observable core properties for model {mdl}")
             for pid in pids:
                 cores = s.cores[pid]
@@ -169,7 +173,7 @@ if __name__ == "__main__":
 
         # Calculate radial profiles of t_coll cores and pickle them.
         if args.linewidth_size:
-            s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
+            s = sa.set_model(mdl, override_all=True)
             for num in [74]:
                 ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3'])
                 ds['vel1'] = ds.mom1/ds.dens
@@ -193,7 +197,7 @@ if __name__ == "__main__":
 
         # make plots
         if args.plot_core_evolution:
-            s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
+            s = sa.set_model(mdl, override_all=True)
             print(f"draw core evolution plots for model {mdl}")
             for pid in pids:
                 for method in ['virial0']:
@@ -206,7 +210,7 @@ if __name__ == "__main__":
                         p.map(wrapper, cores.index)
 
         if args.plot_sink_history:
-            s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
+            s = sa.set_model(mdl, override_all=True)
             def wrapper(num):
                 tasks.plot_sink_history(s, num, overwrite=args.overwrite)
             print(f"draw sink history plots for model {mdl}")
@@ -214,7 +218,7 @@ if __name__ == "__main__":
                 p.map(wrapper, s.nums)
 
         if args.plot_pdfs:
-            s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
+            s = sa.set_model(mdl, override_all=True)
             def wrapper(num):
                 tasks.plot_pdfs(s, num, overwrite=args.overwrite)
             print(f"draw PDF-power spectrum plots for model {mdl}")
@@ -222,13 +226,13 @@ if __name__ == "__main__":
                 p.map(wrapper, s.nums)
 
         if args.plot_diagnostics:
-            s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
+            s = sa.set_model(mdl, override_all=True)
             print(f"draw diagnostics plots for model {mdl}")
             for pid in s.good_cores():
                 tasks.plot_diagnostics(s, pid, overwrite=args.overwrite)
 
         if args.grf_tidal:
-            s = sa.set_model(mdl, legacy=args.legacy)
+            s = sa.set_model(mdl)
 
             # Dirty fix; given the model name with, e.g., N512, turn into N1024 model, for example.
             s.domain['Nx'] *= 2
@@ -243,7 +247,7 @@ if __name__ == "__main__":
 
         # make movie
         if args.make_movie:
-            s = sa.set_model(mdl, legacy=args.legacy)
+            s = sa.set_model(mdl)
             print(f"create movies for model {mdl}")
             srcdir = Path(s.savdir, "figures")
             plot_prefix = [

@@ -1355,7 +1355,7 @@ def plot_sinkhistory(s, num):
     pds = s.load_par(num)
 
     # find end time
-    ds_end = s.load_hdf5(s.nums_hdf5[-1], header_only=True)
+    ds_end = s.load_hdf5(s.nums[-1], header_only=True)
     tend = ds_end['Time']
 
     # create figure

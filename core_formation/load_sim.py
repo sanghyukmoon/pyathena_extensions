@@ -18,8 +18,7 @@ from pyathena.load_sim import LoadSim as LoadSimBase
 from pyathena.util.units import Units
 from pyathena.io.timing_reader import TimingReader
 
-from . import models, tools, config, hst, slc_prj, myio, rprof_analysis
-from .rprof_derived import add_rprof_derived, rprof_cumsum_r
+from . import models, tools, config, hst, slc_prj, myio
 
 
 class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
@@ -61,8 +60,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
     def __init__(self, basedir_or_Mach=None, method='virial0', savdir=None,
                  verbose=False, override_all=False, override_cores=False,
                  override_rprofs=False, override_derived_cores=False,
-                 load_derived_cores=True, *, legacy=True, cache=True,
-                 overwrite=False, load_rprofs=True):
+                 load_derived_cores=True):
         """The constructor for LoadSim class for core formation simulations.
 
         Parameters
@@ -82,21 +80,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             ('NOTSET', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
             Numerical values from 0 ('NOTSET') to 50 ('CRITICAL') are also
             accepted.
-        legacy : bool
-            Select the existing HDF5/pickle workflow (default True), or the
-            on-the-fly profile/NetCDF workflow. All core loaders use this mode.
-        cache, overwrite : bool
-            Profile-assembly cache policy only. TES and Lagrangian products
-            are read-only here; use the task runner to compute or overwrite them.
-        load_rprofs : bool
-            Load core profile histories eagerly (default True). Use
-            load_derived_cores=False as well to skip TES/core-product reads.
         """
-
-        self.legacy = bool(legacy)
-        self.cache = bool(cache)
-        self.overwrite = bool(overwrite or override_all)
-        self.load_errors = {}
 
         # Set unit system
         # [L] = L_{J,0}, [M] = M_{J,0}, [V] = c_s
@@ -111,7 +95,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             override_derived_cores = True
 
         if isinstance(basedir_or_Mach, (Path, str)):
-            basedir = str(basedir_or_Mach)
+            basedir = basedir_or_Mach
             super().__init__(basedir, savdir=savdir, load_method='xarray',
                              units=Units('code'), verbose=verbose)
 
@@ -160,7 +144,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             tools.LognormalPDF.__init__(self, self.Mach)
             TimingReader.__init__(self, self.basedir, self.problem_id)
 
-            self._initialize_timelines()
+            # Set nums dictionary (when hdf5 is stored in elsewhere for storage reasons)
+            if not hasattr(self, 'nums'):
+                if hasattr(self, 'nums_parbin'):
+                    self.nums = self.nums_parbin['par0']
+                elif hasattr(self, 'nums_partab'):
+                    self.nums = self.nums_partab['par0']
 
             # Set domain
             Lbox = set(self.domain['Lx'])
@@ -174,8 +163,64 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             self.tcr = 0.5*self.Lbox/self.Mach
             self.sonic_length = tools.get_sonic(self.Mach, self.Lbox)
 
-            self._initialize_analysis(method, load_rprofs, load_derived_cores,
-                                      self.overwrite or override_rprofs)
+            # Find the collapse time and corresponding snapshot numbers
+            self.tcoll_cores = self._load_tcoll_cores(
+                savdir=Path(self.savdir, config.CORE_DIR),
+                force_override=override_cores
+            )
+            try:
+                fname = Path(self.savdir, 'GRID', 'minima.p')
+                with open(fname, 'rb') as handle:
+                    self.minima = pickle.load(handle)
+            except FileNotFoundError:
+                pass
+
+            if len(self.tcoll_cores) > 0:
+                try:
+                    # Load cores
+                    savdir = Path(self.savdir, config.CORE_DIR)
+                    self.cores = self._load_cores(
+                        savdir=savdir,
+                        force_override=override_cores
+                    )
+                except FileNotFoundError:
+                    self.logger.warning("Cannot find core files to load.")
+                    pass
+
+            if hasattr(self, 'cores'):
+                try:
+                    # Load radial profiles
+                    savdir = Path(self.savdir, config.RPROF_DIR)
+                    self.rprofs = self._load_radial_profiles(
+                        savdir = savdir,
+                        force_override = override_rprofs
+                    )
+                except FileNotFoundError:
+                    self.logger.warning("Cannot find radial profile files to load. "
+                                        "Have you run concat_radial_profiles() to "
+                                        "concatenate individual radial profiles "
+                                        "into one file?")
+                    pass
+            # Load derived core informations using various alternative critical times
+            if load_derived_cores:
+                self.cores_dict = {}
+                for mtd in ['empirical', 'virial', 'virial0', 'virial1']:
+                    savdir = Path(self.savdir, config.CORE_DIR)
+                    try:
+                        self.cores_dict[mtd] = self.update_core_props(
+                            method = mtd,
+                            prefix = f'cores_tcrit_{mtd}',
+                            savdir = savdir,
+                            force_override = override_derived_cores
+                        )
+                    except (AttributeError, KeyError):
+                        self.logger.warning(
+                            f"Failed to update core props for method {mtd}, model {self.basename}"
+                        )
+                try:
+                    self.select_cores(method)
+                except KeyError:
+                    self.logger.warning(f"Failed to select core with method {method} for model {self.basename}")
         elif isinstance(basedir_or_Mach, (float, int)):
             self.Mach = basedir_or_Mach
             tools.LognormalPDF.__init__(self, self.Mach)
@@ -184,196 +229,33 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         else:
             raise ValueError("Unknown parameter type for basedir_or_Mach")
 
-    def _initialize_timelines(self):
-        """Read times and minimum IDs once from the files found by FindFiles."""
-        hdf5 = [v for key, v in self.par.items()
-                if key.startswith('output') and v.get('file_type') == 'hdf5']
-        if len(hdf5) > 1 or (hdf5 and hdf5[0].get('variable') != 'cons'):
-            raise ValueError('Core formation requires at most one cons HDF5 output')
-        self.nums_hdf5 = list(self.ff.nums_hdf5.get('cons') or []) if hdf5 else []
-        self.times_hdf5 = {num: float(self.load_hdf5(num, header_only=True)['Time'])
-                           for num in self.nums_hdf5}
-        if self.legacy:
-            self.nums = self.nums_hdf5
-            self.times = self.times_hdf5
-            if not self.nums:
-                if hasattr(self, 'nums_parbin'):
-                    self.nums = list(self.nums_parbin['par0'])
-                    reader = self.load_parbin
-                elif hasattr(self, 'nums_partab'):
-                    self.nums = list(self.nums_partab['par0'])
-                    reader = self.load_partab
-                if self.nums:
-                    self.times = {num: float(reader(num, header_only=True)['time'])
-                                  for num in self.nums}
-            return
-        self.nums = list(self.nums_rprof) if hasattr(self, 'nums_rprof') else []
-        if not self.nums:
-            raise FileNotFoundError('No radial-profile outputs found')
-        if np.any(np.diff(self.nums) != 1):
-            raise ValueError('Gap in radial-profile output numbering')
-        self.times, self.minima = {}, {}
-        for num in self.nums:
-            header = self.load_rprof(num, metadata_only=True)
-            if int(header.attrs['num']) != num:
-                raise ValueError(f'Inconsistent radial-profile number at output {num}')
-            self.times[num] = float(header.attrs['time'])
-            self.minima[num] = header.center_id.to_numpy().copy()
-        if np.any(np.diff(list(self.times.values())) <= 0):
-            raise ValueError('Radial-profile times must increase with output number')
-
-    def _report_failure(self, pid, stage, error):
-        self.load_errors.setdefault(pid, {})[stage] = str(error)
-        self.logger.warning(f'Core {pid}, {stage}: {error}')
-
-
-    def _initialize_analysis(self, method, load_rprofs, load_derived_cores, overwrite):
-        """Load common analysis products; TES/Lagrangian calculations belong to tasks."""
-        self.cores, self.rprofs, self.cores_dict, self._core_tracks = {}, {}, {}, {}
-        self.tcoll_cores = self._load_tcoll_cores()
-        if self.legacy:
-            path = Path(self.savdir, 'GRID', 'minima.p')
-            if not path.exists():
-                path = Path(self.basedir, 'GRID', 'minima.p')
-            try:
-                with path.open('rb') as handle:
-                    self.minima = pickle.load(handle)
-            except FileNotFoundError:
-                self.logger.warning('Minima not found; run save_minima before tracking')
-        self._core_tracks = self._load_cores()
-        self.cores = self._core_tracks.copy()
-        if load_rprofs:
-            if self.legacy:
-                try:
-                    self.rprofs = self._load_radial_profiles(
-                        savdir=Path(self.savdir, config.RPROF_DIR), force_override=overwrite)
-                except (OSError, ValueError, KeyError) as error:
-                    for pid in self.pids:
-                        self._report_failure(pid, 'profiles', error)
-            else:
-                for pid in self.pids:
-                    try:
-                        self.load_core_rprof(pid, cache=self.cache, overwrite=overwrite)
-                    except (OSError, ValueError, KeyError) as error:
-                        self._report_failure(pid, 'profiles', error)
-            # Existing assembled profiles can cover more times than the common track.
-            for pid, track in self._core_tracks.items():
-                if pid in self.rprofs:
-                    try:
-                        self.rprofs[pid] = self.rprofs[pid].sel(num=track.index.to_numpy(dtype=int))
-                    except KeyError as error:
-                        self.rprofs.pop(pid)
-                        self._report_failure(pid, 'profiles', error)
-        if load_derived_cores:
-            for pid in self.pids:
-                try:
-                    self.load_critical_tes(pid)
-                except (OSError, ValueError, KeyError) as error:
-                    self._report_failure(pid, 'tes', error)
-            for name in ('empirical', 'virial', 'virial0', 'virial1'):
-                self.load_core_props(name)
-            self.select_cores(method)
-
-
-    def _track_core(self, pid, *, f_mul=3):
-        """Follow nearest periodic minima backward until continuity fails."""
-        collapse = self.tcoll_cores.loc[pid]
-        numcoll = int(collapse.num)
-        position = collapse[['x1', 'x2', 'x3']].to_numpy(dtype=float)
-        rows, positions = [], []
-        reason = 'coverage_start'
-        # Preserve the baseline cutoff for equal-cadence source comparisons.
-        dt = self.dt_output['hdf5' if self.legacy else 'rprof']
-        cutoff = int((self.tcoll_cores.loc[1].time - 1.5/self.u.Myr) / dt)
-        first_num = max(config.GRID_NUM_START, cutoff)
-        for num in reversed([n for n in self.nums if first_num <= n <= numcoll]):
-            center_ids = self.minima[num]
-            candidates = np.array([self.flatindex_to_cartesian(int(lid)) for lid in center_ids])
-            if not len(candidates):
-                reason = 'empty_minima'
-                break
-            distances = np.linalg.norm(rprof_analysis.periodic_displacement(candidates-position, self.Lbox), axis=1)
-            chosen = int(np.argmin(distances))
-            candidate = candidates[chosen]
-            if len(positions) >= 2:
-                displacement = rprof_analysis.periodic_displacement(positions[-1]-positions[-2], self.Lbox)
-                prediction = positions[-1] + displacement
-                error = np.linalg.norm(rprof_analysis.periodic_displacement(candidate-prediction, self.Lbox))
-                if error > f_mul*max(np.linalg.norm(displacement), self.dx):
-                    reason = 'continuity'
-                    break
-            position = candidate
-            positions.append(position)
-            rows.append(dict(num=int(num), time=self.times[num],
-                             leaf_id=int(center_ids[chosen])))
-        if not rows:
-            raise ValueError(f"No minimum at the pre-collapse output for pid {pid}")
-        cores = pd.DataFrame(rows, dtype=object).set_index('num').sort_index()
-        cores.attrs.update(pid=int(pid), numcoll=numcoll, tcoll=float(collapse.time),
-                           f_mul=float(f_mul), stop_reason=reason,
-                           num_start=int(cores.index[0]),
-                           track_failed=len(cores) < 2 or reason == 'empty_minima')
-        return cores
-
-
-    def load_rprof(self, num, center_ids=None, *, metadata_only=False):
-        """Read a snapshot and add the standard derived radial quantities."""
-        dataset = super().load_rprof(num, center_ids=center_ids, metadata_only=metadata_only)
-        if not metadata_only:
-            dataset = add_rprof_derived(dataset, cs=self.cs, gconst=self.gconst, mhd=self.mhd)
-        return dataset
-
-    def load_core_rprof(self, pid, *, cache=True, overwrite=False):
-        """Load or assemble a nonlegacy core history; refresh only on request."""
-        if self.legacy:
-            raise ValueError('In legacy mode access radial profiles through s.rprofs[pid]')
-        path = Path(self.savdir, 'on_the_fly', f'core_rprof.par{pid}.nc')
-        if cache and not overwrite and path.exists():
-            try:
-                dataset = xr.load_dataset(path, engine='netcdf4')
-                if not {'rho', 'menc', 'num', 't', 'r', 'center_id'}.issubset(dataset.variables):
-                    raise ValueError('Incomplete core-profile Dataset')
-            except (OSError, ValueError, KeyError) as error:
-                raise ValueError(f'Cannot load {path}; use overwrite=True to rebuild') from error
-        else:
-            track = self._core_tracks[pid]
-            if track.empty or track.attrs.get('track_failed', False):
-                raise ValueError(f'Core {pid} has no valid prestellar trajectory')
-            rows, radius = [], None
-            for num, core in track.iterrows():
-                source = super().load_rprof(num, center_ids=[int(core.leaf_id)])
-                if radius is not None and not np.array_equal(source.r, radius):
-                    raise ValueError(f'Radial coordinates differ at output {num}')
-                radius = source.r.values
-                row = source.isel(center_id=0, drop=True).expand_dims(t=[source.attrs['time']])
-                row = row.assign_coords(num=('t', [int(num)]),
-                                        center_id=('t', [np.uint64(core.leaf_id)]),
-                                        **{coord: ('t', [float(source[coord].values[0])])
-                                           for coord in ('x1', 'x2', 'x3')})
-                rows.append(row)
-            dataset = xr.concat(rows, dim='t', join='exact', combine_attrs='drop_conflicts')
-            dataset = add_rprof_derived(dataset, cs=self.cs, gconst=self.gconst, mhd=self.mhd)
-            dataset.attrs.update(source='rprof', pid=int(pid), cs=float(self.cs),
-                                 gconst=float(self.gconst), mhd=int(self.mhd))
-        if cache and (overwrite or not path.exists()):
-            rprof_analysis.write_netcdf(dataset, path)
-        dataset = dataset.set_xindex('num')
-        self.rprofs[pid] = dataset
-        self.load_errors.get(pid, {}).pop('profiles', None)
-        return dataset
-
     def load_hdf5(self, num, sparse=False, **kwargs):
-        """Load a native HDF5 output number."""
+        """Load hdf5 file
+
+        Parameters
+        ----------
+        num : int
+            Snapshot number.
+        sparse : bool
+            If True, load only the header information.
+        """
         if sparse:
-            fname = Path(self.basedir, 'sparse', f'{self.problem_id}.{num:05d}.athdf')
+            outid = self._hdf5_outid_def
+            outvar = self._hdf5_outvar_def
+            fname = Path(
+                self.basedir, "sparse", f"{self.problem_id}.{num:05d}.athdf"
+            )
             if not fname.exists():
                 raise FileNotFoundError('sparse hdf5 file does not exist.')
-            if 'chunks' not in kwargs:
-                raise ValueError('chunks must be specified for sparse hdf5')
-            chunks = tuple(kwargs['chunks'][axis] for axis in ('x', 'y', 'z'))
+            if 'chunks' in kwargs:
+                chunks = (kwargs['chunks']['x'],
+                          kwargs['chunks']['y'],
+                          kwargs['chunks']['z'])
+            else:
+                raise ValueError("chunks must be specified for sparse hdf5")
             return myio.read_sparse_hdf5(fname, chunks)
-        return LoadSimBase.load_hdf5(self, num, **kwargs)
-
+        else:
+            return LoadSimBase.load_hdf5(self, num, **kwargs)
 
     def load_par(self, num, **kwargs):
         """Load partab or parbin"""
@@ -404,17 +286,17 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         with open(fname, 'rb') as handle:
             return pickle.load(handle)
 
+    def num_to_time(self, num):
+        ds = self.load_hdf5(num, header_only=True)
+        return ds['Time']
 
     def select_cores(self, method):
-        self.cores = self._core_tracks.copy()
-        self.cores.update(self.cores_dict[method])
+        self.cores = self.cores_dict[method].copy()
 
     def good_cores(self, nres=8):
         """List of resolved cores"""
         good_cores = []
         for pid, cores in self.cores.items():
-            if not cores.attrs.get('derived_available', False):
-                continue
             if cores.attrs['track_failed']:
                 # Exclude cores that failed to be tracked before collapse.
                 continue
@@ -423,53 +305,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 good_cores.append(pid)
         return good_cores
 
-    def load_critical_tes(self, pid):
-        """Read task-produced TES parameters; never compute or write them."""
-        path = Path(self.savdir, config.CORE_DIR, f'critical_tes.par{pid}.nc')
-        if not path.exists():
-            raise FileNotFoundError(f'{path} missing; run --critical-tes')
-        table = rprof_analysis.dataset_to_frame(xr.load_dataset(path, engine='netcdf4'))
-        if pid in self._core_tracks:
-            track = self._core_tracks[pid]
-            table = table.loc[track.index]
-            self._core_tracks[pid] = track.assign(**{name: table[name] for name in table})
-            self.cores[pid] = self._core_tracks[pid].copy()
-        self.load_errors.get(pid, {}).pop('tes', None)
-        return table
-
-    def load_core_props(self, method, pids=None):
-        """Read complete task-produced method tables without calculation or writes."""
-        result = {}
-        for pid in (self.pids if pids is None else pids):
-            stage = f'derived:{method}'
-            path = Path(self.savdir, config.CORE_DIR, f'core_props.{method}.par{pid}.nc')
-            try:
-                if not path.exists():
-                    raise FileNotFoundError(f'{path} missing; run --lagrangian-props --methods {method}')
-                result[pid] = rprof_analysis.dataset_to_frame(xr.load_dataset(path, engine='netcdf4'))
-                self.load_errors.get(pid, {}).pop(stage, None)
-            except (OSError, ValueError, KeyError) as error:
-                self._report_failure(pid, stage, error)
-        self.cores_dict[method] = result
-        return result
-
-    def update_core_props(self, method, prefix=None, savdir=None, force_override=False,
-                          *, pids=None):
-        """Explicitly calculate critical-time properties for tasks; no cache I/O."""
-        if method not in ('empirical', 'virial', 'virial0', 'virial1'):
-            raise ValueError(f'Unknown critical-time method {method}')
-        selected = list(self.pids if pids is None else pids)
-        if any(pid not in self._core_tracks for pid in self.pids):
-            raise ValueError('Peer trajectories incomplete')
-        for pid in selected:
-            if pid not in self.rprofs:
-                raise ValueError(f'Radial profiles missing for core {pid}')
-            if 'critical_radius' not in self._core_tracks[pid]:
-                raise ValueError(f'TES parameters missing for core {pid}; run --critical-tes')
-        return self._compute_core_props(method, savdir or Path(self.savdir, config.CORE_DIR), pids=selected)
-
-
-    def _compute_core_props(self, method, savdir, pids=None):
+    @LoadSimBase.Decorators.check_pickle
+    def update_core_props(self, method,
+                          prefix=None, savdir=None, force_override=False):
         """Update core properties
 
         Calculate lagrangian core properties using the radial profiles
@@ -484,9 +322,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             Updated core dataframe.
         """
         core_dict = {}
-        tracks = self._core_tracks
-        for pid in (self.pids if pids is None else pids):
-            cores = tracks[pid].copy()
+        for pid in self.pids:
+            cores = self.cores[pid].copy()
             if cores.attrs['track_failed']:
                 core_dict[pid] = cores
                 continue
@@ -509,7 +346,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     min_dst.append(min(dst))
                     mw_dst.append(np.average(dst, weights=mass))
                 for cid in self.pids:
-                    other_cores = tracks[cid]
+                    other_cores = self.cores[cid]
                     if num not in other_cores.index:
                         continue
                     other_core = other_cores.loc[num]
@@ -597,6 +434,26 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 cores.attrs['mcore'] = mcore
                 cores.attrs['mean_density'] = mean_density
                 cores.attrs['tff_crit'] = tff_crit
+
+            # Load Lagrangian props
+            fname = Path(savdir, f'lprops_tcrit_{method}.par{pid}.p')
+            if fname.exists():
+                lprops = pd.read_pickle(fname).sort_index()
+                if set(lprops.columns).issubset(cores.columns):
+                    cores = cores.drop(lprops.columns, axis=1)
+
+                # Save attributes before performing join, which will drop them.
+                attrs = cores.attrs.copy()
+                attrs.update(lprops.attrs)
+                cores = cores.join(lprops)
+                # Reattach attributes
+                cores.attrs = attrs
+
+                # Net force
+                Fnet = cores.Fthm + cores.Ftrb + cores.Fcen + cores.Fani - cores.Fgrv
+                if self.mhd:
+                    Fnet += cores.Fmag
+                cores['Fnet'] = Fnet / cores.Fgrv
 
             mcore = cores.attrs['mcore']
             rcore = cores.attrs['rcore']
@@ -802,51 +659,104 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                            self.domain['le'][2], self.domain['re'][2])
         return x, y, z
 
+    @LoadSimBase.Decorators.check_pickle
     def _load_tcoll_cores(self, prefix='tcoll_cores', savdir=None, force_override=False):
-        rows = []
-        fields = ['x1', 'x2', 'x3', 'v1', 'v2', 'v3']
+        """Read .csv output and find their collapse time and snapshot number.
+
+        Additionally store their mass, position, velocity at the time of
+        collapse.
+        """
+        x1, x2, x3, v1, v2, v3 = {}, {}, {}, {}, {}, {}
+        time, num = {}, {}
         for pid in self.pids:
-            try:
-                history = self.load_parhst(pid)
-                if history is None or history.empty:
-                    raise ValueError('Particle history is empty or missing')
-                first = history.iloc[0]
-                if not np.all(np.isfinite(first[fields+['time', 'age']].to_numpy(dtype=float))):
-                    raise ValueError('Nonfinite collapse information in particle history')
-                tcoll = float(first.time-first.age)
-                eligible = [num for num in self.nums if self.times[num] < tcoll]
-                if not eligible:
-                    raise ValueError(f'No output strictly before collapse time {tcoll}')
-                num = eligible[-1]
-                rows.append(dict(pid=pid, **{name: first[name] for name in fields},
-                                 time=tcoll, num=num, output_time=self.times[num]))
-                self.load_errors.get(pid, {}).pop('collapse', None)
-            except (OSError, ValueError, KeyError) as error:
-                self._report_failure(pid, 'collapse', error)
-        return pd.DataFrame(rows, columns=['pid']+fields+['time', 'num', 'output_time'],
-                            dtype=object).set_index('pid')
+            phst = self.load_parhst(pid).iloc[0]
+            x1[pid] = phst.x1
+            x2[pid] = phst.x2
+            x3[pid] = phst.x3
+            v1[pid] = phst.v1
+            v2[pid] = phst.v2
+            v3[pid] = phst.v3
+            time[pid] = phst.time - phst.age
+            num[pid] = np.floor(time[pid] / self.dt_output['hdf5']).astype('int')
+        tcoll_cores = pd.DataFrame(
+            dict(x1=x1, x2=x2, x3=x3,
+                 v1=v1, v2=v2, v3=v3,
+                 time=time, num=num),
+            dtype=object
+        )
+        tcoll_cores.index.name = 'pid'
+        return tcoll_cores
 
-
+    @LoadSimBase.Decorators.check_pickle
     def _load_cores(self, prefix='cores', savdir=None, force_override=False):
-        """Build the same inexpensive prestellar tracks for either profile source."""
-        result = {}
+        cores_dict = {}
+        pids_not_found = []
+
+        # Try reading the go15 mass
+        try:
+            fname = Path(savdir, 'mcore_go15.p')
+            with open(fname, 'rb') as f:
+                mcore_go15 = pickle.load(f)
+            mcore_go15_found = True
+        except FileNotFoundError:
+            mcore_go15_found = False
+
+
         for pid in self.pids:
-            if pid not in self.tcoll_cores.index:
-                continue
-            try:
-                track = self._track_core(pid)
-                result[pid] = track
-                if track.attrs['track_failed']:
-                    self._report_failure(pid, 'tracking', track.attrs['stop_reason'])
-            except (OSError, ValueError, KeyError, AttributeError) as error:
-                self._report_failure(pid, 'tracking', error)
-        path = Path(self.savdir, config.CORE_DIR, 'mcore_go15.p')
-        if path.exists():
-            with path.open('rb') as handle:
-                masses = pickle.load(handle)
-            for pid, track in result.items():
-                track.attrs['mcore_go15'] = masses[pid]
-        return result
+            fname = Path(savdir, f'cores.par{pid}.p')
+            cores = pd.read_pickle(fname).sort_index()
+            num_start = self.trajectory_start_num(cores, f_mul=3.0)
+
+            num_start_min = int(
+                (self.tcoll_cores.loc[1].time - 1.5 / self.u.Myr)
+                / self.dt_output['hdf5']
+            )
+            # Prevent excessive back-tracking to early times
+            num_start = max(num_start, num_start_min)
+
+            cores = cores.loc[num_start:]
+
+            # Read critical TES info and concatenate to self.cores
+            # Try reading critical TES pickles
+            tes_crit = []
+            for num in cores.index:
+                try:
+                    fname = Path(savdir, f'critical_tes.par{pid}.{num:05d}.p')
+                    tes_crit.append(pd.read_pickle(fname))
+                except FileNotFoundError:
+                    pids_not_found.append(pid)
+                    break
+            if len(tes_crit) > 0:
+                tes_crit = pd.DataFrame(tes_crit).set_index('num').sort_index()
+
+                # Save attributes before performing join, which will drop them.
+                attrs = cores.attrs.copy()
+                attrs.update(tes_crit.attrs)
+                cores = cores.join(tes_crit)
+
+                # Reattach attributes
+                cores.attrs = attrs
+            if mcore_go15_found:
+                cores.attrs['mcore_go15'] = mcore_go15[pid]
+
+            # Find collapse time
+            cores.attrs['tcoll'] = self.tcoll_cores.loc[pid].time
+
+            # Add attributes
+            if len(cores) == 1 and cores.index[0] == cores.attrs['numcoll']:
+                cores.attrs['track_failed'] = True
+            else:
+                cores.attrs['track_failed'] = False
+
+            # Sort attributes
+            cores.attrs = {k: cores.attrs[k] for k in sorted(cores.attrs)}
+
+            cores_dict[pid] = cores
+
+        if len(pids_not_found) > 0:
+            msg = f"{self.basename}: Some critical TES files are missing for pid {pids_not_found}"
+            self.logger.warning(msg)
+        return cores_dict
 
     def concat_radial_profiles(self):
         """Concatenate per-snapshot 3D radial profiles into one pickle file."""
@@ -938,8 +848,249 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
         rprofs_dict = {}
         for pid, rprofs in raw_rprofs_dict.items():
-            rprofs = add_rprof_derived(
-                rprofs, cs=self.cs, gconst=self.gconst, mhd=self.mhd)
+            rprofs = rprofs.copy()
+            for axis in [1, 2, 3, 'x', 'y', 'z']:
+                rprofs[f'dvel{axis}_sq_mw'] = (rprofs[f'vel{axis}_sq_mw']
+                                             - rprofs[f'vel{axis}_mw']**2)
+
+            dr = rprofs.r.data[1] - rprofs.r.data[0]
+            rc = rprofs.r.data
+            rf = np.insert(0.5*(rc[1:] + rc[:-1]), 0, 0)
+            rf = np.append(rf, rf[-1]+dr)
+            # vshell_full is the volume between the inner and outer bin edges
+            vshell_full = 4*np.pi/3*(rf[1:]**3 - rf[:-1]**3)
+            # vshell_half is the volume between the outer bin edge and the
+            # bin center.
+            vshell_half = 4*np.pi/3*(rf[1:]**3 - rc**3)
+            # Note that for the first bin, vshell_full = vshell_half.
+
+            rprofs['vshell_full'] = xr.DataArray(
+                vshell_full,
+                dims='r',
+                coords=dict(r=rprofs.r)
+            )
+            rprofs['vshell_half'] = xr.DataArray(
+                vshell_half,
+                dims='r',
+                coords=dict(r=rprofs.r)
+            )
+
+            rprofs['menc'] = rprof_cumsum_r(rprofs, rprofs.rho)
+            rprofs['Lx_enc'] = rprof_cumsum_r(rprofs, rprofs.Ldens_x)
+            rprofs['Ly_enc'] = rprof_cumsum_r(rprofs, rprofs.Ldens_y)
+            rprofs['Lz_enc'] = rprof_cumsum_r(rprofs, rprofs.Ldens_z)
+            Lnorm = np.sqrt(rprofs.Lx_enc**2 + rprofs.Ly_enc**2 + rprofs.Lz_enc**2)
+            rprofs['lhat_x'] = rprofs.Lx_enc / Lnorm
+            rprofs['lhat_y'] = rprofs.Ly_enc / Lnorm
+            rprofs['lhat_z'] = rprofs.Lz_enc / Lnorm
+            if self.mhd:
+                rprofs['costh_BL'] = (
+                    rprofs.bhat_x*rprofs.lhat_x
+                    + rprofs.bhat_y*rprofs.lhat_y
+                    + rprofs.bhat_z*rprofs.lhat_z
+                )
+
+            # Virial terms
+            rdotg = rprofs.xgx_mw + rprofs.ygy_mw + rprofs.zgz_mw
+            rprofs['Omega_G'] = -rprof_cumsum_r(rprofs, rprofs.rho*rdotg)
+
+            # See the Radial Profile from Cartesian Grid Data slide
+            # or July 24 research note.
+            hdr = 0.5*(rprofs.r[1] - rprofs.r[0]).data[()]
+            rl = rprofs.r - hdr
+            ru = rprofs.r + hdr
+            r_inv_avg = (3/2) * (ru + rl) / (ru**2 + ru*rl + rl**2)
+            r2_avg = (3/5) * (
+                ru**4 + ru**3*rl + ru**2*rl**2 + ru*rl**3 + rl**4
+            ) / (ru**2 + ru*rl + rl**2)
+            r5_avg = (3/8) * (
+                ru**7 + ru**6*rl + ru**5*rl**2 + ru**4*rl**3
+                + ru**3*rl**4 + ru**2*rl**5 + ru*rl**6 + rl**7
+            ) / (ru**2 + ru*rl + rl**2)
+            vshell_inner_half = rprofs.vshell_full - rprofs.vshell_half
+            menc_inner_edge = rprofs.menc - rprofs.rho*vshell_inner_half
+            menc_inner_edge -= 4*np.pi*rprofs.rho*rl**3/3
+            rdotg_sph = xr.where(
+                rprofs.r > 0,
+                -self.gconst*(
+                    menc_inner_edge*r_inv_avg
+                    + 4*np.pi*rprofs.rho/3*r2_avg
+                ),
+                0
+            )
+            rprofs['Omega_G_sph'] = -rprof_cumsum_r(rprofs, rprofs.rho*rdotg_sph)
+            rprofs['Omega_G0'] = xr.where(
+                rprofs.r > 0,
+                self.gconst*(
+                    menc_inner_edge**2*r_inv_avg
+                    + 8*np.pi*rprofs.rho/3*menc_inner_edge*r2_avg
+                    + (4*np.pi*rprofs.rho/3)**2*r5_avg
+                ),
+                0
+            )
+
+            rprofs['Omega_K_thm'] = rprof_cumsum_r(rprofs, 3*self.cs**2*rprofs.rho)
+
+            vsq = (rprofs.vel1_sq_mw + rprofs.vel2_sq_mw + rprofs.vel3_sq_mw)
+            rprofs['Omega_K_kin'] = rprof_cumsum_r(rprofs, rprofs.rho*vsq)
+
+            rprofs['Omega_K'] = rprofs['Omega_K_thm'] + rprofs['Omega_K_kin']
+            rprofs['Omega_S_thm'] = 4*np.pi*rprofs.r**3*self.cs**2*rprofs.rho
+            rprofs['Omega_S_kin'] = 4*np.pi*rprofs.r**3*rprofs.rho*rprofs.vel1_sq_mw
+            rprofs['Omega_S'] = rprofs['Omega_S_thm'] + rprofs['Omega_S_kin']
+            rprofs['alpha_vir'] = rprofs['Omega_K'] / rprofs['Omega_G']
+            if self.mhd:
+                magnetic_energy_density = (rprofs.b1_sq + rprofs.b2_sq + rprofs.b3_sq)/2
+                rprofs['Omega_M'] = rprof_cumsum_r(rprofs, magnetic_energy_density)
+                t_rr = rprofs.b1_sq - magnetic_energy_density
+                rprofs['Omega_S_mag'] = -4*np.pi*rprofs.r**3*t_rr
+                rprofs['Omega_S'] += rprofs['Omega_S_mag']
+                rprofs['gamma_M'] = rprofs['Omega_M'] / (2*rprofs['Omega_K'])
+            else:
+                rprofs['Omega_M'] = xr.zeros_like(rprofs.rho)
+                rprofs['Omega_S_mag'] = xr.zeros_like(rprofs.rho)
+                rprofs['gamma_M'] = xr.zeros_like(rprofs.rho)
+            rprofs['gamma_S'] = rprofs['Omega_S'] / rprofs['Omega_G']
+            rprofs['Alpha'] = rprofs.Omega_K + rprofs.Omega_M - rprofs.Omega_G - rprofs.Omega_S
+            rprofs['ptot'] = rprofs.rho*(self.cs**2 + rprofs.vel1_sq_mw)
+            rprofs['peq'] = (rprofs.Omega_K + rprofs.Omega_M - rprofs.Omega_S_mag - rprofs.Omega_G) / (4*np.pi*rprofs.r**3)
+
+            # Maximum pressure from McCrea analysis
+            rgrav = self.gconst*rprofs.menc/self.cs**2
+            pgrav = self.cs**8/(4*np.pi*self.gconst**3*rprofs.menc**2)
+            sigma_1d_sq = rprofs.Omega_K_kin/(3*rprofs.menc)
+            agrv = rprofs.Omega_G/((3/5)*rprofs.Omega_G0)
+            rprofs['a_grv'] = agrv
+            if self.mhd:
+                flux = np.sqrt(4*np.pi)*rprofs.phi_B
+                bmag = (rprofs.Omega_M - rprofs.Omega_S_mag) / (flux**2/(6*np.pi**2*rprofs.r))
+                rprofs['b_mag'] = bmag
+                cphi2 = 5*bmag / (18*np.pi**2*agrv)
+                rprofs['c_phi'] = np.sqrt(cphi2.where(cphi2 >= 0))
+            else:
+                flux = xr.zeros_like(rprofs.rho)
+                cphi2 = xr.zeros_like(agrv)
+
+            param_dict = {
+                'all': {
+                    'sigma_tot2': self.cs**2 + sigma_1d_sq,
+                    'c_phi2': cphi2,
+                },
+                'thm': {
+                    'sigma_tot2': self.cs**2,
+                    'c_phi2': xr.zeros_like(cphi2),
+                },
+                'trb': {
+                    'sigma_tot2': sigma_1d_sq,
+                    'c_phi2': xr.zeros_like(cphi2),
+                },
+                'mag': {
+                    'sigma_tot2': 0,
+                    'c_phi2': cphi2,
+                },
+                'thm_trb': {
+                    'sigma_tot2': self.cs**2 + sigma_1d_sq,
+                    'c_phi2': xr.zeros_like(cphi2),
+                },
+                'thm_mag': {
+                    'sigma_tot2': self.cs**2,
+                    'c_phi2': cphi2,
+                },
+                'trb_mag': {
+                    'sigma_tot2': sigma_1d_sq,
+                    'c_phi2': cphi2,
+                },
+            }
+            for key in param_dict.copy().keys():
+                param_dict[key]['a_grv'] = agrv
+                param_dict[f'{key}0'] = param_dict[key].copy()
+                param_dict[f'{key}0']['a_grv'] = 1.17*xr.ones_like(agrv)
+                param_dict[f'{key}0']['c_phi2'] = (0.17**2)*xr.ones_like(cphi2)
+            for key, params in param_dict.items():
+                agrv = params['a_grv']
+                c_J = 3**4 * 5**3 / (2**10 * np.pi * agrv.where(agrv > 0)**3)
+                mmag2 = params['c_phi2']/self.gconst*flux**2 if self.mhd else xr.zeros_like(agrv)
+                sigma2 = params['sigma_tot2']
+                rprofs[f"pmax_{key}"] = (
+                    c_J * sigma2**4 / (self.gconst**3*rprofs.menc**2*(1 - mmag2/rprofs.menc**2)**3)
+                ).where(rprofs.menc**2 > mmag2, other=np.nan)
+                # Cubic coefficients for x^3 + ax^2 + bx + c = 0
+                a = -3*mmag2 - c_J * sigma2**4 / (self.gconst**3 * rprofs.ptot)
+                b = 3*mmag2**2
+                c = -mmag2**3
+                x = tools.cubic_root(a, b, c)
+                rprofs[f"mmax_{key}"] = np.sqrt(x.where(x >= 0))
+
+                # fixed sonic radius
+                sigma_trb2 = sigma2 - self.cs**2
+                xi = 32*agrv/45*sigma_trb2*self.gconst*rprofs.menc/(self.cs**4*rprofs.r)
+                eta = 0.5 + 0.5*(1 + xi)**1.5 + 3*xi/4 + 3*xi**2/16
+                rprofs[f"pmax_{key}_fs"] = (
+                    c_J * self.cs**8*eta / (self.gconst**3*rprofs.menc**2*(1 - mmag2/rprofs.menc**2)**3)
+                ).where(rprofs.menc**2 > mmag2, other=np.nan)
+                a = -3*mmag2 - c_J*self.cs**8*eta / (self.gconst**3 * rprofs.ptot)
+                b = 3*mmag2**2
+                c = -mmag2**3
+                x = tools.cubic_root(a, b, c)
+                rprofs[f"mmax_{key}_fs"] = np.sqrt(x.where(x >= 0))
+
+
+            rhoavg = rprofs.menc / (4*np.pi*rprofs.r**3/3)
+            mgrav = self.cs**3/self.gconst**1.5/np.sqrt(rhoavg)
+            mbe = 1.86*mgrav
+            rprofs['mBE'] = mbe
+            rprofs['mTES'] = mbe*(1 + sigma_1d_sq/2)
+            rprofs['mPhi'] = 0.17/np.sqrt(self.gconst)*flux
+
+            rprofs['adv'] = (
+                rprofs.vel1_mw*rprofs.vel1_mw.differentiate('r')
+            )
+            pthm = rprofs.rho*self.cs**2
+            ptrb = rprofs.rho*rprofs.dvel1_sq_mw
+            rprofs['thm'] = -pthm.differentiate('r') / rprofs.rho
+            rprofs['trb'] = -ptrb.differentiate('r') / rprofs.rho
+            rprofs['cen'] = (
+                (rprofs.vel2_mw**2 + rprofs.vel3_mw**2) / rprofs.r
+            ).where(rprofs.r > 0, other=0)
+            rprofs['grv'] = rprofs.gacc1_mw
+            rprofs['ani'] = (
+                (rprofs.dvel2_sq_mw + rprofs.dvel3_sq_mw
+                 - 2*rprofs.dvel1_sq_mw) / rprofs.r
+            ).where(rprofs.r > 0, other=0)
+
+            if self.mhd:
+                rprofs['mag'] = (
+                    t_rr.differentiate('r')
+                    + ((2*rprofs.b1_sq - rprofs.b2_sq - rprofs.b3_sq)
+                       / rprofs.r).where(rprofs.r > 0, other=0)
+                ) / rprofs.rho
+            else:
+                rprofs['mag'] = rprofs.rho*0
+
+            rprofs['dvdt_lagrange'] = (
+                rprofs.thm + rprofs.trb + rprofs.mag + rprofs.grv
+                + rprofs.cen + rprofs.ani
+            )
+            rprofs['dvdt_euler'] = rprofs.dvdt_lagrange - rprofs.adv
+
+            rprofs['Fadv'] = rprof_cumsum_r(rprofs, rprofs.rho*rprofs.adv)
+            rprofs['Fthm'] = rprof_cumsum_r(rprofs, rprofs.rho*rprofs.thm)
+            rprofs['Ftrb'] = rprof_cumsum_r(rprofs, rprofs.rho*rprofs.trb)
+            rprofs['Fmag'] = rprof_cumsum_r(rprofs, rprofs.rho*rprofs.mag)
+            rprofs['Fcen'] = rprof_cumsum_r(rprofs, rprofs.rho*rprofs.cen)
+            rprofs['Fgrv'] = -rprof_cumsum_r(rprofs, rprofs.rho*rprofs.grv)
+            rprofs['Fani'] = rprof_cumsum_r(rprofs, rprofs.rho*rprofs.ani)
+
+            rprofs['fnet'] = (
+                (rprofs.thm + rprofs.trb + rprofs.cen + rprofs.ani
+                 + rprofs.mag + rprofs.grv) / (-rprofs.grv)
+            ).where(rprofs.r > 0, other=0)
+
+            rprofs['Fnet'] = (
+                (rprofs.Fthm + rprofs.Ftrb + rprofs.Fcen + rprofs.Fani
+                + rprofs.Fmag - rprofs.Fgrv) / rprofs.Fgrv
+            ).where(rprofs.r > 0, other=0)
+
             rprofs_dict[pid] = rprofs.transpose('t', 'r', ...)
 
         return rprofs_dict
@@ -955,12 +1106,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         """
         savdir = Path(self.savdir, config.FOURIER_DIR)
         pspec = []
-        for num in self.nums_hdf5:
+        for num in self.nums:
             fname = Path(savdir, f'power_spectrum.{num:05d}.p')
             ps = xr.open_dataset(fname)
             pspec.append(ps)
         pspec = xr.concat(pspec, 't')
-        pspec = pspec.assign_coords(dict(num=('t', self.nums_hdf5)))
+        pspec = pspec.assign_coords(dict(num=('t', self.nums)))
         return pspec
 
 
@@ -1012,3 +1163,11 @@ class LoadSimAll(object):
             core = cores.loc[num]
             rprf = rprofs.sel(num=num)
             yield s, pid, core, rprf
+
+
+def rprof_cumsum_r(rprofs, rprf_var):
+#    res = (4*np.pi*rprofs.r**2*rprf_var).cumulative_integrate('r')
+    res = (rprf_var*rprofs.vshell_full).cumsum('r')
+    # correct for outer half of the shell
+    res -= rprf_var*rprofs.vshell_half
+    return res

@@ -1,4 +1,3 @@
-"""Legacy batch tasks; use LoadSim(..., legacy=False) for on-the-fly analysis."""
 import argparse
 import subprocess
 from pathlib import Path
@@ -72,12 +71,12 @@ if __name__ == "__main__":
 
                 for task in args.tasks:
                     if task in ('save_minima', 'projections'):
-                        s = sa.set_model(args.model, legacy=True, load_derived_cores=False)
+                        s = sa.set_model(args.model, load_derived_cores=False)
                     elif task == 'radial_profile':
-                        s = sa.set_model(args.model, legacy=True, override_cores=True,
+                        s = sa.set_model(args.model, override_cores=True,
                                          load_derived_cores=False)
                     else:
-                        s = sa.set_model(args.model, legacy=True, override_all=True)
+                        s = sa.set_model(args.model, override_all=True)
                     tasks.__dict__[task](s, overwrite=args.overwrite)
 #                                         nums=[145, 151], all_minima=True)
     else:
