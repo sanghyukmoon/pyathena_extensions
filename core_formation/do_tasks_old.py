@@ -115,7 +115,7 @@ if __name__ == "__main__":
 
         # Find critical tes
         if args.critical_tes:
-            s = sa.set_model(mdl, legacy=args.legacy, override_cores=True, override_rprofs=True,
+            s = sa.set_model(mdl, legacy=args.legacy, override_rprofs=True,
                              load_derived_cores=False)
             print(f"find critical tes for cores for model {mdl}")
             def wrapper(pid):
@@ -146,7 +146,7 @@ if __name__ == "__main__":
                 p.map(wrapper, s.nums)
 
         if args.prj_radial_profile:
-            s = sa.set_model(mdl, legacy=args.legacy, override_cores=True)
+            s = sa.set_model(mdl, legacy=args.legacy)
             msg = ("calculate and save projected radial profiles for "
                    f"model {mdl}")
             print(msg)

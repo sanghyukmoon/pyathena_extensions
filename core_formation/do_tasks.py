@@ -73,7 +73,7 @@ if __name__ == "__main__":
                     if task in ('save_minima', 'projections'):
                         s = sa.set_model(args.model, load_derived_cores=False)
                     elif task == 'radial_profile':
-                        s = sa.set_model(args.model, override_cores=True,
+                        s = sa.set_model(args.model,
                                          load_derived_cores=False)
                     else:
                         s = sa.set_model(args.model, override_all=True)

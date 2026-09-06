@@ -58,7 +58,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
     """
 
     def __init__(self, basedir_or_Mach=None, method='virial0', savdir=None,
-                 verbose=False, override_all=False, override_cores=False,
+                 verbose=False, override_all=False,
                  override_rprofs=False, override_derived_cores=False,
                  load_derived_cores=True, *, legacy=True):
         """The constructor for LoadSim class for core formation simulations.
@@ -94,7 +94,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         self.tff0 = tools.tfreefall(self.rho0, self.gconst)
 
         if override_all==True:
-            override_cores = True
             override_rprofs = True
             override_derived_cores = True
 
@@ -201,10 +200,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 try:
                     # Load cores
                     savdir = Path(self.savdir, config.CORE_DIR)
-                    self.cores = self._load_cores(
-                        savdir=savdir,
-                        force_override=override_cores
-                    )
+                    self.cores = self._load_cores(savdir=savdir)
                 except FileNotFoundError:
                     self.logger.warning("Cannot find core files to load.")
                     pass
@@ -708,8 +704,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         tcoll_cores.index.name = 'pid'
         return tcoll_cores
 
-    @LoadSimBase.Decorators.check_pickle
-    def _load_cores(self, prefix='cores', savdir=None, force_override=False):
+    def _load_cores(self, savdir=None):
         cores_dict = {}
         pids_not_found = []
 
