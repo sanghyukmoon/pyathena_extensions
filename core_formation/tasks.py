@@ -3,6 +3,7 @@ from pathlib import Path
 import datetime
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from scipy.ndimage import minimum_filter
 import xarray as xr
 # Bottleneck does not use stable sum.
@@ -20,7 +21,7 @@ from pyathena.util import uniform, transform
 from grid_dendro import dendrogram
 from scipy import fft
 
-from . import plots, tools, config, stats
+from . import plots, tools, config, stats, rprof_analysis
 
 
 def combine_partab(s, ns=None, ne=None, partag="par0", remove=False,
@@ -155,50 +156,19 @@ def output_sparse_hdf5(s, gids, num):
     fdst.close()
 
 
-def critical_tes(s, pid, num, overwrite=False):
-    """Calculates and saves critical tes associated with each core.
-
-    Parameters
-    ----------
-    s : LoadSim
-        LoadSim instance.
-    pid : int
-        Particle id.
-    num : int
-        Snapshot number
-    overwrite : str, optional
-        If true, overwrites the existing pickle file.
-    """
-    # Check if file exists
-    ofname = Path(s.savdir, config.CORE_DIR,
-                  'critical_tes.par{}.{:05d}.p'.format(pid, num))
-    ofname.parent.mkdir(exist_ok=True)
-    if ofname.exists() and not overwrite:
-        print('[critical_tes] file already exists. Skipping...')
+def critical_tes(s, pid, overwrite=False):
+    """Compute and save one method-independent TES table for a core."""
+    path = Path(s.savdir, config.CORE_DIR, f'critical_tes.par{pid}.nc')
+    if path.exists() and not overwrite:
         return
-
-    if num not in s.rprofs[pid].num:
-        msg = (f"Radial profile for pid={pid}, num={num} does not exist. "
-                "Cannot calculate critical_tes. Skipping...")
-        logging.warning(msg)
-        return
-
-    msg = '[critical_tes] processing model {} pid {} num {}'
-    print(msg.format(s.basename, pid, num))
-
-    # Load the radial profile
-    rprf = s.rprofs[pid].sel(num=num)
-    core = s.cores[pid].loc[num]
-
-    # Calculate critical TES
-    critical_tes = tools.critical_tes_property(s, rprf, core)
-    critical_tes['num'] = num
-
-    # write to file
-    if ofname.exists():
-        ofname.unlink()
-    with open(ofname, 'wb') as handle:
-        pickle.dump(critical_tes, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    track = s._core_tracks[pid]
+    if track.attrs['track_failed']:
+        raise ValueError(f'Core {pid} has no valid prestellar trajectory')
+    rprofs = s.rprofs[pid]
+    rows = [tools.critical_tes_property(s, rprofs.sel(num=num), core)
+            for num, core in track.iterrows()]
+    table = pd.DataFrame(rows, index=track.index)
+    rprof_analysis.write_netcdf(rprof_analysis.frame_to_dataset(table), path)
 
 
 def core_tracking(s, pids=None, overwrite=False):
@@ -401,19 +371,26 @@ def power_spectrum(s, nums=None, overwrite=False):
 
 
 def lagrangian_props(s, pid, *, method, overwrite=False):
-    # Check if file exists
-    ofname = Path(s.savdir, config.CORE_DIR, f'lprops_tcrit_{method}.par{pid}.p')
-    ofname.parent.mkdir(exist_ok=True)
-    if ofname.exists() and not overwrite:
-        print('[lagrangian_props] file already exists. Skipping...')
+    """Compute critical-time and Lagrangian quantities as one consistent product."""
+    path = Path(s.savdir, config.CORE_DIR, f'core_props.{method}.par{pid}.nc')
+    if path.exists() and not overwrite:
         return
-
-    s.select_cores(method)
-    cores = s.cores[pid]
-    rprofs = s.rprofs[pid]
-    print(f'[lagrangian_props] Calculate Lagrangian props for core {pid} with version {method}')
-    lprops = tools.lagrangian_property(s, cores, rprofs)
-    lprops.to_pickle(ofname, protocol=pickle.HIGHEST_PROTOCOL)
+    if 'critical_radius' not in s._core_tracks[pid]:
+        s.load_critical_tes(pid)
+    cores = s.update_core_props(method, pids=[pid])[pid]
+    if cores.attrs['track_failed']:
+        raise ValueError(f'Core {pid} has no valid prestellar trajectory')
+    if np.isfinite(cores.attrs['numcrit']) and np.isfinite(cores.attrs['rcore']):
+        lprops = tools.lagrangian_property(s, cores, s.rprofs[pid])
+        attrs = {**cores.attrs, **lprops.attrs}
+        cores = cores.join(lprops)
+        cores.attrs = attrs
+        Fnet = cores.Fthm + cores.Ftrb + cores.Fcen + cores.Fani - cores.Fgrv
+        if s.mhd:
+            Fnet += cores.Fmag
+        cores['Fnet'] = Fnet / cores.Fgrv
+    cores.attrs.update(derived_available=True, method=method)
+    rprof_analysis.write_netcdf(rprof_analysis.frame_to_dataset(cores), path)
 
 
 def projections(s, nums=None, overwrite=False):
