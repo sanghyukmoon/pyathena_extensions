@@ -167,13 +167,25 @@ def provenance(work):
 
 
 def compare(work):
-    sims = {mode: load(mode, work / mode) for mode in ('legacy', 'onthefly')}
+    sims, errors = {}, {}
+    for mode in ('legacy', 'onthefly'):
+        try:
+            sims[mode] = load(mode, work / mode)
+        except Exception:
+            # Preserve the failed full-load result, but still compare completed
+            # profiles/tracks/TES. Never label missing core properties as parity.
+            errors[mode] = traceback.format_exc()
+            sims[mode] = load(mode, work / mode, load_derived_cores=False)
     a, b = sims.values()
     records = []
     compare_products({n: np.sort(ids) for n, ids in a.minima.items()},
                      {n: np.sort(ids) for n, ids in b.minima.items()}, 'minima', records)
     compare_products(a.tcoll_cores, b.tcoll_cores, 'collapse', records)
-    compare_products(a.cores_dict, b.cores_dict, 'cores_dict', records)
+    if errors:
+        records.append({'path': 'cores_dict/availability', 'passed': False,
+                        'reason': 'Full initialization failed', 'errors': errors})
+    else:
+        compare_products(a.cores_dict, b.cores_dict, 'cores_dict', records)
     compare_products(a.rprofs, b.rprofs, 'rprofs', records)
     for prefix, pattern in (('tracks', 'cores.par*.p'), ('tes', 'critical_tes.par*.p'),
                             ('lagrangian', 'lprops_tcrit_*.p')):
@@ -191,7 +203,8 @@ def compare(work):
         selected = [r for r in records if r['path'].split('/')[0] == group]
         groups[group] = {'checks': len(selected), 'failed_checks': sum(not r['passed'] for r in selected)}
     report = {'eps32': EPS32, 'criterion': 'abs(a-b) <= eps32 * max(abs(a),abs(b)); no atol',
-              'passed': all(r['passed'] for r in records), 'groups': groups, 'records': records}
+              'passed': all(r['passed'] for r in records), 'groups': groups,
+              'initialization_errors': errors, 'records': records}
     write_json(work / 'comparison' / 'comparison.json', report)
     print(json.dumps({k: v for k, v in report.items() if k != 'records'}, indent=2), flush=True)
     return report
