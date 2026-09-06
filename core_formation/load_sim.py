@@ -60,7 +60,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
     def __init__(self, basedir_or_Mach=None, method='virial0', savdir=None,
                  verbose=False, override_all=False, override_cores=False,
                  override_rprofs=False, override_derived_cores=False,
-                 load_derived_cores=True):
+                 load_derived_cores=True, *, legacy=True):
         """The constructor for LoadSim class for core formation simulations.
 
         Parameters
@@ -80,8 +80,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             ('NOTSET', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
             Numerical values from 0 ('NOTSET') to 50 ('CRITICAL') are also
             accepted.
+        legacy : bool
+            Read existing Python radial profiles (default True), or on-the-fly
+            profiles. Use separate savdirs when comparing the two sources.
         """
 
+        self.legacy = legacy
         # Set unit system
         # [L] = L_{J,0}, [M] = M_{J,0}, [V] = c_s
         self.rho0 = 1.0
@@ -144,12 +148,32 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             tools.LognormalPDF.__init__(self, self.Mach)
             TimingReader.__init__(self, self.basedir, self.problem_id)
 
-            # Set nums dictionary (when hdf5 is stored in elsewhere for storage reasons)
-            if not hasattr(self, 'nums'):
-                if hasattr(self, 'nums_parbin'):
-                    self.nums = self.nums_parbin['par0']
-                elif hasattr(self, 'nums_partab'):
-                    self.nums = self.nums_partab['par0']
+            # Recorded output times, including runs whose HDF5 files were moved.
+            hdf5 = [v for k, v in self.par.items()
+                    if k.startswith('output') and v['file_type'] == 'hdf5']
+            if len(hdf5) > 1 or (hdf5 and hdf5[0]['variable'] != 'cons'):
+                raise ValueError('Core formation requires at most one cons HDF5 output')
+            self.nums_hdf5 = list(self.ff.nums_hdf5.get('cons') or [])
+            self.times_hdf5 = {num: self.load_hdf5(num, header_only=True)['Time']
+                               for num in self.nums_hdf5}
+            if self.legacy:
+                self.nums, self.times = self.nums_hdf5, self.times_hdf5
+                if not self.nums:
+                    if getattr(self, 'nums_parbin', {}).get('par0'):
+                        self.nums = self.nums_parbin['par0']
+                    else:
+                        self.nums = getattr(self, 'nums_partab', {}).get('par0', [])
+                    self.times = {num: self.load_par(num, header_only=True)['time']
+                                  for num in self.nums}
+            else:
+                self.nums = self.nums_rprof
+                self.minima, self.times = {}, {}
+                for num in self.nums:
+                    header = self.load_rprof(num, metadata_only=True)
+                    self.minima[num] = header.center_id.to_numpy()
+                    self.times[num] = header.attrs['time']
+            if np.any(np.diff(self.nums) != 1):
+                raise ValueError('Gap in output numbering')
 
             # Set domain
             Lbox = set(self.domain['Lx'])
@@ -168,12 +192,13 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 savdir=Path(self.savdir, config.CORE_DIR),
                 force_override=override_cores
             )
-            try:
-                fname = Path(self.savdir, 'GRID', 'minima.p')
-                with open(fname, 'rb') as handle:
-                    self.minima = pickle.load(handle)
-            except FileNotFoundError:
-                pass
+            if self.legacy:
+                try:
+                    fname = Path(self.savdir, 'GRID', 'minima.p')
+                    with open(fname, 'rb') as handle:
+                        self.minima = pickle.load(handle)
+                except FileNotFoundError:
+                    pass
 
             if len(self.tcoll_cores) > 0:
                 try:
@@ -287,8 +312,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             return pickle.load(handle)
 
     def num_to_time(self, num):
-        ds = self.load_hdf5(num, header_only=True)
-        return ds['Time']
+        return self.times[num]
 
     def select_cores(self, method):
         self.cores = self.cores_dict[method].copy()
@@ -659,7 +683,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                            self.domain['le'][2], self.domain['re'][2])
         return x, y, z
 
-    @LoadSimBase.Decorators.check_pickle
     def _load_tcoll_cores(self, prefix='tcoll_cores', savdir=None, force_override=False):
         """Read .csv output and find their collapse time and snapshot number.
 
@@ -677,7 +700,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             v2[pid] = phst.v2
             v3[pid] = phst.v3
             time[pid] = phst.time - phst.age
-            num[pid] = np.floor(time[pid] / self.dt_output['hdf5']).astype('int')
+            prestellar = [n for n in self.nums if self.times[n] < time[pid]]
+            if not prestellar:
+                raise ValueError(f'No output strictly before collapse for pid {pid}')
+            num[pid] = prestellar[-1]
         tcoll_cores = pd.DataFrame(
             dict(x1=x1, x2=x2, x3=x3,
                  v1=v1, v2=v2, v3=v3,
