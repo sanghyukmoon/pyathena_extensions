@@ -3,7 +3,6 @@ from pathlib import Path
 import datetime
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 from scipy.ndimage import minimum_filter
 import xarray as xr
 # Bottleneck does not use stable sum.
@@ -167,6 +166,12 @@ def critical_tes(s, pid, overwrite=False):
         Particle id.
     overwrite : bool, optional
         If true, recomputes all snapshots and overwrites the core NetCDF file.
+
+    Raises
+    ------
+    KeyError
+        A required radial profile is missing. No output is written until all
+        snapshots have been calculated successfully.
     """
     # Check if file exists
     ofname = Path(s.savdir, config.CORE_DIR,
@@ -178,12 +183,6 @@ def critical_tes(s, pid, overwrite=False):
 
     results = []
     for num, core in s.cores[pid].iterrows():
-        if num not in s.rprofs[pid].num:
-            logging.warning(
-                f"Radial profile for pid={pid}, num={num} does not exist. "
-                "Cannot calculate critical_tes. Skipping..."
-            )
-            continue
         print(f'[critical_tes] processing model {s.basename} pid {pid} num {num}')
         rprf = s.rprofs[pid].sel(num=num)
         result = tools.critical_tes_property(s, rprf, core)
@@ -193,7 +192,12 @@ def critical_tes(s, pid, overwrite=False):
     if not results:
         logging.warning(f'No critical TES results for pid={pid}; not writing a file.')
         return
-    pd.DataFrame(results).set_index('num').sort_index().to_xarray().to_netcdf(ofname)
+    dataset = xr.Dataset(
+        {name: ('num', [result[name] for result in results])
+         for name in results[0] if name != 'num'},
+        coords={'num': [result['num'] for result in results]},
+    )
+    dataset.sortby('num').to_netcdf(ofname)
 
 
 def core_tracking(s, pids=None, overwrite=False):
