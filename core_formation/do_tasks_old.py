@@ -118,12 +118,10 @@ if __name__ == "__main__":
             s = sa.set_model(mdl, legacy=args.legacy, override_cores=True, override_rprofs=True,
                              load_derived_cores=False)
             print(f"find critical tes for cores for model {mdl}")
-            for pid in pids:
-                cores = s.cores[pid]
-                def wrapper(num):
-                    tasks.critical_tes(s, pid, num, overwrite=args.overwrite)
-                with Pool(args.np) as p:
-                    p.map(wrapper, cores.index)
+            def wrapper(pid):
+                tasks.critical_tes(s, pid, overwrite=args.overwrite)
+            with Pool(args.np) as p:
+                p.map(wrapper, pids)
 
         # Calculate Lagrangian properties
         if args.lagrangian_props:

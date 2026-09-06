@@ -736,17 +736,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             cores = cores.loc[num_start:]
 
             # Read critical TES info and concatenate to self.cores
-            # Try reading critical TES pickles
-            tes_crit = []
-            for num in cores.index:
-                try:
-                    fname = Path(savdir, f'critical_tes.par{pid}.{num:05d}.p')
-                    tes_crit.append(pd.read_pickle(fname))
-                except FileNotFoundError:
-                    pids_not_found.append(pid)
-                    break
-            if len(tes_crit) > 0:
-                tes_crit = pd.DataFrame(tes_crit).set_index('num').sort_index()
+            try:
+                fname = Path(savdir, f'critical_tes.par{pid}.nc')
+                tes_crit = xr.load_dataset(fname).to_dataframe().sort_index()
+            except FileNotFoundError:
+                pids_not_found.append(pid)
+            else:
 
                 # Save attributes before performing join, which will drop them.
                 attrs = cores.attrs.copy()

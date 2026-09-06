@@ -3,6 +3,7 @@ from pathlib import Path
 import datetime
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from scipy.ndimage import minimum_filter
 import xarray as xr
 # Bottleneck does not use stable sum.
@@ -155,7 +156,7 @@ def output_sparse_hdf5(s, gids, num):
     fdst.close()
 
 
-def critical_tes(s, pid, num, overwrite=False):
+def critical_tes(s, pid, overwrite=False):
     """Calculates and saves critical tes associated with each core.
 
     Parameters
@@ -164,41 +165,35 @@ def critical_tes(s, pid, num, overwrite=False):
         LoadSim instance.
     pid : int
         Particle id.
-    num : int
-        Snapshot number
-    overwrite : str, optional
-        If true, overwrites the existing pickle file.
+    overwrite : bool, optional
+        If true, recomputes all snapshots and overwrites the core NetCDF file.
     """
     # Check if file exists
     ofname = Path(s.savdir, config.CORE_DIR,
-                  'critical_tes.par{}.{:05d}.p'.format(pid, num))
+                  f'critical_tes.par{pid}.nc')
     ofname.parent.mkdir(exist_ok=True)
     if ofname.exists() and not overwrite:
         print('[critical_tes] file already exists. Skipping...')
         return
 
-    if num not in s.rprofs[pid].num:
-        msg = (f"Radial profile for pid={pid}, num={num} does not exist. "
-                "Cannot calculate critical_tes. Skipping...")
-        logging.warning(msg)
+    results = []
+    for num, core in s.cores[pid].iterrows():
+        if num not in s.rprofs[pid].num:
+            logging.warning(
+                f"Radial profile for pid={pid}, num={num} does not exist. "
+                "Cannot calculate critical_tes. Skipping..."
+            )
+            continue
+        print(f'[critical_tes] processing model {s.basename} pid {pid} num {num}')
+        rprf = s.rprofs[pid].sel(num=num)
+        result = tools.critical_tes_property(s, rprf, core)
+        result['num'] = num
+        results.append(result)
+
+    if not results:
+        logging.warning(f'No critical TES results for pid={pid}; not writing a file.')
         return
-
-    msg = '[critical_tes] processing model {} pid {} num {}'
-    print(msg.format(s.basename, pid, num))
-
-    # Load the radial profile
-    rprf = s.rprofs[pid].sel(num=num)
-    core = s.cores[pid].loc[num]
-
-    # Calculate critical TES
-    critical_tes = tools.critical_tes_property(s, rprf, core)
-    critical_tes['num'] = num
-
-    # write to file
-    if ofname.exists():
-        ofname.unlink()
-    with open(ofname, 'wb') as handle:
-        pickle.dump(critical_tes, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    pd.DataFrame(results).set_index('num').sort_index().to_xarray().to_netcdf(ofname)
 
 
 def core_tracking(s, pids=None, overwrite=False):
