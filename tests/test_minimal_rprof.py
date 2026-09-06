@@ -12,6 +12,7 @@ import pandas as pd
 import xarray as xr
 
 from core_formation.load_sim import LoadSim, LoadSimBase, TimingReader
+from core_formation import tools
 
 TEST_ROOT = Path('/scratch/gpfs/sm69/onthefly-rprof-test/minimal-rebuild')
 
@@ -112,7 +113,7 @@ class Profiles(unittest.TestCase):
                 legacy_dir = root/'legacy'
                 legacy_dir.mkdir()
                 nums, times = [1, 2], [.101, .201]
-                raw = raw_profile().expand_dims(t=times).assign_coords(num=('t', nums)).set_xindex('num')
+                raw = raw_profile().expand_dims(t=times).assign_coords(num=('t', nums))
                 with (legacy_dir/'radial_profile.concatenated.p').open('wb') as f:
                     pickle.dump({7: raw}, f)
                 s = LoadSim()
@@ -138,6 +139,24 @@ class Profiles(unittest.TestCase):
                     xr.testing.assert_identical(cached, actual)
                     s._load_radial_profiles(savdir=root/'onthefly', force_override=True)
                     self.assertEqual(reader.call_count, 4)
+
+
+class Tracking(unittest.TestCase):
+    def test_shared_tracker_uses_minima_and_times(self):
+        s = LoadSim()
+        s._basename = 'synthetic'
+        s.nums = [1, 2, 3]
+        s.times = {1: .101, 2: .201, 3: .301}
+        s.minima = {1: [1, 9], 2: [2, 9], 3: [3, 9]}
+        s.tcoll_cores = pd.DataFrame({'num': [3]}, index=[1])
+        s.distance_between = lambda a, b: abs(a-b)
+        with patch.object(tools, 'find_tcoll_core', return_value=3):
+            legacy = tools.track_cores(s, 1)
+            s.legacy = False
+            nonlegacy = tools.track_cores(s, 1)
+        pd.testing.assert_frame_equal(legacy, nonlegacy)
+        self.assertEqual(legacy.leaf_id.tolist(), [1, 2, 3])
+        self.assertEqual(legacy.time.tolist(), [.101, .201, .301])
 
 
 if __name__ == '__main__':

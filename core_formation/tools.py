@@ -137,7 +137,7 @@ def track_cores(s, pid):
     """
     # start from t = t_coll and track backward
     numcoll = s.tcoll_cores.loc[pid].num
-    nums = np.arange(numcoll, config.GRID_NUM_START-1, -1)
+    nums = [num for num in reversed(s.nums) if config.GRID_NUM_START <= num <= numcoll]
     num = nums[0]
     msg = f'[track_cores] processing model {s.basename} pid {pid} num {num}'
     print(msg)
@@ -148,11 +148,8 @@ def track_cores(s, pid):
     # TODO: This requires dendrogram construction; We should change algorithm
     # for usage in AthenaK
 
-    assert s.par['output2']['file_type'] == 'hdf5' and s.par['output2']['variable'] == 'cons'
-    dt_hdf5 = s.par['output2']['dt']
-
     nums_track = [num,]
-    time = [s.num_to_time(num),]
+    time = [s.times[num],]
     leaf_id = [lid,]
     for num in nums[1:]:
         print(f'[track_cores] processing model {s.basename} pid {pid} num {num}')
@@ -164,7 +161,7 @@ def track_cores(s, pid):
         lid = minima[np.argmin(dst)]
 
         nums_track.append(num)
-        time.append(s.num_to_time(num))
+        time.append(s.times[num])
         leaf_id.append(lid)
     # SMOON: Using dtype=object is to prevent automatic upcasting from int to float
     # when indexing a single row. Maybe there is a better approach.

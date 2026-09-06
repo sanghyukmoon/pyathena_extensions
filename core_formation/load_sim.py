@@ -875,7 +875,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     profile = profile.isel(center_id=0, drop=True)
                     profiles.append(profile.expand_dims(t=[self.times[num]]))
                 profile = xr.concat(profiles, 't', join='exact', combine_attrs='drop_conflicts')
-                raw_rprofs_dict[pid] = profile.assign_coords(num=('t', cores.index)).set_xindex('num')
+                raw_rprofs_dict[pid] = profile.assign_coords(num=('t', cores.index))
         elif not fname_concat.exists():
             raw_rprofs_dict = self.concat_radial_profiles()
         else:
@@ -885,6 +885,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         rprofs_dict = {}
         for pid, rprofs in raw_rprofs_dict.items():
             rprofs = rprofs.copy()
+            if 'num' not in rprofs.xindexes:
+                rprofs = rprofs.set_xindex('num')
             for axis in [1, 2, 3, 'x', 'y', 'z']:
                 rprofs[f'dvel{axis}_sq_mw'] = (rprofs[f'vel{axis}_sq_mw']
                                              - rprofs[f'vel{axis}_mw']**2)
