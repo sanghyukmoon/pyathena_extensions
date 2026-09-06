@@ -1,5 +1,7 @@
 """Regression tests for the baseline-preserving profile source integration."""
 import logging
+import pickle
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -10,6 +12,24 @@ import pandas as pd
 import xarray as xr
 
 from core_formation.load_sim import LoadSim, LoadSimBase, TimingReader
+
+TEST_ROOT = Path('/scratch/gpfs/sm69/onthefly-rprof-test/minimal-rebuild')
+
+
+def raw_profile():
+    r = np.linspace(0, 1, 9)
+    fields = {'rho': np.ones(9), 'gacc1_mw': -r,
+              'xgx_mw': -r*r/3, 'ygy_mw': -r*r/3, 'zgz_mw': -r*r/3,
+              'phi_B': r*r, 'vshell': np.ones(9)}
+    for axis in ('x', 'y', 'z'):
+        fields['Ldens_'+axis] = r
+        fields['bhat_'+axis] = np.ones(9)/np.sqrt(3)
+    for axis in (1, 2, 3):
+        fields[f'b{axis}_sq'] = np.ones(9)
+    for axis in (1, 2, 3, 'x', 'y', 'z'):
+        fields[f'vel{axis}_mw'] = np.zeros(9)
+        fields[f'vel{axis}_sq_mw'] = np.ones(9)
+    return xr.Dataset({name: ('r', data) for name, data in fields.items()}, coords={'r': r})
 
 
 class Timelines(unittest.TestCase):
@@ -82,6 +102,42 @@ class Timelines(unittest.TestCase):
         row['time'] = .001
         with self.assertRaisesRegex(ValueError, 'strictly before'):
             s._load_tcoll_cores()
+
+
+class Profiles(unittest.TestCase):
+    def test_assembly_derived_parity_and_cache(self):
+        for mhd in (False, True):
+            with self.subTest(mhd=mhd), tempfile.TemporaryDirectory(dir=TEST_ROOT) as tmp:
+                root = Path(tmp)
+                legacy_dir = root/'legacy'
+                legacy_dir.mkdir()
+                nums, times = [1, 2], [.101, .201]
+                raw = raw_profile().expand_dims(t=times).assign_coords(num=('t', nums)).set_xindex('num')
+                with (legacy_dir/'radial_profile.concatenated.p').open('wb') as f:
+                    pickle.dump({7: raw}, f)
+                s = LoadSim()
+                s.logger = logging.getLogger('minimal-test')
+                s._savdir = tmp
+                s.mhd = mhd
+                s.cores = {7: pd.DataFrame({'leaf_id': [123, 456]}, index=nums)}
+                s.times = dict(zip(nums, times))
+                s.legacy = True
+                expected = s._load_radial_profiles(savdir=legacy_dir)[7]
+                s.legacy = False
+                def snapshot(num, center_ids):
+                    self.assertEqual(center_ids, [s.cores[7].loc[num].leaf_id])
+                    return raw_profile().expand_dims(center_id=center_ids)
+                with patch.object(s, 'load_rprof', side_effect=snapshot) as reader:
+                    actual = s._load_radial_profiles(savdir=root/'onthefly')[7]
+                    self.assertEqual(reader.call_count, 2)
+                    xr.testing.assert_identical(actual, expected)
+                    np.testing.assert_allclose(actual.menc.isel(t=0), 4*np.pi*raw.r**3/3, atol=1e-15)
+                    self.assertEqual(actual.sel(num=1).sizes['r'], 9)
+                    cached = s._load_radial_profiles(savdir=root/'onthefly')[7]
+                    self.assertEqual(reader.call_count, 2)
+                    xr.testing.assert_identical(cached, actual)
+                    s._load_radial_profiles(savdir=root/'onthefly', force_override=True)
+                    self.assertEqual(reader.call_count, 4)
 
 
 if __name__ == '__main__':

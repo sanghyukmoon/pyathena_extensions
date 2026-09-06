@@ -866,7 +866,17 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         """
         fname_concat = savdir / 'radial_profile.concatenated.p'
 
-        if not fname_concat.exists():
+        if not self.legacy:
+            raw_rprofs_dict = {}
+            for pid, cores in self.cores.items():
+                profiles = []
+                for num, core in cores.iterrows():
+                    profile = self.load_rprof(num, center_ids=[int(core.leaf_id)])
+                    profile = profile.isel(center_id=0, drop=True)
+                    profiles.append(profile.expand_dims(t=[self.times[num]]))
+                profile = xr.concat(profiles, 't', join='exact', combine_attrs='drop_conflicts')
+                raw_rprofs_dict[pid] = profile.assign_coords(num=('t', cores.index)).set_xindex('num')
+        elif not fname_concat.exists():
             raw_rprofs_dict = self.concat_radial_profiles()
         else:
             with open(fname_concat, 'rb') as handle:
