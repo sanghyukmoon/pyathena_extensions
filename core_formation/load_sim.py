@@ -229,23 +229,24 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Load derived core informations using various alternative critical times
             if load_derived_cores:
                 self.cores_dict = {}
-                for mtd in ['empirical', 'virial0', 'virial1']:
-                    savdir = Path(self.savdir, config.CORE_DIR)
-                    try:
+                if hasattr(self, 'cores') and hasattr(self, 'rprofs'):
+                    for mtd in ['empirical', 'virial0', 'virial1']:
+                        savdir = Path(self.savdir, config.CORE_DIR)
                         self.cores_dict[mtd] = self.update_core_props(
                             method = mtd,
                             prefix = f'cores_tcrit_{mtd}',
                             savdir = savdir,
                             force_override = override_derived_cores
                         )
-                    except (AttributeError, KeyError):
-                        self.logger.warning(
-                            f"Failed to update core props for method {mtd}, model {self.basename}"
-                        )
-                try:
-                    self.select_cores(method)
-                except KeyError:
-                    self.logger.warning(f"Failed to select core with method {method} for model {self.basename}")
+                    try:
+                        self.select_cores(method)
+                    except KeyError:
+                        self.logger.warning(f"Failed to select core with method {method} for model {self.basename}")
+                else:
+                    self.logger.warning(
+                        "Cannot initialize derived core properties: core tracks or "
+                        "radial profiles are unavailable."
+                    )
         elif isinstance(basedir_or_Mach, (float, int)):
             self.Mach = basedir_or_Mach
             tools.LognormalPDF.__init__(self, self.Mach)
