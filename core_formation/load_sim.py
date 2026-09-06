@@ -1068,7 +1068,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             mgrav = self.cs**3/self.gconst**1.5/np.sqrt(rhoavg)
             mbe = 1.86*mgrav
             rprofs['mBE'] = mbe
-            rprofs['mTES'] = mbe*(1 + sigma_1d_sq/2)
+            rprofs['mTES'] = mbe*(1 + sigma_1d_sq/(2*self.cs**2))
             rprofs['mPhi'] = 0.17/np.sqrt(self.gconst)*flux
 
             rprofs['adv'] = (
