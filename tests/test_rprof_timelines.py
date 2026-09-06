@@ -13,7 +13,7 @@ def simulation(legacy=False, hdf5=True):
     s._par = {'output1': {'file_type': 'rprof', 'dt': .1}}
     if hdf5:
         s._par['output2'] = {'file_type': 'hdf5', 'variable': 'cons', 'dt': .2}
-    s.dt_output = {'rprof': .1}
+    s.dt_output = {output['file_type']: output['dt'] for output in s._par.values()}
     s.ff = SimpleNamespace(nums_hdf5={'cons': [0, 1, 2]})
     s.nums_rprof = [0, 1, 2, 3, 4]
     return s
@@ -55,7 +55,7 @@ class TestTimelines(unittest.TestCase):
             s.load_hdf5(rprof_num=0)
         s = simulation()
         s.ff.nums_hdf5 = {'cons': []}
-        s._par['output2']['dt'] = -1  # Disabled HDF5 is also profile-only.
+        s.dt_output['hdf5'] = -1  # Disabled HDF5 is also profile-only.
         self.initialize(s)
         self.assertEqual(s.nums_hdf5, [])
         self.assertEqual(s.times_hdf5, {})
@@ -84,13 +84,13 @@ class TestTimelines(unittest.TestCase):
 
     def test_cadence_ratio(self):
         s = simulation()
-        s._par['output2']['dt'] = .25
+        s.dt_output['hdf5'] = .25
         with self.assertRaisesRegex(ValueError, 'integer multiple'):
             self.initialize(s)
-        s._par['output2']['dt'] = .2 + np.finfo(float).eps
+        s.dt_output['hdf5'] = .2 + np.finfo(float).eps
         self.initialize(s)
         self.assertEqual(s.hdf5_stride, 2)
-        s._par['output2']['dt'] = .1 - np.finfo(float).eps
+        s.dt_output['hdf5'] = .1 - np.finfo(float).eps
         self.initialize(s)
         self.assertEqual(s.hdf5_stride, 1)
 
