@@ -17,6 +17,10 @@ def parallel_tes(pid):
     tasks.critical_tes(_parallel_sim, pid, overwrite=True)
 
 
+def parallel_lagrangian(pid):
+    tasks.lagrangian_props(_parallel_sim, pid, method='virial0', overwrite=True)
+
+
 class TestTasks(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -96,6 +100,22 @@ class TestTasks(unittest.TestCase):
                 pool.map(parallel_tes, s.pids)
         for pid in s.pids:
             xr.testing.assert_identical(before[pid], xr.load_dataset(self.path/f'critical_tes.par{pid}.nc'))
+        def preliminary(*args, pids, **kwargs):
+            result = {}
+            for pid in pids:
+                table = s._core_tracks[pid].copy()
+                table.attrs.update(numcrit=2, rcore=.1, mcore=.2)
+                result[pid] = table
+            return result
+        with patch.object(s, '_compute_core_props', side_effect=preliminary):
+            with patch.object(tools, 'lagrangian_property', return_value=self.lprops()):
+                for pid in s.pids:
+                    tasks.lagrangian_props(s, pid, method='virial0')
+                before = {pid: xr.load_dataset(self.path/f'core_props.virial0.par{pid}.nc') for pid in s.pids}
+                with mp.get_context('fork').Pool(2) as pool:
+                    pool.map(parallel_lagrangian, s.pids)
+        for pid in s.pids:
+            xr.testing.assert_identical(before[pid], xr.load_dataset(self.path/f'core_props.virial0.par{pid}.nc'))
 
 
 if __name__ == '__main__':

@@ -948,8 +948,7 @@ def plot_core_evolution(s, pid, num, hw=0.1, method='virial'):
 
     # Load minima positions
     pos_minima = {}
-    minima = s.minima[num]
-    for lid in minima:
+    for lid in s.minima[num]:
         x, y, z = s.flatindex_to_cartesian(lid)
         if (x > xc - hw) and (x < xc + hw) and (y > yc - hw) and (y < yc + hw) and (z > zc - hw) and (z < zc + hw):
             pos_minima[lid] = x, y, z

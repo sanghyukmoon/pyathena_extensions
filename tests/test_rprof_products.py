@@ -58,6 +58,21 @@ class TestProducts(unittest.TestCase):
             self.assertEqual(self.s.load_core_props('virial0'), {})
         self.assertEqual((self.path/'core_props.virial0.par1.nc').read_bytes(), b'invalid')
 
+    def test_initialization_retains_tracks_without_computing_missing_products(self):
+        s = self.s
+        tracks, collapse = s._core_tracks.copy(), s.tcoll_cores.copy()
+        for legacy in (True, False):
+            s.legacy = legacy
+            with patch.object(s, '_load_tcoll_cores', return_value=collapse):
+                with patch.object(s, '_load_cores', return_value=tracks):
+                    with patch.object(s, '_compute_core_props', side_effect=AssertionError('calculation')):
+                        with patch.object(rprof_analysis, 'write_netcdf', side_effect=AssertionError('write')):
+                            s._initialize_analysis('virial0', False, True, False)
+            self.assertIn('leaf_id', s.cores[1])
+            self.assertIn('tes', s.load_errors[1])
+            self.assertIn('derived:virial0', s.load_errors[1])
+        self.assertFalse(self.path.exists())
+
 
 if __name__ == '__main__':
     unittest.main()

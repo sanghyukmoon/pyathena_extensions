@@ -89,8 +89,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             Profile-assembly cache policy only. TES and Lagrangian products
             are read-only here; use the task runner to compute or overwrite them.
         load_rprofs : bool
-            Load core profile histories eagerly (default True). False is a
-            lightweight trajectory-only initialization and skips derived cores.
+            Load core profile histories eagerly (default True). Use
+            load_derived_cores=False as well to skip TES/core-product reads.
         """
 
         self.legacy = bool(legacy)
@@ -825,7 +825,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 self._report_failure(pid, 'collapse', error)
         return pd.DataFrame(rows, columns=['pid']+fields+['time', 'num', 'output_time'],
                             dtype=object).set_index('pid')
-
 
 
     def _load_cores(self, prefix='cores', savdir=None, force_override=False):

@@ -12,8 +12,6 @@ from core_formation import config, tasks, models, load_sim
 Pool = mp.get_context("fork").Pool
 
 if __name__ == "__main__":
-    sa = load_sim.LoadSimAll(models.models)
-
     parser = argparse.ArgumentParser()
     parser.add_argument("models", nargs='+', type=str,
                         help="List of models to process")
@@ -66,6 +64,7 @@ if __name__ == "__main__":
     parser.add_argument('--methods', nargs='+', default=['empirical', 'virial', 'virial0', 'virial1'],
                         choices=['empirical', 'virial', 'virial0', 'virial1'])
     args = parser.parse_args()
+    sa = load_sim.LoadSimAll(models.models)
 
     # Select models
     for mdl in args.models:

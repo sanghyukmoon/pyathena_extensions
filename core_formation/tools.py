@@ -967,8 +967,6 @@ def observable(s, core, rprf):
     num = core.name
     obsprops = dict()
     obsprops['num'] = num
-    # Loading through the selector validates whether a coarse output exists.
-    dens_3d = s.load_hdf5(num, quantities=['dens']).dens
     prj = s.read_prj(num)
     xc, yc, zc = s.flatindex_to_cartesian(core.leaf_id)
     xycoordnames = dict(z=['x', 'y'],
@@ -979,6 +977,7 @@ def observable(s, core, rprf):
                      y=[zc, xc])
 
     # Read 3d data cube
+    dens_3d = s.load_hdf5(num, quantities=['dens']).dens
     dens_3d, new_center_3d, _ = recenter_dataset(dens_3d, dict(x=xc, y=yc, z=zc))
     for i, ax in enumerate(['x', 'y', 'z']):
         x1, x2 = xycoordnames[ax]
