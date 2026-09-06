@@ -188,10 +188,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             self.sonic_length = tools.get_sonic(self.Mach, self.Lbox)
 
             # Find the collapse time and corresponding snapshot numbers
-            self.tcoll_cores = self._load_tcoll_cores(
-                savdir=Path(self.savdir, config.CORE_DIR),
-                force_override=override_cores
-            )
+            self.tcoll_cores = self._find_tcoll_cores()
             if self.legacy:
                 try:
                     fname = Path(self.savdir, 'GRID', 'minima.p')
@@ -679,7 +676,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                            self.domain['le'][2], self.domain['re'][2])
         return x, y, z
 
-    def _load_tcoll_cores(self, prefix='tcoll_cores', savdir=None, force_override=False):
+    def _find_tcoll_cores(self):
         """Read .csv output and find their collapse time and snapshot number.
 
         Additionally store their mass, position, velocity at the time of
