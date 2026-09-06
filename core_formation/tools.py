@@ -117,66 +117,8 @@ def find_tcoll_core(s, pid):
     return lid
 
 def track_cores(s, pid):
-    """Perform reverse core tracking
-
-    Parameters
-    ----------
-    s : LoadSim
-    pid : int
-    ncells_min : int, optional
-        Minimum number of cells in a leaf. Default to 27.
-
-    Returns
-    -------
-    cores : pandas.DataFrame
-
-    See also
-    --------
-    track_protostellar_cores : Forward core tracking after t_coll into
-                               the protostellar stage.
-    """
-
-    # start from t = t_coll and track backward
-    numcoll = s.tcoll_cores.loc[pid].num
-    nums = np.arange(numcoll, config.GRID_NUM_START-1, -1)
-    num = nums[0]
-    msg = f'[track_cores] processing model {s.basename} pid {pid} num {num}'
-    print(msg)
-
-    lid = find_tcoll_core(s, pid)
-
-    # Test if any star particle is contained inside t_coll core.
-    # TODO: This requires dendrogram construction; We should change algorithm
-    # for usage in AthenaK
-
-    assert s.par['output2']['file_type'] == 'hdf5' and s.par['output2']['variable'] == 'cons'
-    dt_hdf5 = s.par['output2']['dt']
-
-    nums_track = [num,]
-    time = [s.times_hdf5[num],]
-    leaf_id = [lid,]
-    for num in nums[1:]:
-        print(f'[track_cores] processing model {s.basename} pid {pid} num {num}')
-        minima = s.minima[num]
-        lid_old = lid
-
-        # find closeast leaf to the previous preimage
-        dst = [s.distance_between(lid, lid_old) for lid in minima]
-        lid = minima[np.argmin(dst)]
-
-        nums_track.append(num)
-        time.append(s.times_hdf5[num])
-        leaf_id.append(lid)
-    # SMOON: Using dtype=object is to prevent automatic upcasting from int to float
-    # when indexing a single row. Maybe there is a better approach.
-    cores = pd.DataFrame(dict(time=time, leaf_id=leaf_id),
-                         index=nums_track, dtype=object).sort_index()
-
-    # Set attributes
-    cores.attrs['pid'] = pid
-    cores.attrs['numcoll'] = numcoll
-
-    return cores
+    """Use the common prestellar tracker for either profile source."""
+    return s._track_core(pid)
 
 
 def tidal_radius():

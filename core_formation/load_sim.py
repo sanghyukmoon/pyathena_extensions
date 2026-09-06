@@ -258,6 +258,16 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         if self.legacy:
             self.nums = self.nums_hdf5
             self.times = self.times_hdf5
+            if not self.nums:
+                if hasattr(self, 'nums_parbin'):
+                    self.nums = list(self.nums_parbin['par0'])
+                    reader = self.load_parbin
+                elif hasattr(self, 'nums_partab'):
+                    self.nums = list(self.nums_partab['par0'])
+                    reader = self.load_partab
+                if self.nums:
+                    self.times = {num: float(reader(num, header_only=True)['time'])
+                                  for num in self.nums}
             return
         self.nums = list(self.nums_rprof) if hasattr(self, 'nums_rprof') else []
         if not self.nums:
@@ -319,7 +329,11 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         position = collapse[['x1', 'x2', 'x3']].to_numpy(dtype=float)
         rows, positions = [], []
         reason = 'coverage_start'
-        for num in reversed([n for n in self.nums if n <= numcoll]):
+        # Preserve the baseline cutoff for equal-cadence source comparisons.
+        dt = self.dt_output['hdf5' if self.legacy else 'rprof']
+        cutoff = int((self.tcoll_cores.loc[1].time - 1.5/self.u.Myr) / dt)
+        first_num = max(config.GRID_NUM_START, cutoff)
+        for num in reversed([n for n in self.nums if first_num <= n <= numcoll]):
             center_ids = self.minima[num]
             candidates = np.array([self.flatindex_to_cartesian(int(lid)) for lid in center_ids])
             if not len(candidates):
@@ -343,7 +357,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             raise ValueError(f"No minimum at the pre-collapse output for pid {pid}")
         cores = pd.DataFrame(rows, dtype=object).set_index('num').sort_index()
         cores.attrs.update(pid=int(pid), numcoll=numcoll, tcoll=float(collapse.time),
-                           source='rprof', f_mul=float(f_mul), stop_reason=reason,
+                           f_mul=float(f_mul), stop_reason=reason,
                            num_start=int(cores.index[0]),
                            track_failed=len(cores) < 2 or reason == 'empty_minima')
         return cores
@@ -876,9 +890,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         return x, y, z
 
     def _load_tcoll_cores(self, prefix='tcoll_cores', savdir=None, force_override=False):
-        if self.legacy:
-            return self._load_tcoll_cores_legacy(
-                prefix=prefix, savdir=savdir, force_override=force_override)
         rows = []
         fields = ['x1', 'x2', 'x3', 'v1', 'v2', 'v3']
         for pid in self.pids:
@@ -890,9 +901,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 if not np.all(np.isfinite(first[fields+['time', 'age']].to_numpy(dtype=float))):
                     raise ValueError('Nonfinite collapse information in particle history')
                 tcoll = float(first.time-first.age)
-                eligible = [num for num in self.nums if self.times[num] <= tcoll]
+                eligible = [num for num in self.nums if self.times[num] < tcoll]
                 if not eligible:
-                    raise ValueError(f'No radial-profile output at or before collapse time {tcoll}')
+                    raise ValueError(f'No output strictly before collapse time {tcoll}')
                 num = eligible[-1]
                 rows.append(dict(pid=pid, **{name: first[name] for name in fields},
                                  time=tcoll, num=num, output_time=self.times[num]))
@@ -902,20 +913,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         return pd.DataFrame(rows, columns=['pid']+fields+['time', 'num', 'output_time'],
                             dtype=object).set_index('pid')
 
-    @LoadSimBase.Decorators.check_pickle
-    def _load_tcoll_cores_legacy(self, prefix='tcoll_cores', savdir=None, force_override=False):
-        rows = []
-        fields = ['x1', 'x2', 'x3', 'v1', 'v2', 'v3']
-        for pid in self.pids:
-            history = self.load_parhst(pid)
-            if history is None or history.empty:
-                raise ValueError('Particle history is empty or missing')
-            first = history.iloc[0]
-            tcoll = first.time-first.age
-            rows.append(dict(pid=pid, **{name:first[name] for name in fields}, time=tcoll,
-                             num=int(np.floor(tcoll/self.dt_output['hdf5']))))
-        return pd.DataFrame(rows, columns=['pid']+fields+['time', 'num'],
-                            dtype=object).set_index('pid')
 
 
     @LoadSimBase.Decorators.check_pickle

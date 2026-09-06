@@ -70,6 +70,18 @@ class TestTimelines(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'cons'):
             self.initialize(s)
 
+    def test_particle_fallback(self):
+        for kind in ('parbin', 'partab'):
+            s = simulation(legacy=True)
+            s.ff.nums_hdf5 = {'cons': []}
+            setattr(s, 'nums_'+kind, {'par0': [1, 2]})
+            with patch.object(s, 'load_'+kind, side_effect=lambda num, **kw: {'time': num*.2}) as reader:
+                self.initialize(s)
+                self.assertEqual(s.nums, [1, 2])
+                self.assertEqual(s.times, {1: .2, 2: .4})
+                self.assertEqual(s.nums_hdf5, [])
+                self.assertEqual(s.times_hdf5, {})
+                self.assertEqual(reader.call_count, 2)
     def test_gap(self):
         s = simulation()
         s.nums_rprof = [0, 2]

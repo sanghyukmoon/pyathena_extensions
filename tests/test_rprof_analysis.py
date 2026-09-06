@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -14,12 +15,14 @@ from core_formation import rprof_analysis as analysis
 from test_rprof_derived import raw_profiles
 
 
-def simulation(directory, positions=(.90, .95, .00, .05), first=0):
+def simulation(directory, positions=(.90, .95, .00, .05), first=1):
     s = LoadSim(None, legacy=False)
     s.nums = s.nums_rprof = list(range(first, first+len(positions)))
     s.times = {num:float(i) for i,num in enumerate(s.nums)}
     s.minima = {num:np.array([num+10], dtype=np.uint64) for num in s.nums}
     s.Lbox, s.dx, s.cs, s.gconst, s.mhd = 1., .01, 1., np.pi, True
+    s.u = SimpleNamespace(Myr=1.)
+    s.dt_output = {'rprof': 1., 'hdf5': 1.}
     s._basedir = directory or ''
     s.savdir = directory
     s.logger = logging.getLogger('test')
@@ -35,7 +38,7 @@ def simulation(directory, positions=(.90, .95, .00, .05), first=0):
 class TestTracking(unittest.TestCase):
     def test_periodic_and_continuity(self):
         s = simulation(None)
-        self.assertEqual(list(s._core_tracks[1].index), [0, 1, 2, 3])
+        self.assertEqual(list(s._core_tracks[1].index), [1, 2, 3, 4])
         self.assertNotIn('cycle', s._core_tracks[1])
         s = simulation(None, (.4, .95, .0, .05), first=17)
         self.assertEqual(list(s._core_tracks[1].index), [18, 19, 20])
@@ -44,7 +47,7 @@ class TestTracking(unittest.TestCase):
     def test_short_empty_and_preformation(self):
         s = simulation(None, (.1,))
         self.assertTrue(s._core_tracks[1].attrs['track_failed'])
-        s.minima[0] = np.array([], dtype=np.uint64)
+        s.minima[1] = np.array([], dtype=np.uint64)
         with self.assertRaisesRegex(ValueError, 'No minimum'):
             s._track_core(1)
         s = simulation(None)
@@ -53,10 +56,24 @@ class TestTracking(unittest.TestCase):
         with patch.object(s, 'load_parhst', return_value=history):
             self.assertEqual(s._load_tcoll_cores().loc[1, 'num'], 2)
             history.loc[0, 'time'] = 2.5
-            self.assertEqual(s._load_tcoll_cores().loc[1, 'num'], 2)
+            self.assertEqual(s._load_tcoll_cores().loc[1, 'num'], 3)
             history.loc[0, 'time'] = -.1
             self.assertTrue(s._load_tcoll_cores().empty)
             self.assertIn('collapse', s.load_errors[1])
+
+    def test_modes_share_cutoff_and_strict_selection(self):
+        s = simulation(None)
+        expected = s._track_core(1)
+        s.legacy = True
+        pd.testing.assert_frame_equal(s._track_core(1), expected)
+        s.tcoll_cores.loc[1, 'time'] = 4.6
+        self.assertEqual(list(s._track_core(1).index), [3, 4])
+        history = pd.DataFrame([dict(time=2., age=0., x1=0., x2=0., x3=0.,
+                                     v1=0., v2=0., v3=0.)])
+        for mode in (True, False):
+            s.legacy = mode
+            with patch.object(s, 'load_parhst', return_value=history):
+                self.assertEqual(s._load_tcoll_cores().loc[1, 'num'], 2)
 
 
 class TestProfileCache(unittest.TestCase):
