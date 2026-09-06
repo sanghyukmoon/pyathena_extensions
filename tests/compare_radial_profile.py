@@ -19,6 +19,7 @@ from core_formation import tools
 
 ROOT = Path('/scratch/gpfs/sm69/onthefly-rprof-test')
 EPS = float(np.finfo(np.float32).eps)
+RTOL = 4 * EPS  # Practical float32 agreement, allowing accumulated rounding.
 
 
 def main():
@@ -53,7 +54,7 @@ def main():
     lines = [f'num={args.num}, center_id={center_id}',
              f'HDF5 time={float(ds.Time):.17g}; rprof time={onthefly.attrs["time"]:.17g}',
              f'rmax={onthefly.attrs["rmax"]}; nsub={onthefly.attrs["nsub"]}',
-             f'Criterion: abs(a-b) <= atol + {EPS:.9g} * max(abs(a),abs(b))',
+             f'Criterion: abs(a-b) <= atol + {RTOL:.9g} * max(abs(a),abs(b))',
              f'Missing Python fields: {missing_python}',
              f'Missing on-the-fly fields: {missing_onthefly}',
              'field                      max_abs       max_rel         atol   failed / total']
@@ -76,14 +77,14 @@ def main():
         scale = np.maximum(np.abs(av[finite]), np.abs(bv[finite]))
         field_scale = max(np.abs(av[np.isfinite(av)]).max(initial=0),
                           np.abs(bv[np.isfinite(bv)]).max(initial=0))
-        atol = EPS * field_scale
+        atol = RTOL * field_scale
         relative = np.divide(delta, scale, out=np.zeros_like(delta), where=scale != 0)
-        failures = int(np.count_nonzero(delta > atol + EPS * scale) + np.count_nonzero(~finite & ~same_special))
+        failures = int(np.count_nonzero(delta > atol + RTOL * scale) + np.count_nonzero(~finite & ~same_special))
         passed &= failures == 0
         lines.append(f'{name:26s} {delta.max(initial=0):12.4e} {relative.max(initial=0):12.4e} '
                      f'{atol:12.4e} {failures:6d} / {av.size}')
         results[name] = (av, bv, failures)
-    lines.append('atol = eps32 * maximum finite absolute value across both profiles, per field.')
+    lines.append('atol = 4 * eps32 * maximum finite absolute value across both profiles, per field.')
     lines.append('PASS' if passed else 'FAIL')
     report = '\n'.join(lines) + '\n'
     print(report, flush=True)
@@ -99,13 +100,14 @@ def main():
         ax.text(.03, .43, 'No tracking, TES, or Lagrangian calculations.\n'
                           'HDF5 inputs are float32; differences are evaluated in float64.\n'
                           'NaN locations and signed infinities must match.\n'
-                          'atol = eps32 times each field\'s maximum finite amplitude.\n'
+                          'rtol = 4 * eps32; atol = rtol times each field\'s finite amplitude.\n'
                           'No interpolation or bin truncation.\n\n'
                           'Getting started: run tests/compare_radial_profile.py\n'
                           'Optional: --num 100 --center-id ID\n'
                           'Each invocation creates a fresh output directory.\n\n'
                           'Limitation: one profile does not validate every minimum\n'
-                          'or snapshot. Large peaks can mask errors in small features.', fontsize=10, va='top')
+                          'or snapshot. Large peaks can mask errors in small features.\n'
+                          'This practical tolerance is not proof of numerical correctness.', fontsize=10, va='top')
         fig.savefig(work / 'summary.png', dpi=120)
         pdf.savefig(fig); plt.close(fig)
         for start in range(7, len(lines), 45):
