@@ -131,8 +131,6 @@ def derive_radial_profiles(s, rprofs):
     rprofs['peq'] = (rprofs.Omega_K + rprofs.Omega_M - rprofs.Omega_S_mag - rprofs.Omega_G) / (4*np.pi*rprofs.r**3)
 
     # Maximum pressure from McCrea analysis
-    rgrav = s.gconst*rprofs.menc/s.cs**2
-    pgrav = s.cs**8/(4*np.pi*s.gconst**3*rprofs.menc**2)
     sigma_1d_sq = rprofs.Omega_K_kin/(3*rprofs.menc)
     agrv = rprofs.Omega_G/((3/5)*rprofs.Omega_G0)
     rprofs['a_grv'] = agrv
@@ -270,7 +268,6 @@ def derive_radial_profiles(s, rprofs):
 
 
 def rprof_cumsum_r(rprofs, rprf_var):
-#    res = (4*np.pi*rprofs.r**2*rprf_var).cumulative_integrate('r')
     res = (rprf_var*rprofs.vshell_full).cumsum('r')
     # correct for outer half of the shell
     res -= rprf_var*rprofs.vshell_half
