@@ -205,7 +205,7 @@ def core_tracking(s, pids=None, overwrite=False):
 
     Finds a unique grid-dendro leaf at each snapshot that is going to collapse.
     For each sink particle, back-traces the evolution of its progenitor cores.
-    Pickles the resulting data.
+    Saves the resulting trajectories as NetCDF.
 
     Parameters
     ----------
@@ -221,14 +221,16 @@ def core_tracking(s, pids=None, overwrite=False):
 
     for pid in pids:
         # Check if file exists
-        ofname = Path(s.savdir, config.CORE_DIR, 'cores.par{}.p'.format(pid))
+        ofname = Path(s.savdir, config.CORE_DIR, f'core_trajectories.par{pid}.nc')
         ofname.parent.mkdir(exist_ok=True)
         if ofname.exists() and not overwrite:
             print('[core_tracking] file already exists. Skipping...')
             continue
 
         cores = tools.track_cores(s, pid)
-        cores.to_pickle(ofname, protocol=pickle.HIGHEST_PROTOCOL)
+        dataset = cores.astype({'leaf_id': 'uint64'}).to_xarray()
+        dataset.attrs = cores.attrs.copy()
+        dataset.to_netcdf(ofname, engine='netcdf4')
 
 
 def radial_profile(s, nums=None, pids=None, overwrite=False, all_minima=False):

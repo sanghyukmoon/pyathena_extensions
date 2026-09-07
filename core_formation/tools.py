@@ -163,10 +163,10 @@ def track_cores(s, pid):
         nums_track.append(num)
         time.append(s.times[num])
         leaf_id.append(lid)
-    # SMOON: Using dtype=object is to prevent automatic upcasting from int to float
-    # when indexing a single row. Maybe there is a better approach.
-    cores = pd.DataFrame(dict(time=time, leaf_id=leaf_id),
-                         index=nums_track, dtype=object).sort_index()
+    # Only the identifier needs object dtype to preserve integers in mixed rows.
+    cores = pd.DataFrame(dict(time=np.asarray(time, dtype=np.float64),
+                              leaf_id=np.asarray(leaf_id, dtype=object)),
+                         index=pd.Index(nums_track, dtype='int64', name='num')).sort_index()
 
     # Set attributes
     cores.attrs['pid'] = pid

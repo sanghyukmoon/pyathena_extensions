@@ -741,8 +741,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
 
         for pid in self.pids:
-            fname = Path(savdir, f'cores.par{pid}.p')
-            cores = pd.read_pickle(fname).sort_index()
+            fname = Path(savdir, f'core_trajectories.par{pid}.nc')
+            dataset = xr.load_dataset(fname, engine='netcdf4')
+            cores = dataset.to_dataframe().sort_index().astype({'leaf_id': object})
+            cores.attrs = dataset.attrs.copy()
             num_start = self.trajectory_start_num(cores, f_mul=3.0)
 
             num_start_min = int(
