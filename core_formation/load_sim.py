@@ -154,9 +154,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             if len(hdf5) > 1 or (hdf5 and hdf5[0]['variable'] != 'cons'):
                 raise ValueError('Core formation requires at most one cons HDF5 output')
             # Native HDF5 discovery belongs to FindFiles, not the analysis timeline.
-            del self.nums_hdf5
+            if hdf5:
+                del self.nums_hdf5
             if self.legacy:
-                self.nums = list(self.ff.nums_hdf5.get('cons') or [])
+                self.nums = list(self.ff.nums_hdf5.get('cons') or []) if hdf5 else []
                 self.times = {num: self.load_hdf5(num, header_only=True)['Time']
                               for num in self.nums}
                 if not self.nums:

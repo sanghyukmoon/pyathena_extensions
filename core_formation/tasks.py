@@ -248,7 +248,7 @@ def radial_profile(s, nums=None, pids=None, overwrite=False, all_minima=False):
 
     if nums is None:
         nums = s.nums if s.legacy else [
-            num*s._hdf5_stride for num in (s.ff.nums_hdf5.get('cons') or [])
+            num*s._hdf5_stride for num in (getattr(s.ff, 'nums_hdf5', {}).get('cons') or [])
             if num*s._hdf5_stride in s.nums
         ]
 
@@ -369,7 +369,7 @@ def prj_radial_profile(s, num, pids, overwrite=False):
 def power_spectrum(s, nums=None, overwrite=False):
     if nums is None:
         nums = s.nums if s.legacy else [
-            num*s._hdf5_stride for num in (s.ff.nums_hdf5.get('cons') or [])
+            num*s._hdf5_stride for num in (getattr(s.ff, 'nums_hdf5', {}).get('cons') or [])
             if num*s._hdf5_stride in s.nums
         ]
     for num in nums:
@@ -425,7 +425,7 @@ def lagrangian_props(s, pid, *, method, overwrite=False):
 def projections(s, nums=None, overwrite=False):
     if nums is None:
         nums = s.nums if s.legacy else [
-            num*s._hdf5_stride for num in (s.ff.nums_hdf5.get('cons') or [])
+            num*s._hdf5_stride for num in (getattr(s.ff, 'nums_hdf5', {}).get('cons') or [])
             if num*s._hdf5_stride in s.nums
         ]
     nums = np.atleast_1d(nums)

@@ -76,7 +76,7 @@ if __name__ == "__main__":
         pids = sorted(list(set(s.pids) & set(pids)))
         # HDF5-dependent batches use only locally available matching epochs.
         hdf5_nums = s.nums if s.legacy else [
-            num*s._hdf5_stride for num in (s.ff.nums_hdf5.get('cons') or [])
+            num*s._hdf5_stride for num in (getattr(s.ff, 'nums_hdf5', {}).get('cons') or [])
             if num*s._hdf5_stride in s.nums
         ]
 
