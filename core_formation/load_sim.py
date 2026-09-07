@@ -761,10 +761,14 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             cores = myio.load_dataframe(fname)
             num_start = self.trajectory_start_num(cores, f_mul=3.0)
 
-            num_start_min = int(
-                (self.tcoll_cores.loc[1].time - 1.5 / self.u.Myr)
-                / self.dt_output['hdf5']
-            )
+            cutoff_time = self.tcoll_cores.loc[1].time - 1.5 / self.u.Myr
+            if self.legacy:
+                num_start_min = int(cutoff_time / self.dt_output['hdf5'])
+            else:
+                num_start_min = max(
+                    (num for num in self.nums if self.times[num] <= cutoff_time),
+                    default=self.nums[0],
+                )
             # Prevent excessive back-tracking to early times
             num_start = max(num_start, num_start_min)
 

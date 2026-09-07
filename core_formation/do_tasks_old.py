@@ -62,8 +62,6 @@ if __name__ == "__main__":
     parser.add_argument("--pid-end", type=int)
 
     args = parser.parse_args()
-    if not args.legacy and (args.run_grid or args.prune):
-        parser.error('GRID construction/pruning belongs to the legacy workflow')
     sa = load_sim.LoadSimAll(models.models)
 
     # Select models
@@ -76,6 +74,11 @@ if __name__ == "__main__":
         if args.pids:
             pids = args.pids
         pids = sorted(list(set(s.pids) & set(pids)))
+        # HDF5-dependent batches use only locally available matching epochs.
+        hdf5_nums = s.nums if s.legacy else [
+            num*s._hdf5_stride for num in (s.ff.nums_hdf5.get('cons') or [])
+            if num*s._hdf5_stride in s.nums
+        ]
 
         # Combine output files.
         if args.combine_partab:
@@ -93,7 +96,8 @@ if __name__ == "__main__":
                 tasks.run_grid(s, num, overwrite=args.overwrite)
             print(f"Run GRID-dendro for model {mdl}")
             with Pool(args.np) as p:
-                p.map(wrapper, s.nums[config.GRID_NUM_START:], 1)
+                p.map(wrapper, s.nums[config.GRID_NUM_START:] if s.legacy else
+                      [num for num in hdf5_nums if num >= config.GRID_NUM_START], 1)
 
         # Run GRID-dendro.
         if args.prune:
@@ -102,7 +106,8 @@ if __name__ == "__main__":
                 tasks.prune(s, num, overwrite=args.overwrite)
             print(f"Run GRID-dendro for model {mdl}")
             with Pool(args.np) as p:
-                p.map(wrapper, s.nums[config.GRID_NUM_START:], 1)
+                p.map(wrapper, s.nums[config.GRID_NUM_START:] if s.legacy else
+                      [num for num in hdf5_nums if num >= config.GRID_NUM_START], 1)
 
         # Find t_coll cores and save their GRID-dendro node ID's.
         if args.track_cores:
@@ -143,7 +148,7 @@ if __name__ == "__main__":
             def wrapper(num):
                 tasks.projections(s, num, overwrite=args.overwrite)
             with Pool(args.np) as p:
-                p.map(wrapper, s.nums)
+                p.map(wrapper, hdf5_nums)
 
         if args.prj_radial_profile:
             s = sa.set_model(mdl, legacy=args.legacy)
@@ -153,7 +158,7 @@ if __name__ == "__main__":
             def wrapper(num):
                 tasks.prj_radial_profile(s, num, pids, overwrite=args.overwrite)
             with Pool(args.np) as p:
-                p.map(wrapper, s.nums)
+                p.map(wrapper, hdf5_nums)
 
         # Find observables
         if args.observables:
@@ -165,7 +170,7 @@ if __name__ == "__main__":
                 def wrapper(num):
                     tasks.observables(s, pid, num, overwrite=args.overwrite)
                 with Pool(args.np) as p:
-                    p.map(wrapper, cores.index)
+                    p.map(wrapper, [num for num in cores.index if num in hdf5_nums])
 
 
         # Resample AMR data into uniform grid
@@ -208,7 +213,7 @@ if __name__ == "__main__":
                         tasks.plot_core_evolution(s, pid, num, method=method,
                                                   overwrite=args.overwrite)
                     with Pool(args.np) as p:
-                        p.map(wrapper, cores.index)
+                        p.map(wrapper, [num for num in cores.index if num in hdf5_nums])
 
         if args.plot_sink_history:
             s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
@@ -216,7 +221,7 @@ if __name__ == "__main__":
                 tasks.plot_sink_history(s, num, overwrite=args.overwrite)
             print(f"draw sink history plots for model {mdl}")
             with Pool(args.np) as p:
-                p.map(wrapper, s.nums)
+                p.map(wrapper, hdf5_nums)
 
         if args.plot_pdfs:
             s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
@@ -224,7 +229,7 @@ if __name__ == "__main__":
                 tasks.plot_pdfs(s, num, overwrite=args.overwrite)
             print(f"draw PDF-power spectrum plots for model {mdl}")
             with Pool(args.np) as p:
-                p.map(wrapper, s.nums)
+                p.map(wrapper, hdf5_nums)
 
         if args.plot_diagnostics:
             s = sa.set_model(mdl, legacy=args.legacy, override_all=True)

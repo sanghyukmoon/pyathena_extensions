@@ -105,9 +105,9 @@ def output_sparse_hdf5(s, gids, num):
     ----
     Refactor to use load_hdf5(raw=True)
     """
-    outid = s._hdf5_outid_def
-    outvar = s._hdf5_outvar_def
-    filename = s._get_fhdf5(outid, outvar, num, None)
+    s.load_hdf5(num, file_only=True)
+    filename = s.fhdf5
+    native_num = num if s.legacy else num // s._hdf5_stride
     fsrc = h5py.File(filename, 'r')
     # Read Mesh information
     block_size = fsrc.attrs['MeshBlockSize']
@@ -136,7 +136,7 @@ def output_sparse_hdf5(s, gids, num):
     for k, v in ds.items():
         ds[k] = v[:, gids, ...]
     ofname = Path(
-        s.basedir, "sparse", f"{s.problem_id}.{num:05d}.athdf"
+        s.basedir, "sparse", f"{s.problem_id}.{native_num:05d}.athdf"
     )
     ofname.parent.mkdir(exist_ok=True)
     if ofname.exists():
@@ -622,6 +622,8 @@ def resample_hdf5(s, level=0):
         s: LoadSim instance
         level: Refinement level to resample. root level=0.
     """
+    if not s.legacy:
+        raise ValueError('Uniform HDF5 resampling is a legacy-only utility')
     ifname = Path(s.basedir, '{}.out2'.format(s.problem_id))
     odir = Path(s.basedir, 'uniform')
     odir.mkdir(exist_ok=True)
