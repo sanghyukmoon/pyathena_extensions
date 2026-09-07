@@ -32,7 +32,6 @@ def _write_core_properties(cores, filename):
         variables[name] = ('num', values)
     dataset = xr.Dataset(variables, coords={'num': cores.index.to_numpy()})
     dataset.attrs = cores.attrs.copy()
-    dataset.attrs['track_failed'] = int(cores.attrs['track_failed'])
     dataset.attrs['_dataframe'] = json.dumps({
         'columns': {name: str(dtype) for name, dtype in cores.dtypes.items()},
         'index_name': cores.index.name,
@@ -48,7 +47,6 @@ def _read_core_properties(filename):
     cores = cores.astype(metadata['columns'])
     cores.index.name = metadata['index_name']
     cores.attrs = dataset.attrs.copy()
-    cores.attrs['track_failed'] = bool(cores.attrs['track_failed'])
     return cores
 
 
@@ -345,9 +343,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         """List of resolved cores"""
         good_cores = []
         for pid, cores in self.cores.items():
-            if cores.attrs['track_failed']:
-                # Exclude cores that failed to be tracked before collapse.
-                continue
             if tools.test_resolved_core(self, cores, nres):
                 # Exclude cores that are not resolved at the critical time.
                 good_cores.append(pid)
@@ -376,11 +371,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 continue
 
             cores = self.cores[pid].copy()
-            if cores.attrs['track_failed']:
-                _write_core_properties(cores, cache)
-                core_dict[pid] = cores
-                continue
-
             rprofs = self.rprofs[pid]
 
             min_dst, mw_dst, min_dst_to_core = [], [], []
@@ -792,12 +782,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             # Find collapse time
             cores.attrs['tcoll'] = self.tcoll_cores.loc[pid].time
-
-            # Add attributes
-            if len(cores) == 1 and cores.index[0] == cores.attrs['numcoll']:
-                cores.attrs['track_failed'] = True
-            else:
-                cores.attrs['track_failed'] = False
 
             # Sort attributes
             cores.attrs = {k: cores.attrs[k] for k in sorted(cores.attrs)}
