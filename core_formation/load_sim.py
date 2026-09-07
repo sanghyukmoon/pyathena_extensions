@@ -286,8 +286,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         Non-legacy HDF5 is scheduled only at multiples of _hdf5_stride.
         Sparse files retain native numbering and require explicit chunks.
         For stride five, num=10 reads native file 2; num=11 raises ValueError.
-        A scheduled but unavailable file raises FileNotFoundError. Recorded
-        HDF5/profile times are checked when both are available.
+        Ordinary missing-file handling is delegated to the base loader.
+        Recorded HDF5/profile times are checked when both are available.
         """
         if self.legacy:
             native_hdf5_num = num
@@ -311,15 +311,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             chunks = (kwargs['chunks']['x'], kwargs['chunks']['y'], kwargs['chunks']['z'])
             dataset = myio.read_sparse_hdf5(fname, chunks)
         else:
-            if not self.legacy:
-                if not self.files.get('hdf5', {}).get('cons'):
-                    raise FileNotFoundError(f'HDF5 unavailable at num={num}')
-                fname = self._get_fhdf5(
-                    self._hdf5_outid_def, self._hdf5_outvar_def, native_hdf5_num, None
-                )
-                if fname is None or not Path(fname).exists():
-                    raise FileNotFoundError(f'HDF5 unavailable at num={num}: {fname}')
-            dataset = LoadSimBase.load_hdf5(self, native_hdf5_num, **kwargs)
+            dataset = super().load_hdf5(native_hdf5_num, **kwargs)
+            fname = self.fhdf5
 
         if not self.legacy and num in self.times:
             metadata = dataset.attrs if isinstance(dataset, xr.Dataset) else dataset
