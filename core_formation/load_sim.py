@@ -338,9 +338,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         for pid in self.pids:
             cache = savdir / f'cores_tcrit_{method}.par{pid}.nc'
             if cache.exists() and not force_override:
-                dataset = xr.load_dataset(cache, engine='netcdf4')
-                cores = dataset.to_dataframe()
-                cores.attrs = dataset.attrs.copy()
+                cores = myio.load_dataframe(cache)
                 core_dict[pid] = cores
                 continue
 
@@ -454,9 +452,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Load Lagrangian props
             fname = Path(savdir, f'lprops_tcrit_{method}.par{pid}.nc')
             if fname.exists():
-                dataset = xr.load_dataset(fname)
-                lprops = dataset.to_dataframe().sort_index()
-                lprops.attrs = dataset.attrs.copy()
+                lprops = myio.load_dataframe(fname).sort_index()
                 if set(lprops.columns).issubset(cores.columns):
                     cores = cores.drop(lprops.columns, axis=1)
 
@@ -533,9 +529,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Sort attributes
             cores.attrs = {k: cores.attrs[k] for k in sorted(cores.attrs)}
 
-            dataset = cores.to_xarray()
-            dataset.attrs = cores.attrs.copy()
-            dataset.to_netcdf(cache, engine='netcdf4')
+            myio.save_dataframe(cores, cache)
             core_dict[pid] = cores
 
         return core_dict
@@ -727,9 +721,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
         for pid in self.pids:
             fname = Path(savdir, f'core_trajectories.par{pid}.nc')
-            dataset = xr.load_dataset(fname, engine='netcdf4')
-            cores = dataset.to_dataframe().sort_index()
-            cores.attrs = dataset.attrs.copy()
+            cores = myio.load_dataframe(fname).sort_index()
             num_start = self.trajectory_start_num(cores, f_mul=3.0)
 
             num_start_min = int(
@@ -744,7 +736,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Read critical TES info and concatenate to self.cores
             try:
                 fname = Path(savdir, f'critical_tes.par{pid}.nc')
-                tes_crit = xr.load_dataset(fname).to_dataframe().sort_index()
+                tes_crit = myio.load_dataframe(fname).sort_index()
             except FileNotFoundError:
                 pids_not_found.append(pid)
             else:

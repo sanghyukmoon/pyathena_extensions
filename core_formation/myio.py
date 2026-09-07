@@ -8,6 +8,24 @@ import xarray as xr
 xr.set_options(use_bottleneck=False, use_numbagg=False)
 import dask.array as da
 
+def load_dataframe(filename):
+    """Read a NetCDF table with native column dtypes and physical attributes."""
+    dataset = xr.load_dataset(filename, engine='netcdf4')
+    frame = dataset.to_dataframe()
+    frame.attrs = dataset.attrs.copy()
+    return frame
+
+
+def save_dataframe(frame, filename):
+    """Write a typed table with a named index, preserving its attributes.
+
+    Sorting, output directories and overwrite decisions belong to the caller.
+    """
+    dataset = frame.to_xarray()
+    dataset.attrs = frame.attrs.copy()
+    dataset.to_netcdf(filename, engine='netcdf4')
+
+
 def read_sparse_hdf5(filename, chunks=(128, 128, 128)):
     """Read Athena++ hdf5 file and convert it to dask-xarray Dataset
 

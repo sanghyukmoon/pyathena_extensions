@@ -3,6 +3,7 @@ from pathlib import Path
 import datetime
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from scipy.ndimage import minimum_filter
 import xarray as xr
 # Bottleneck does not use stable sum.
@@ -20,7 +21,7 @@ from pyathena.util import uniform, transform
 from grid_dendro import dendrogram
 from scipy import fft
 
-from . import plots, tools, config, stats
+from . import plots, tools, config, stats, myio
 
 
 def combine_partab(s, ns=None, ne=None, partag="par0", remove=False,
@@ -192,12 +193,8 @@ def critical_tes(s, pid, overwrite=False):
     if not results:
         logging.warning(f'No critical TES results for pid={pid}; not writing a file.')
         return
-    dataset = xr.Dataset(
-        {name: ('num', [result[name] for result in results])
-         for name in results[0] if name != 'num'},
-        coords={'num': [result['num'] for result in results]},
-    )
-    dataset.sortby('num').to_netcdf(ofname)
+    frame = pd.DataFrame(results).set_index('num').sort_index()
+    myio.save_dataframe(frame, ofname)
 
 
 def core_tracking(s, pids=None, overwrite=False):
@@ -214,7 +211,7 @@ def core_tracking(s, pids=None, overwrite=False):
     pid : int
         Particle ID
     overwrite : str, optional
-        If true, overwrites the existing pickle file.
+        If true, overwrites the existing trajectory NetCDF file.
     """
     if pids is None:
         pids = s.pids
@@ -228,9 +225,7 @@ def core_tracking(s, pids=None, overwrite=False):
             continue
 
         cores = tools.track_cores(s, pid)
-        dataset = cores.to_xarray()
-        dataset.attrs = cores.attrs.copy()
-        dataset.to_netcdf(ofname, engine='netcdf4')
+        myio.save_dataframe(cores, ofname)
 
 
 def radial_profile(s, nums=None, pids=None, overwrite=False, all_minima=False):
@@ -418,9 +413,7 @@ def lagrangian_props(s, pid, *, method, overwrite=False):
     rprofs = s.rprofs[pid]
     print(f'[lagrangian_props] Calculate Lagrangian props for core {pid} with version {method}')
     lprops = tools.lagrangian_property(s, cores, rprofs)
-    dataset = lprops.rename_axis('num').to_xarray()
-    dataset.attrs = lprops.attrs.copy()
-    dataset.to_netcdf(ofname)
+    myio.save_dataframe(lprops.rename_axis('num'), ofname)
 
 
 def projections(s, nums=None, overwrite=False):
