@@ -10,6 +10,7 @@ xr.set_options(use_bottleneck=False, use_numbagg=False)
 import numpy as np
 from pathlib import Path
 import pickle
+import json
 from scipy.interpolate import interp1d
 from scipy import signal
 from astropy import units as au
@@ -19,6 +20,36 @@ from pyathena.util.units import Units
 from pyathena.io.timing_reader import TimingReader
 
 from . import models, tools, config, hst, slc_prj, myio, radial_profiles
+
+
+def _write_core_properties(cores, filename):
+    """Save a core table, retaining its pandas layout and numeric object columns."""
+    variables = {}
+    for name, column in cores.items():
+        values = column.to_numpy()
+        if column.dtype == object:
+            values = np.asarray([np.asarray(value).item() for value in values])
+        variables[name] = ('num', values)
+    dataset = xr.Dataset(variables, coords={'num': cores.index.to_numpy()})
+    dataset.attrs = cores.attrs.copy()
+    dataset.attrs['track_failed'] = int(cores.attrs['track_failed'])
+    dataset.attrs['_dataframe'] = json.dumps({
+        'columns': {name: str(dtype) for name, dtype in cores.dtypes.items()},
+        'index_name': cores.index.name,
+    })
+    dataset.to_netcdf(filename, engine='netcdf4')
+
+
+def _read_core_properties(filename):
+    """Restore a cached core table without recalculating derived properties."""
+    dataset = xr.load_dataset(filename, engine='netcdf4')
+    metadata = json.loads(dataset.attrs.pop('_dataframe'))
+    cores = dataset.to_dataframe()[list(metadata['columns'])]
+    cores = cores.astype(metadata['columns'])
+    cores.index.name = metadata['index_name']
+    cores.attrs = dataset.attrs.copy()
+    cores.attrs['track_failed'] = bool(cores.attrs['track_failed'])
+    return cores
 
 
 class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
@@ -230,7 +261,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                         savdir = Path(self.savdir, config.CORE_DIR)
                         self.cores_dict[mtd] = self.update_core_props(
                             method = mtd,
-                            prefix = f'cores_tcrit_{mtd}',
                             savdir = savdir,
                             force_override = override_derived_cores
                         )
@@ -323,26 +353,31 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 good_cores.append(pid)
         return good_cores
 
-    @LoadSimBase.Decorators.check_pickle
-    def update_core_props(self, method,
-                          prefix=None, savdir=None, force_override=False):
-        """Update core properties
+    def update_core_props(self, method, savdir=None, force_override=False):
+        """Load or calculate complete core properties for a critical-time method.
 
-        Calculate lagrangian core properties using the radial profiles
-        Add normalized times
-
-        Parameters
-        ----------
+        Both modes reuse cores_tcrit_{method}.par{pid}.nc until force_override
+        (override_derived_cores=True on LoadSim). Refresh after changing formulas
+        or generating new Lagrangian/observational products. Old aggregate
+        pickle caches are ignored. Lagrangian products are loaded, not generated.
 
         Returns
         -------
-        pandas.DataFrame
-            Updated core dataframe.
+        dict[int, pandas.DataFrame]
+            Complete core tables indexed by particle ID.
         """
+        savdir = Path(savdir) if savdir is not None else Path(self.savdir, config.CORE_DIR)
+        savdir.mkdir(parents=True, exist_ok=True)
         core_dict = {}
         for pid in self.pids:
+            cache = savdir / f'cores_tcrit_{method}.par{pid}.nc'
+            if cache.exists() and not force_override:
+                core_dict[pid] = _read_core_properties(cache)
+                continue
+
             cores = self.cores[pid].copy()
             if cores.attrs['track_failed']:
+                _write_core_properties(cores, cache)
                 core_dict[pid] = cores
                 continue
 
@@ -430,6 +465,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                                      f"Model {self.basename}, par {pid}, ncrit = {ncrit}"
                                      f" crit_method {method}")
                 if rcore > rprf.r.max()[()]:
+                    # TODO: raise a descriptive ValueError instead of omitting this core.
                     msg = (
                         f"Core radius exceeds the maximum rprof radius for "
                         f"model {self.basename}, par {pid}. ncrit = {ncrit}, "
@@ -533,6 +569,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Sort attributes
             cores.attrs = {k: cores.attrs[k] for k in sorted(cores.attrs)}
 
+            _write_core_properties(cores, cache)
             core_dict[pid] = cores
 
         return core_dict
