@@ -10,7 +10,6 @@ xr.set_options(use_bottleneck=False, use_numbagg=False)
 import numpy as np
 from pathlib import Path
 import pickle
-import json
 from scipy.interpolate import interp1d
 from scipy import signal
 from astropy import units as au
@@ -339,12 +338,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         for pid in self.pids:
             cache = savdir / f'cores_tcrit_{method}.par{pid}.nc'
             if cache.exists() and not force_override:
-                # Read the cache and restore the DataFrame layout and dtypes.
+                # Only leaf_id is object-typed to preserve integers in mixed rows.
                 dataset = xr.load_dataset(cache, engine='netcdf4')
-                metadata = json.loads(dataset.attrs.pop('_dataframe'))
-                cores = dataset.to_dataframe()[list(metadata['columns'])]
-                cores = cores.astype(metadata['columns'])
-                cores.index.name = metadata['index_name']
+                cores = dataset.to_dataframe().astype({'leaf_id': object})
                 cores.attrs = dataset.attrs.copy()
                 core_dict[pid] = cores
                 continue
@@ -379,9 +375,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     min_dst_to_core.append(np.inf)
                 else:
                     min_dst_to_core.append(min(dst))
-            cores['min_dst_to_star'] = min_dst
-            cores['mw_dst_to_star'] = mw_dst
-            cores['min_dst_to_pscore'] = min_dst_to_core
+            cores['min_dst_to_star'] = np.asarray(min_dst, dtype=np.float64)
+            cores['mw_dst_to_star'] = np.asarray(mw_dst, dtype=np.float64)
+            cores['min_dst_to_pscore'] = np.asarray(min_dst_to_core, dtype=np.float64)
 
             if method in ['virial0', 'virial1']:
                 if method in ['virial0', 'virial1']:
@@ -524,7 +520,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     if fname.exists():
                         oprops.append(pd.read_pickle(fname))
                 if len(oprops) > 0:
-                    oprops = pd.DataFrame(oprops).set_index('num').sort_index()
+                    oprops = pd.DataFrame(oprops).set_index('num').sort_index().astype('float64')
 
                     # Save attributes before performing join, which will drop them.
                     attrs = cores.attrs.copy()
@@ -538,19 +534,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Sort attributes
             cores.attrs = {k: cores.attrs[k] for k in sorted(cores.attrs)}
 
-            # Cache the complete table, retaining numeric object column dtypes.
-            variables = {}
-            for name, column in cores.items():
-                values = column.to_numpy()
-                if column.dtype == object:
-                    values = np.asarray([np.asarray(value).item() for value in values])
-                variables[name] = ('num', values)
-            dataset = xr.Dataset(variables, coords={'num': cores.index.to_numpy()})
+            # Store identifiers as integers without changing the in-memory table.
+            dataset = cores.astype({'leaf_id': 'uint64'}).to_xarray()
             dataset.attrs = cores.attrs.copy()
-            dataset.attrs['_dataframe'] = json.dumps({
-                'columns': {name: str(dtype) for name, dtype in cores.dtypes.items()},
-                'index_name': cores.index.name,
-            })
             dataset.to_netcdf(cache, engine='netcdf4')
             core_dict[pid] = cores
 
