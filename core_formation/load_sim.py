@@ -31,6 +31,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         Locally discovered HDF5 epochs belonging to nums, in analysis numbering.
         In non-legacy mode these are radial-profile numbers, not native HDF5
         file numbers. Reconstruct LoadSim to refresh file discovery.
+    nums_with_projection : list of int
+        Locally discovered full-box projection epochs in analysis numbering.
+        Reconstruct LoadSim to refresh file discovery.
     rho0 : float
         Mean density of the cloud in the code unit.
     cs : float
@@ -192,6 +195,27 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     header = self.load_rprof(num, metadata_only=True)
                     self.minima[num] = header.center_id.to_numpy()
                     self.times[num] = header.attrs['time']
+            projection = [v for k, v in self.par.items()
+                          if k.startswith('output') and v['file_type'] == 'projection']
+            if len(projection) > 1:
+                raise ValueError('Core formation requires at most one projection output')
+            if projection and not self.legacy:
+                dt_rprof = self.dt_output['rprof']
+                dt_projection = self.dt_output['projection']
+                if (not np.isfinite(dt_rprof) or dt_rprof <= 0
+                        or not np.isfinite(dt_projection) or dt_projection <= 0):
+                    raise ValueError('Projection and rprof intervals must be finite and positive')
+                ratio = dt_projection / dt_rprof
+                tolerance = 64*np.finfo(float).eps*max(1, abs(ratio))
+                if (not np.isfinite(ratio) or round(ratio) < 1
+                        or abs(ratio - round(ratio)) > tolerance):
+                    raise ValueError('Projection interval must be an integer multiple of rprof')
+                self._projection_stride = int(round(ratio))
+            stride = 1 if self.legacy or not projection else self._projection_stride
+            self.nums_with_projection = sorted(
+                set(self.nums) & {num * stride
+                                  for num in getattr(self.ff, 'nums_projection', [])}
+            )
             if np.any(np.diff(self.nums) != 1):
                 raise ValueError('Gap in output numbering')
 
@@ -278,6 +302,20 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             pass
         else:
             raise ValueError("Unknown parameter type for basedir_or_Mach")
+
+    def load_projection(self, num, axis='z', quantities=None, header_only=False):
+        """Load raw full-box integrals at an analysis output number."""
+        if self.legacy:
+            native_projection_num = num
+        else:
+            if not hasattr(self, '_projection_stride'):
+                raise ValueError('No projection output is configured')
+            if num % self._projection_stride:
+                raise ValueError(f'Projection is not scheduled at num={num}; '
+                                 f'stride={self._projection_stride}')
+            native_projection_num = num // self._projection_stride
+        return super().load_projection(native_projection_num, axis=axis,
+                                       quantities=quantities, header_only=header_only)
 
     def load_hdf5(self, num, sparse=False, **kwargs):
         """Load HDF5 using analysis num (native HDF5 num in legacy mode).
