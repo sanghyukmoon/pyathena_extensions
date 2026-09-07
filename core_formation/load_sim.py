@@ -28,6 +28,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
     Attributes
     ----------
+    nums_with_hdf5 : list of int
+        Locally discovered HDF5 epochs belonging to nums, in analysis numbering.
+        In non-legacy mode these are radial-profile numbers, not native HDF5
+        file numbers. Reconstruct LoadSim to refresh file discovery.
     rho0 : float
         Mean density of the cloud in the code unit.
     cs : float
