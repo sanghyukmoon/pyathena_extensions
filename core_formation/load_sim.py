@@ -289,8 +289,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         A scheduled but unavailable file raises FileNotFoundError. Recorded
         HDF5/profile times are checked when both are available.
         """
-        native_hdf5_num = num
-        if not self.legacy:
+        if self.legacy:
+            native_hdf5_num = num
+        else:
             if not hasattr(self, '_hdf5_stride'):
                 raise FileNotFoundError('No HDF5 output is configured')
             if kwargs.get('ihdf5') is not None:
