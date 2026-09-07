@@ -22,34 +22,6 @@ from pyathena.io.timing_reader import TimingReader
 from . import models, tools, config, hst, slc_prj, myio, radial_profiles
 
 
-def _write_core_properties(cores, filename):
-    """Save a core table, retaining its pandas layout and numeric object columns."""
-    variables = {}
-    for name, column in cores.items():
-        values = column.to_numpy()
-        if column.dtype == object:
-            values = np.asarray([np.asarray(value).item() for value in values])
-        variables[name] = ('num', values)
-    dataset = xr.Dataset(variables, coords={'num': cores.index.to_numpy()})
-    dataset.attrs = cores.attrs.copy()
-    dataset.attrs['_dataframe'] = json.dumps({
-        'columns': {name: str(dtype) for name, dtype in cores.dtypes.items()},
-        'index_name': cores.index.name,
-    })
-    dataset.to_netcdf(filename, engine='netcdf4')
-
-
-def _read_core_properties(filename):
-    """Restore a cached core table without recalculating derived properties."""
-    dataset = xr.load_dataset(filename, engine='netcdf4')
-    metadata = json.loads(dataset.attrs.pop('_dataframe'))
-    cores = dataset.to_dataframe()[list(metadata['columns'])]
-    cores = cores.astype(metadata['columns'])
-    cores.index.name = metadata['index_name']
-    cores.attrs = dataset.attrs.copy()
-    return cores
-
-
 class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                            TimingReader):
     """LoadSim class for analyzing core collapse simulations.
@@ -367,7 +339,14 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         for pid in self.pids:
             cache = savdir / f'cores_tcrit_{method}.par{pid}.nc'
             if cache.exists() and not force_override:
-                core_dict[pid] = _read_core_properties(cache)
+                # Read the cache and restore the DataFrame layout and dtypes.
+                dataset = xr.load_dataset(cache, engine='netcdf4')
+                metadata = json.loads(dataset.attrs.pop('_dataframe'))
+                cores = dataset.to_dataframe()[list(metadata['columns'])]
+                cores = cores.astype(metadata['columns'])
+                cores.index.name = metadata['index_name']
+                cores.attrs = dataset.attrs.copy()
+                core_dict[pid] = cores
                 continue
 
             cores = self.cores[pid].copy()
@@ -559,7 +538,20 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Sort attributes
             cores.attrs = {k: cores.attrs[k] for k in sorted(cores.attrs)}
 
-            _write_core_properties(cores, cache)
+            # Cache the complete table, retaining numeric object column dtypes.
+            variables = {}
+            for name, column in cores.items():
+                values = column.to_numpy()
+                if column.dtype == object:
+                    values = np.asarray([np.asarray(value).item() for value in values])
+                variables[name] = ('num', values)
+            dataset = xr.Dataset(variables, coords={'num': cores.index.to_numpy()})
+            dataset.attrs = cores.attrs.copy()
+            dataset.attrs['_dataframe'] = json.dumps({
+                'columns': {name: str(dtype) for name, dtype in cores.dtypes.items()},
+                'index_name': cores.index.name,
+            })
+            dataset.to_netcdf(cache, engine='netcdf4')
             core_dict[pid] = cores
 
         return core_dict
