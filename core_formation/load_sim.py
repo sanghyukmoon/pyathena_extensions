@@ -448,10 +448,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             cores['min_dst_to_pscore'] = np.asarray(min_dst_to_core, dtype=np.float64)
 
             if method in ['virial0', 'virial1']:
-                if method in ['virial0', 'virial1']:
-                    mmax = 'mmax_all0'
-                else:
-                    raise ValueError(f"Unknown method {method}")
+                mmax = 'mmax_all0'
                 r = rprofs.r.to_numpy()
                 rcrit = []
                 for num in cores.index:
