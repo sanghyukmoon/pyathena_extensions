@@ -452,7 +452,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Load Lagrangian props
             fname = Path(savdir, f'lprops_tcrit_{method}.par{pid}.nc')
             if fname.exists():
-                lprops = myio.load_dataframe(fname).sort_index()
+                lprops = myio.load_dataframe(fname)
                 if set(lprops.columns).issubset(cores.columns):
                     cores = cores.drop(lprops.columns, axis=1)
 
@@ -721,7 +721,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
         for pid in self.pids:
             fname = Path(savdir, f'core_trajectories.par{pid}.nc')
-            cores = myio.load_dataframe(fname).sort_index()
+            cores = myio.load_dataframe(fname)
             num_start = self.trajectory_start_num(cores, f_mul=3.0)
 
             num_start_min = int(
@@ -736,7 +736,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Read critical TES info and concatenate to self.cores
             try:
                 fname = Path(savdir, f'critical_tes.par{pid}.nc')
-                tes_crit = myio.load_dataframe(fname).sort_index()
+                tes_crit = myio.load_dataframe(fname)
             except FileNotFoundError:
                 pids_not_found.append(pid)
             else:

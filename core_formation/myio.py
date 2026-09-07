@@ -9,9 +9,19 @@ xr.set_options(use_bottleneck=False, use_numbagg=False)
 import dask.array as da
 
 def load_dataframe(filename):
-    """Read a NetCDF table with native column dtypes and physical attributes."""
+    """Read a table sorted by num, rejecting missing or duplicate snapshots.
+
+    A sequence may start at any snapshot. Empty and single-row tables are valid;
+    no floating-point time-spacing checks are performed.
+    """
     dataset = xr.load_dataset(filename, engine='netcdf4')
-    frame = dataset.to_dataframe()
+    frame = dataset.to_dataframe().sort_index()
+    if frame.index.hasnans:
+        raise ValueError(f"Missing snapshot number in {filename}")
+    if not frame.index.is_unique:
+        raise ValueError(f"Duplicate snapshot numbers in {filename}")
+    if np.any(np.diff(frame.index.to_numpy()) != 1):
+        raise ValueError(f"Gap in snapshot number sequence in {filename}")
     frame.attrs = dataset.attrs.copy()
     return frame
 
