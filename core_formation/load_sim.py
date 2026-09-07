@@ -17,6 +17,7 @@ from astropy import constants as ac
 from pyathena.load_sim import LoadSim as LoadSimBase
 from pyathena.util.units import Units
 from pyathena.io.timing_reader import TimingReader
+from pyathena.io.read_hdf5 import read_hdf5
 
 from . import models, tools, config, hst, slc_prj, myio, radial_profiles
 
@@ -152,11 +153,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     if k.startswith('output') and v['file_type'] == 'hdf5']
             if len(hdf5) > 1 or (hdf5 and hdf5[0]['variable'] != 'cons'):
                 raise ValueError('Core formation requires at most one cons HDF5 output')
-            self.nums_hdf5 = list(self.ff.nums_hdf5.get('cons') or [])
-            self.times_hdf5 = {num: self.load_hdf5(num, header_only=True)['Time']
-                               for num in self.nums_hdf5}
+            # Native HDF5 discovery belongs to FindFiles, not the analysis timeline.
+            del self.nums_hdf5
             if self.legacy:
-                self.nums, self.times = self.nums_hdf5, self.times_hdf5
+                self.nums = list(self.ff.nums_hdf5.get('cons') or [])
+                self.times = {num: self.load_hdf5(num, header_only=True)['Time']
+                              for num in self.nums}
                 if not self.nums:
                     if getattr(self, 'nums_parbin', {}).get('par0'):
                         self.nums = self.nums_parbin['par0']
@@ -165,6 +167,18 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     self.times = {num: self.load_par(num, header_only=True)['time']
                                   for num in self.nums}
             else:
+                if hdf5:
+                    dt_rprof = self.dt_output['rprof']
+                    dt_hdf5 = self.dt_output['hdf5']
+                    if (not np.isfinite(dt_rprof) or dt_rprof <= 0
+                            or not np.isfinite(dt_hdf5) or dt_hdf5 <= 0):
+                        raise ValueError('HDF5 and rprof intervals must be finite and positive')
+                    ratio = dt_hdf5 / dt_rprof
+                    tolerance = 64*np.finfo(float).eps*max(1, abs(ratio))
+                    if (not np.isfinite(ratio) or round(ratio) < 1
+                            or abs(ratio - round(ratio)) > tolerance):
+                        raise ValueError('HDF5 interval must be an integer multiple of rprof')
+                    self._hdf5_stride = int(round(ratio))
                 self.nums = self.nums_rprof
                 self.minima, self.times = {}, {}
                 for num in self.nums:
@@ -251,32 +265,55 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             raise ValueError("Unknown parameter type for basedir_or_Mach")
 
     def load_hdf5(self, num, sparse=False, **kwargs):
-        """Load hdf5 file
+        """Load HDF5 using analysis num (native HDF5 num in legacy mode).
 
-        Parameters
-        ----------
-        num : int
-            Snapshot number.
-        sparse : bool
-            If True, load only the header information.
+        Non-legacy HDF5 is scheduled only at multiples of _hdf5_stride.
+        Sparse files retain native numbering and require explicit chunks.
         """
+        analysis_num = num
+        if not self.legacy:
+            if not hasattr(self, '_hdf5_stride'):
+                raise FileNotFoundError('No HDF5 output is configured')
+            if kwargs.get('ihdf5') is not None:
+                raise ValueError('Use canonical num, not ihdf5, in non-legacy mode')
+            if num % self._hdf5_stride:
+                raise ValueError(
+                    f'HDF5 is not scheduled at num={num}; stride={self._hdf5_stride}'
+                )
+            num //= self._hdf5_stride
+
         if sparse:
-            outid = self._hdf5_outid_def
-            outvar = self._hdf5_outvar_def
-            fname = Path(
-                self.basedir, "sparse", f"{self.problem_id}.{num:05d}.athdf"
-            )
+            fname = Path(self.basedir, "sparse", f"{self.problem_id}.{num:05d}.athdf")
             if not fname.exists():
-                raise FileNotFoundError('sparse hdf5 file does not exist.')
-            if 'chunks' in kwargs:
-                chunks = (kwargs['chunks']['x'],
-                          kwargs['chunks']['y'],
-                          kwargs['chunks']['z'])
-            else:
+                raise FileNotFoundError(f'HDF5 unavailable at num={analysis_num}: {fname}')
+            if 'chunks' not in kwargs:
                 raise ValueError("chunks must be specified for sparse hdf5")
-            return myio.read_sparse_hdf5(fname, chunks)
+            chunks = (kwargs['chunks']['x'], kwargs['chunks']['y'], kwargs['chunks']['z'])
+            dataset = myio.read_sparse_hdf5(fname, chunks)
         else:
-            return LoadSimBase.load_hdf5(self, num, **kwargs)
+            if not self.legacy:
+                if not self.files.get('hdf5', {}).get('cons'):
+                    raise FileNotFoundError(f'HDF5 unavailable at num={analysis_num}')
+                fname = self._get_fhdf5(
+                    self._hdf5_outid_def, self._hdf5_outvar_def, num, None
+                )
+                if fname is None or not Path(fname).exists():
+                    raise FileNotFoundError(f'HDF5 unavailable at num={analysis_num}: {fname}')
+            dataset = LoadSimBase.load_hdf5(self, num, **kwargs)
+
+        if not self.legacy and analysis_num in self.times:
+            metadata = dataset.attrs if isinstance(dataset, xr.Dataset) else dataset
+            if not isinstance(metadata, dict) or 'Time' not in metadata:
+                # file_only/raw requests do not carry time metadata.
+                metadata = read_hdf5(fname, header_only=True)
+            hdf5_time = metadata['Time']
+            profile_time = self.times[analysis_num]
+            epsilon = max(np.finfo(np.asarray(hdf5_time).dtype).eps,
+                          np.finfo(np.asarray(profile_time).dtype).eps)
+            tolerance = 64*epsilon*max(1, abs(hdf5_time), abs(profile_time))
+            if not np.isfinite(hdf5_time) or abs(hdf5_time - profile_time) > tolerance:
+                raise ValueError(f'HDF5 and rprof recorded times differ at num={analysis_num}')
+        return dataset
 
     def load_par(self, num, **kwargs):
         """Load partab or parbin"""
