@@ -214,10 +214,13 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                         force_override = override_rprofs
                     )
                 except FileNotFoundError:
-                    self.logger.warning("Cannot find radial profile files to load. "
-                                        "Have you run concat_radial_profiles() to "
-                                        "concatenate individual radial profiles "
-                                        "into one file?")
+                    if self.legacy:
+                        self.logger.warning("Cannot find radial profile files to load. "
+                                            "Have you run concat_radial_profiles() to "
+                                            "concatenate individual radial profiles "
+                                            "into one file?")
+                    else:
+                        self.logger.warning("Cannot find on-the-fly radial profile files to load.")
                     pass
             # Load derived core informations using various alternative critical times
             if load_derived_cores:
@@ -839,29 +842,45 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             pickle.dump(rprofs_dict, handle)
         return rprofs_dict
 
-    @LoadSimBase.Decorators.check_pickle
-    def _load_radial_profiles(self, prefix='radial_profile', savdir=None, force_override=False):
-        """
-        Raises
-        ------
-        FileNotFoundError
-            If individual radial profiles are not found
-        KeyError
-            If `cores` has not been initialized (due to missing files, etc.)
-        """
-        fname_concat = savdir / 'radial_profile.concatenated.p'
+    def _load_radial_profiles(self, savdir=None, force_override=False):
+        """Load complete profiles, using per-core NetCDF caches in non-legacy mode.
 
-        if not self.legacy:
-            raw_rprofs_dict = {}
-            for pid, cores in self.cores.items():
-                profiles = []
-                for num, core in cores.iterrows():
-                    profile = self.load_rprof(num, center_ids=[int(core.leaf_id)])
-                    profile = profile.isel(center_id=0, drop=True)
-                    profiles.append(profile.expand_dims(t=[self.times[num]]))
-                profile = xr.concat(profiles, 't', join='exact', combine_attrs='drop_conflicts')
-                raw_rprofs_dict[pid] = profile.assign_coords(num=('t', cores.index))
-        elif not fname_concat.exists():
+        Existing non-legacy caches are reused without assembly or derivation.
+        Set force_override=True (override_rprofs=True on LoadSim) to rebuild
+        after changing derived formulas. Old non-legacy pickle caches are ignored.
+        Use separate savdirs when comparing legacy and non-legacy profiles.
+        """
+        if self.legacy:
+            return self._load_radial_profiles_legacy(
+                savdir=savdir, force_override=force_override)
+
+        savdir = Path(savdir or Path(self.savdir, config.RPROF_DIR))
+        savdir.mkdir(parents=True, exist_ok=True)
+        rprofs_dict = {}
+        for pid, cores in self.cores.items():
+            fname = savdir / f'radial_profile.par{pid}.nc'
+            if fname.exists() and not force_override:
+                rprofs_dict[pid] = xr.load_dataset(fname, engine='netcdf4')
+                continue
+
+            profiles = []
+            for num, core in cores.iterrows():
+                profile = self.load_rprof(num, center_ids=[int(core.leaf_id)])
+                profile = profile.isel(center_id=0, drop=True)
+                profiles.append(profile.expand_dims(t=[self.times[num]]))
+            profile = xr.concat(profiles, 't', join='exact', combine_attrs='drop_conflicts')
+            raw = profile.assign_coords(num=('t', cores.index))
+            complete = radial_profiles.derive_radial_profiles(self, raw)
+            complete.to_netcdf(fname, engine='netcdf4')
+            rprofs_dict[pid] = complete
+        return rprofs_dict
+
+    @LoadSimBase.Decorators.check_pickle
+    def _load_radial_profiles_legacy(self, prefix='radial_profile', savdir=None,
+                                    force_override=False):
+        """Load legacy profiles with the existing concatenation and pickle caches."""
+        fname_concat = savdir / 'radial_profile.concatenated.p'
+        if not fname_concat.exists():
             raw_rprofs_dict = self.concat_radial_profiles()
         else:
             with open(fname_concat, 'rb') as handle:
