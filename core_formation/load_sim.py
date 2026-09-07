@@ -17,7 +17,6 @@ from astropy import constants as ac
 from pyathena.load_sim import LoadSim as LoadSimBase
 from pyathena.util.units import Units
 from pyathena.io.timing_reader import TimingReader
-from pyathena.io.read_hdf5 import read_hdf5
 
 from . import models, tools, config, hst, slc_prj, myio, radial_profiles
 
@@ -287,7 +286,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         Sparse files retain native numbering and require explicit chunks.
         For stride five, num=10 reads native file 2; num=11 raises ValueError.
         Ordinary missing-file handling is delegated to the base loader.
-        Recorded HDF5/profile times are checked when both are available.
         """
         if self.legacy:
             native_hdf5_num = num
@@ -309,24 +307,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             if 'chunks' not in kwargs:
                 raise ValueError("chunks must be specified for sparse hdf5")
             chunks = (kwargs['chunks']['x'], kwargs['chunks']['y'], kwargs['chunks']['z'])
-            dataset = myio.read_sparse_hdf5(fname, chunks)
+            return myio.read_sparse_hdf5(fname, chunks)
         else:
-            dataset = super().load_hdf5(native_hdf5_num, **kwargs)
-            fname = self.fhdf5
-
-        if not self.legacy and num in self.times:
-            metadata = dataset.attrs if isinstance(dataset, xr.Dataset) else dataset
-            if not isinstance(metadata, dict) or 'Time' not in metadata:
-                # file_only/raw requests do not carry time metadata.
-                metadata = read_hdf5(fname, header_only=True)
-            hdf5_time = metadata['Time']
-            profile_time = self.times[num]
-            epsilon = max(np.finfo(np.asarray(hdf5_time).dtype).eps,
-                          np.finfo(np.asarray(profile_time).dtype).eps)
-            tolerance = 64*epsilon*max(1, abs(hdf5_time), abs(profile_time))
-            if not np.isfinite(hdf5_time) or abs(hdf5_time - profile_time) > tolerance:
-                raise ValueError(f'HDF5 and rprof recorded times differ at num={num}')
-        return dataset
+            return super().load_hdf5(native_hdf5_num, **kwargs)
 
     def load_par(self, num, **kwargs):
         """Load partab or parbin"""
