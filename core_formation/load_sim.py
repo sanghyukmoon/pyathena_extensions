@@ -84,6 +84,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         legacy : bool
             Read existing Python radial profiles (default True), or on-the-fly
             profiles. Use separate savdirs when comparing the two sources.
+            In non-legacy mode, nums and times follow radial-profile outputs;
+            load_hdf5 also accepts radial-profile numbers and translates them
+            internally. Unscheduled or missing HDF5 snapshots raise.
         """
 
         self.legacy = legacy
@@ -270,6 +273,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
         Non-legacy HDF5 is scheduled only at multiples of _hdf5_stride.
         Sparse files retain native numbering and require explicit chunks.
+        For stride five, num=10 reads native file 2; num=11 raises ValueError.
+        A scheduled but unavailable file raises FileNotFoundError. Recorded
+        HDF5/profile times are checked when both are available.
         """
         analysis_num = num
         if not self.legacy:
