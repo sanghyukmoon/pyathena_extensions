@@ -157,13 +157,13 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             if len(hdf5) > 1 or (hdf5 and hdf5[0]['variable'] != 'cons'):
                 raise ValueError('Core formation requires at most one cons HDF5 output')
             # Native HDF5 discovery belongs to FindFiles, not the analysis timeline.
-            if hdf5:
+            if hasattr(self, 'nums_hdf5'):
                 del self.nums_hdf5
             if self.legacy:
-                self.nums = list(self.ff.nums_hdf5.get('cons') or []) if hdf5 else []
-                self.times = {num: self.load_hdf5(num, header_only=True)['Time']
-                              for num in self.nums}
-                if not self.nums:
+                if getattr(self, 'nums', None):
+                    self.times = {num: self.load_hdf5(num, header_only=True)['Time']
+                                  for num in self.nums}
+                else:
                     if getattr(self, 'nums_parbin', {}).get('par0'):
                         self.nums = self.nums_parbin['par0']
                     else:
@@ -191,6 +191,14 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     self.times[num] = header.attrs['time']
             if np.any(np.diff(self.nums) != 1):
                 raise ValueError('Gap in output numbering')
+
+            # Available HDF5 epochs use the same numbering as self.nums.
+            native_hdf5_nums = getattr(self.ff, 'nums_hdf5', {}).get('cons') or []
+            stride = 1 if self.legacy or not hdf5 else self._hdf5_stride
+            self.nums_with_hdf5 = sorted(
+                set(self.nums) & {native_hdf5_num * stride
+                                  for native_hdf5_num in native_hdf5_nums}
+            )
 
             # Set domain
             Lbox = set(self.domain['Lx'])
@@ -277,7 +285,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         A scheduled but unavailable file raises FileNotFoundError. Recorded
         HDF5/profile times are checked when both are available.
         """
-        analysis_num = num
+        native_hdf5_num = num
         if not self.legacy:
             if not hasattr(self, '_hdf5_stride'):
                 raise FileNotFoundError('No HDF5 output is configured')
@@ -287,12 +295,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 raise ValueError(
                     f'HDF5 is not scheduled at num={num}; stride={self._hdf5_stride}'
                 )
-            num //= self._hdf5_stride
+            native_hdf5_num = num // self._hdf5_stride
 
         if sparse:
-            fname = Path(self.basedir, "sparse", f"{self.problem_id}.{num:05d}.athdf")
+            fname = Path(self.basedir, "sparse", f"{self.problem_id}.{native_hdf5_num:05d}.athdf")
             if not fname.exists():
-                raise FileNotFoundError(f'HDF5 unavailable at num={analysis_num}: {fname}')
+                raise FileNotFoundError(f'HDF5 unavailable at num={num}: {fname}')
             if 'chunks' not in kwargs:
                 raise ValueError("chunks must be specified for sparse hdf5")
             chunks = (kwargs['chunks']['x'], kwargs['chunks']['y'], kwargs['chunks']['z'])
@@ -300,26 +308,26 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         else:
             if not self.legacy:
                 if not self.files.get('hdf5', {}).get('cons'):
-                    raise FileNotFoundError(f'HDF5 unavailable at num={analysis_num}')
+                    raise FileNotFoundError(f'HDF5 unavailable at num={num}')
                 fname = self._get_fhdf5(
-                    self._hdf5_outid_def, self._hdf5_outvar_def, num, None
+                    self._hdf5_outid_def, self._hdf5_outvar_def, native_hdf5_num, None
                 )
                 if fname is None or not Path(fname).exists():
-                    raise FileNotFoundError(f'HDF5 unavailable at num={analysis_num}: {fname}')
-            dataset = LoadSimBase.load_hdf5(self, num, **kwargs)
+                    raise FileNotFoundError(f'HDF5 unavailable at num={num}: {fname}')
+            dataset = LoadSimBase.load_hdf5(self, native_hdf5_num, **kwargs)
 
-        if not self.legacy and analysis_num in self.times:
+        if not self.legacy and num in self.times:
             metadata = dataset.attrs if isinstance(dataset, xr.Dataset) else dataset
             if not isinstance(metadata, dict) or 'Time' not in metadata:
                 # file_only/raw requests do not carry time metadata.
                 metadata = read_hdf5(fname, header_only=True)
             hdf5_time = metadata['Time']
-            profile_time = self.times[analysis_num]
+            profile_time = self.times[num]
             epsilon = max(np.finfo(np.asarray(hdf5_time).dtype).eps,
                           np.finfo(np.asarray(profile_time).dtype).eps)
             tolerance = 64*epsilon*max(1, abs(hdf5_time), abs(profile_time))
             if not np.isfinite(hdf5_time) or abs(hdf5_time - profile_time) > tolerance:
-                raise ValueError(f'HDF5 and rprof recorded times differ at num={analysis_num}')
+                raise ValueError(f'HDF5 and rprof recorded times differ at num={num}')
         return dataset
 
     def load_par(self, num, **kwargs):

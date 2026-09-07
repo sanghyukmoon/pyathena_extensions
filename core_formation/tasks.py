@@ -107,7 +107,7 @@ def output_sparse_hdf5(s, gids, num):
     """
     s.load_hdf5(num, file_only=True)
     filename = s.fhdf5
-    native_num = num if s.legacy else num // s._hdf5_stride
+    native_hdf5_num = num if s.legacy else num // s._hdf5_stride
     fsrc = h5py.File(filename, 'r')
     # Read Mesh information
     block_size = fsrc.attrs['MeshBlockSize']
@@ -136,7 +136,7 @@ def output_sparse_hdf5(s, gids, num):
     for k, v in ds.items():
         ds[k] = v[:, gids, ...]
     ofname = Path(
-        s.basedir, "sparse", f"{s.problem_id}.{native_num:05d}.athdf"
+        s.basedir, "sparse", f"{s.problem_id}.{native_hdf5_num:05d}.athdf"
     )
     ofname.parent.mkdir(exist_ok=True)
     if ofname.exists():
