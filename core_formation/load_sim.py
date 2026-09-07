@@ -349,9 +349,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             rprofs = self.rprofs[pid]
 
             min_dst, mw_dst, min_dst_to_core = [], [], []
-            for num in cores.index:
+            for core in cores.itertuples():
+                num = core.Index
                 pds = self.load_par(num)
-                core = cores.loc[num]
                 dst, mass = [], []
                 if len(pds) == 0:
                     min_dst.append(np.nan)
@@ -367,10 +367,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     other_cores = self.cores[cid]
                     if num not in other_cores.index:
                         continue
-                    other_core = other_cores.loc[num]
-                    if other_core.leaf_id == core.leaf_id:
+                    other_leaf_id = other_cores.at[num, 'leaf_id']
+                    if other_leaf_id == core.leaf_id:
                         continue
-                    dst.append(self.distance_between(core.leaf_id, other_core.leaf_id))
+                    dst.append(self.distance_between(core.leaf_id, other_leaf_id))
                 if len(dst) == 0:
                     min_dst_to_core.append(np.inf)
                 else:
@@ -598,20 +598,21 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         """Find the earliest snapshot with a continuous tracked minimum.
         """
         cores = cores.sort_index(ascending=False)
-        core0 = cores.iloc[0]
-        core1 = cores.iloc[1]
-        for num, core2 in cores.iloc[2:].iterrows():
-            dst0 = self.distance_between(core0.leaf_id, core1.leaf_id)
-            pos0 = np.array(self.flatindex_to_cartesian(core0.leaf_id))
-            pos1 = np.array(self.flatindex_to_cartesian(core1.leaf_id))
-            pos2 = np.array(self.flatindex_to_cartesian(core2.leaf_id))
+        leaf_ids = cores['leaf_id']
+        leaf_id0 = leaf_ids.iloc[0]
+        leaf_id1 = leaf_ids.iloc[1]
+        for num, leaf_id2 in leaf_ids.iloc[2:].items():
+            dst0 = self.distance_between(leaf_id0, leaf_id1)
+            pos0 = np.array(self.flatindex_to_cartesian(leaf_id0))
+            pos1 = np.array(self.flatindex_to_cartesian(leaf_id1))
+            pos2 = np.array(self.flatindex_to_cartesian(leaf_id2))
             pos_extrapolated = pos0 + 2*(pos1 - pos0)
             dst = tools.periodic_distance(pos2, pos_extrapolated, self.Lbox)
             if dst > f_mul*max(dst0, self.dx):
                 num_start = num+1
                 return num_start
-            core0 = core1
-            core1 = core2
+            leaf_id0 = leaf_id1
+            leaf_id1 = leaf_id2
         # Tracked all the way to the earliest snapshot. Return num
         return num
 
@@ -648,15 +649,15 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         cores = cores.sort_index(ascending=False)
         widths = np.asarray(self.domain['re']) - np.asarray(self.domain['le'])
 
-        pos0 = np.asarray(self.flatindex_to_cartesian(cores.iloc[0].leaf_id),
+        pos0 = np.asarray(self.flatindex_to_cartesian(cores['leaf_id'].iloc[0]),
                           dtype=float)
         pos_prev_wrapped = pos0.copy()
         pos_prev_unwrapped = pos0.copy()
 
         nums = [cores.index[0]]
         trajectory = [pos0.copy()]
-        for num, core in cores.iloc[1:].iterrows():
-            pos_wrapped = np.asarray(self.flatindex_to_cartesian(core.leaf_id),
+        for num, leaf_id in cores['leaf_id'].iloc[1:].items():
+            pos_wrapped = np.asarray(self.flatindex_to_cartesian(leaf_id),
                                      dtype=float)
             displacement = np.array([
                 tools.periodic_operator(delta, -0.5*width, 0.5*width)
@@ -788,7 +789,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             min_nr = None
             for num in cores.index:
                 try:
-                    leaf_id = cores.loc[num].leaf_id
+                    leaf_id = cores.at[num, 'leaf_id']
                     fname = savdir / f'radial_profile.{leaf_id}.{num:05d}.nc'
                     rprf = xr.load_dataset(fname)
                     if min_nr is None:
@@ -865,7 +866,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 continue
 
             profiles = []
-            for num, core in cores.iterrows():
+            for core in cores.itertuples():
+                num = core.Index
                 profile = self.load_rprof(num, center_ids=[int(core.leaf_id)])
                 profile = profile.isel(center_id=0, drop=True)
                 profiles.append(profile.expand_dims(t=[self.times[num]]))

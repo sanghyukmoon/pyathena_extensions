@@ -1013,14 +1013,15 @@ def infall_rate(rprofs, cores):
     return rprofs
 
 
-def observable(s, core, rprf):
+def observable(s, pid, num):
     """Calculate observable properties of a core"""
     nthr_list = [10, 30, 100]
-    num = core.name
+    leaf_id = s.cores[pid].at[num, 'leaf_id']
+    rprf = s.rprofs[pid].sel(num=num)
     obsprops = dict()
     obsprops['num'] = num
     prj = s.read_prj(num)
-    xc, yc, zc = s.flatindex_to_cartesian(core.leaf_id)
+    xc, yc, zc = s.flatindex_to_cartesian(leaf_id)
     xycoordnames = dict(z=['x', 'y'],
                         x=['y', 'z'],
                         y=['z', 'x'])

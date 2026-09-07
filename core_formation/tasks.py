@@ -272,7 +272,7 @@ def radial_profile(s, nums=None, pids=None, overwrite=False, all_minima=False):
                     # This snapshot `num` does not contain any image of the core `pid`
                     # Continue to the next core.
                     continue
-                unique_leaves.add(cores.loc[num].leaf_id)
+                unique_leaves.add(cores.at[num, 'leaf_id'])
 
         for lid in unique_leaves:
             # Create directory and check if a file already exists
@@ -356,7 +356,7 @@ def prj_radial_profile(s, num, pids, overwrite=False):
         core = cores.loc[num]
 
         # Find the location of the core
-        center = s.flatindex_to_cartesian(core.leaf_id)
+        center = s.flatindex_to_cartesian(cores.at[num, 'leaf_id'])
 
         # Calculate radial profile
         rprf = tools.radial_profile_projected(s, num, center)
@@ -500,12 +500,8 @@ def observables(s, pid, num, overwrite=False):
     msg = '[observables] processing model {} pid {} num {}'
     print(msg.format(s.basename, pid, num))
 
-    # Load the radial profile
-    rprf = s.rprofs[pid].sel(num=num)
-    core = s.cores[pid].loc[num]
-
     # Calculate observables
-    observables = tools.observable(s, core, rprf)
+    observables = tools.observable(s, pid, num)
 
     # write to file
     if ofname.exists():
@@ -843,7 +839,7 @@ def calculate_linewidth_size(s, num, seed=None, pid=None, overwrite=False, ds=No
         msg = '[linewidth_size] processing model {} num {} pid {}'
         print(msg.format(s.basename, num, pid))
 
-        lid = s.cores[pid].loc[num].leaf_id
+        lid = s.cores[pid].at[num, 'leaf_id']
         origin = s.flatindex_to_cartesian(lid)
 
         if ds is None:
@@ -912,7 +908,7 @@ def calculate_go15_core_mass(s, overwrite=False):
         ncoll = cores.attrs['numcoll']
         ds = s.load_hdf5(ncoll, quantities=['dens'])
         gd = s.load_dendro(ncoll)
-        lid = cores.loc[ncoll].leaf_id
+        lid = cores.at[ncoll, 'leaf_id']
         if np.isnan(lid):
             mcore[pid] = np.nan
         else:

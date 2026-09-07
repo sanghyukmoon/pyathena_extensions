@@ -929,7 +929,7 @@ def plot_core_evolution(s, pid, num, hw=0.1, method='virial0'):
     rprf = s.rprofs[pid].sel(num=num)
 
     # Find the location of the core
-    xc, yc, zc = s.flatindex_to_cartesian(core.leaf_id)
+    xc, yc, zc = s.flatindex_to_cartesian(s.cores[pid].at[num, 'leaf_id'])
 
     # Load sink particles
     pds = s.load_par(num)
