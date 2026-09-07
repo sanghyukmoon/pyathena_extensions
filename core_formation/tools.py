@@ -163,9 +163,8 @@ def track_cores(s, pid):
         nums_track.append(num)
         time.append(s.times[num])
         leaf_id.append(lid)
-    # Only the identifier needs object dtype to preserve integers in mixed rows.
     cores = pd.DataFrame(dict(time=np.asarray(time, dtype=np.float64),
-                              leaf_id=np.asarray(leaf_id, dtype=object)),
+                              leaf_id=np.asarray(leaf_id, dtype=np.uint64)),
                          index=pd.Index(nums_track, dtype='int64', name='num')).sort_index()
 
     # Set attributes

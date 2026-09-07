@@ -338,9 +338,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         for pid in self.pids:
             cache = savdir / f'cores_tcrit_{method}.par{pid}.nc'
             if cache.exists() and not force_override:
-                # Only leaf_id is object-typed to preserve integers in mixed rows.
                 dataset = xr.load_dataset(cache, engine='netcdf4')
-                cores = dataset.to_dataframe().astype({'leaf_id': object})
+                cores = dataset.to_dataframe()
                 cores.attrs = dataset.attrs.copy()
                 core_dict[pid] = cores
                 continue
@@ -534,8 +533,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Sort attributes
             cores.attrs = {k: cores.attrs[k] for k in sorted(cores.attrs)}
 
-            # Store identifiers as integers without changing the in-memory table.
-            dataset = cores.astype({'leaf_id': 'uint64'}).to_xarray()
+            dataset = cores.to_xarray()
             dataset.attrs = cores.attrs.copy()
             dataset.to_netcdf(cache, engine='netcdf4')
             core_dict[pid] = cores
@@ -730,7 +728,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         for pid in self.pids:
             fname = Path(savdir, f'core_trajectories.par{pid}.nc')
             dataset = xr.load_dataset(fname, engine='netcdf4')
-            cores = dataset.to_dataframe().sort_index().astype({'leaf_id': object})
+            cores = dataset.to_dataframe().sort_index()
             cores.attrs = dataset.attrs.copy()
             num_start = self.trajectory_start_num(cores, f_mul=3.0)
 

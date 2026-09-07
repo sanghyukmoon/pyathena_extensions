@@ -228,7 +228,7 @@ def core_tracking(s, pids=None, overwrite=False):
             continue
 
         cores = tools.track_cores(s, pid)
-        dataset = cores.astype({'leaf_id': 'uint64'}).to_xarray()
+        dataset = cores.to_xarray()
         dataset.attrs = cores.attrs.copy()
         dataset.to_netcdf(ofname, engine='netcdf4')
 
