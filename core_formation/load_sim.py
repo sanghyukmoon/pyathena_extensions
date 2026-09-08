@@ -281,10 +281,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 self.cores_dict = {}
                 if hasattr(self, 'cores') and hasattr(self, 'rprofs'):
                     radius_trajectories = {}
-                    for onset_definition in tools.COLLAPSE_ONSET_DEFINITIONS:
+                    for onset_def in tools.COLLAPSE_ONSET_DEFINITIONS:
                         savdir = Path(self.savdir, config.CORE_DIR)
-                        self.cores_dict[onset_definition] = self.update_core_props(
-                            definition = onset_definition,
+                        self.cores_dict[onset_def] = self.update_core_props(
+                            onset_definition = onset_def,
                             savdir = savdir,
                             force_override = override_derived_cores,
                             radius_trajectories = radius_trajectories
@@ -377,18 +377,18 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         with open(fname, 'rb') as handle:
             return pickle.load(handle)
 
-    def select_cores(self, *, rcrit="virial_mass", fixed_form_factor=None,
+    def select_cores(self, *, rcrit_from="virial_mass", fixed_form_factor=None,
                      criterion="net_force", require_small_std=None):
         """Return an independent pid-to-table dictionary for an onset definition.
 
         The base trajectories in self.cores and cached derived tables in
         self.cores_dict remain unchanged. Each returned table carries its
-        definition as JSON in attrs["collapse_definition"].
+        definition as JSON in attrs["onset_definition"].
         """
-        definition = tools.CollapseOnsetDefinition(
-            rcrit, fixed_form_factor, criterion, require_small_std)
+        onset_def = tools.CollapseOnsetDefinition(
+            rcrit_from, fixed_form_factor, criterion, require_small_std)
         return {pid: cores.copy(deep=True)
-                for pid, cores in self.cores_dict[definition].items()}
+                for pid, cores in self.cores_dict[onset_def].items()}
 
     def good_cores(self, all_cores, nres=8):
         """Return resolved particle IDs from the supplied selected population."""
@@ -399,9 +399,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 good_cores.append(pid)
         return good_cores
 
-    def update_core_props(self, definition, savdir=None, force_override=False,
+    def update_core_props(self, onset_definition, savdir=None, force_override=False,
                           radius_trajectories=None):
-        """Load or calculate complete core properties for a critical-time method.
+        """Load or calculate complete core properties for an onset definition.
 
         Both modes reuse one cores_tcrit_{token}.par{pid}.nc per definition
         until force_override
@@ -423,10 +423,11 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             radius_trajectories = {}
         core_dict = {}
         for pid in self.pids:
-            cache = savdir / f'cores_tcrit_{definition.filename_token}.par{pid}.nc'
+            cache = savdir / f'cores_tcrit_{onset_definition.filename_token}.par{pid}.nc'
             if cache.exists() and not force_override:
                 cores = myio.load_dataframe(cache)
-                cores.attrs["collapse_definition"] = json.dumps(asdict(definition), sort_keys=True)
+                cores.attrs.pop("collapse_definition", None)
+                cores.attrs["onset_definition"] = json.dumps(asdict(onset_definition), sort_keys=True)
                 core_dict[pid] = cores
                 continue
 
@@ -464,18 +465,17 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             cores['mw_dst_to_star'] = np.asarray(mw_dst, dtype=np.float64)
             cores['min_dst_to_pscore'] = np.asarray(min_dst_to_core, dtype=np.float64)
 
-            if definition.rcrit == 'tes':
+            if onset_definition.rcrit_from == 'tes':
                 cores['rcrit'] = cores['rtes']
             else:
-                numerator, denominator = definition.ratio_fields
-                key = (pid, definition.rcrit, definition.fixed_form_factor)
+                key = (pid, onset_definition.rcrit_from, onset_definition.fixed_form_factor)
                 if key not in radius_trajectories:
                     radius_trajectories[key] = tools.virial_radius(
-                        rprofs, numerator, denominator)
+                        rprofs, onset_definition)
                 cores['rcrit'] = radius_trajectories[key]
 
             # Find critical time
-            ncrit, rcrit = tools.critical_time(self, cores, rprofs, definition=definition)
+            ncrit, rcrit = tools.critical_time(self, cores, rprofs, onset_definition=onset_definition)
             cores.attrs['numcrit'] = ncrit
             if np.isnan(ncrit):
                 cores.attrs['tcrit'] = np.nan
@@ -490,7 +490,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 if np.isnan(rcore):
                     raise ValueError("Critical radius at t_crit is NaN: "
                                      f"Model {self.basename}, par {pid}, ncrit = {ncrit}"
-                                     f" definition {definition}")
+                                     f" definition {onset_definition}")
                 if rcore > rprf.r.max()[()]:
                     # TODO: raise a descriptive ValueError instead of omitting this core.
                     msg = (
@@ -515,7 +515,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 cores.attrs['tff_crit'] = tff_crit
 
             # Load Lagrangian props
-            fname = Path(savdir, f'lprops_tcrit_{definition.filename_token}.par{pid}.nc')
+            fname = Path(savdir, f'lprops_tcrit_{onset_definition.filename_token}.par{pid}.nc')
             if fname.exists():
                 lprops = myio.load_dataframe(fname)
                 if set(lprops.columns).issubset(cores.columns):
@@ -591,7 +591,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             except:
                 pass
 
-            cores.attrs["collapse_definition"] = json.dumps(asdict(definition), sort_keys=True)
+            cores.attrs.pop("collapse_definition", None)
+            cores.attrs["onset_definition"] = json.dumps(asdict(onset_definition), sort_keys=True)
             # Sort attributes
             cores.attrs = {k: cores.attrs[k] for k in sorted(cores.attrs)}
 
@@ -999,7 +1000,7 @@ class LoadSimAll(object):
         return LoadSim(self.basedirs[model], **kwargs)
 
     def itercore(self, models=None, nres=8, fmul_prune=3, *,
-                 rcrit="virial_mass", fixed_form_factor=None,
+                 rcrit_from="virial_mass", fixed_form_factor=None,
                  criterion="net_force", require_small_std=None, **kwargs):
         """Select once per simulation and yield (s, pid, cores, rprofs)."""
         if models is None:
@@ -1007,7 +1008,7 @@ class LoadSimAll(object):
         for mdl in models:
             s = self.set_model(mdl, **kwargs)
             all_cores = s.select_cores(
-                rcrit=rcrit, fixed_form_factor=fixed_form_factor,
+                rcrit_from=rcrit_from, fixed_form_factor=fixed_form_factor,
                 criterion=criterion, require_small_std=require_small_std)
             pids = all_cores if nres == 0 else s.good_cores(all_cores, nres)
             for pid in pids:

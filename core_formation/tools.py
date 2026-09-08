@@ -1201,21 +1201,21 @@ class CollapseOnsetDefinition:
     criterion. TES retains its historical net-force criterion without either
     option. Omitted defaults are normalized so equivalent selections are equal.
     """
-    rcrit: str = "virial_mass"
+    rcrit_from: str = "virial_mass"
     fixed_form_factor: bool | None = None
     criterion: str = "net_force"
     require_small_std: bool | None = None
 
     def __post_init__(self):
-        if self.rcrit not in ("tes", "virial_mass", "virial_pressure"):
-            raise ValueError(f"Unknown critical-radius definition: {self.rcrit}")
+        if self.rcrit_from not in ("tes", "virial_mass", "virial_pressure"):
+            raise ValueError(f"Unknown critical-radius definition: {self.rcrit_from}")
         if self.criterion not in ("net_force", "overpressure"):
             raise ValueError(f"Unknown collapse criterion: {self.criterion}")
         for name in ("fixed_form_factor", "require_small_std"):
             value = getattr(self, name)
             if value is not None and type(value) is not bool:
                 raise ValueError(f"{name} must be True, False or None")
-        if self.rcrit == "tes":
+        if self.rcrit_from == "tes":
             if self.fixed_form_factor is not None:
                 raise ValueError("TES does not use a form-factor choice")
             if self.criterion != "net_force" or self.require_small_std is True:
@@ -1223,46 +1223,63 @@ class CollapseOnsetDefinition:
         elif self.fixed_form_factor is None:
             object.__setattr__(self, "fixed_form_factor", True)
         if self.require_small_std is None:
-            object.__setattr__(self, "require_small_std", self.rcrit != "tes")
+            object.__setattr__(self, "require_small_std", self.rcrit_from != "tes")
 
-    @property
-    def ratio_fields(self):
-        """Profile fields defining a virial radius (TES has no ratio)."""
-        if self.rcrit == "tes":
-            return None
-        if self.rcrit == "virial_mass":
-            numerator, denominator = "menc", "mmax_all"
+    def virial_ratio(self, rprofs):
+        """Mass or pressure ratio for this critical-radius definition."""
+        if self.rcrit_from == "virial_mass":
+            if self.fixed_form_factor:
+                return rprofs.menc / rprofs.mmax_all0
+            return rprofs.menc / rprofs.mmax_all
+        if self.rcrit_from == "virial_pressure":
+            if self.fixed_form_factor:
+                return rprofs.ptot / rprofs.pmax_all0
+            return rprofs.ptot / rprofs.pmax_all
+        raise ValueError("TES does not use a virial ratio")
+
+    def is_collapsing(self, profile, rcrit):
+        """Evaluate the onset condition at a finite radius in one time snapshot.
+
+        The optional fnet standard deviation uses the uniform radial spacing.
+        At radii no larger than three bins, retain the zero-std convention.
+        """
+        at_radius = profile.interp(r=rcrit)
+        if self.criterion == "net_force":
+            collapsing = (at_radius.Fnet < 0).item()
         else:
-            numerator, denominator = "ptot", "pmax_all"
-        if self.fixed_form_factor:
-            denominator += "0"
-        return numerator, denominator
+            collapsing = (at_radius.ptot > at_radius.peq).item()
+        if self.require_small_std:
+            dr = (profile.r[1] - profile.r[0]).item()
+            fnet_std = (0 if rcrit <= 3*dr else
+                        profile.fnet.sel(r=slice(3*dr, rcrit)).std().item())
+            collapsing = collapsing and fnet_std < 0.3
+        return bool(collapsing)
 
     @property
     def filename_token(self):
-        if self.rcrit == "tes":
+        if self.rcrit_from == "tes":
             return "tes"
         form_factor = "fixed" if self.fixed_form_factor else "variable"
         std = "std" if self.require_small_std else "no_std"
-        return f"{self.rcrit}_{form_factor}_{self.criterion}_{std}"
+        return f"{self.rcrit_from}_{form_factor}_{self.criterion}_{std}"
 
 
-COLLAPSE_ONSET_DEFINITIONS = (CollapseOnsetDefinition(rcrit="tes"),) + tuple(
-    CollapseOnsetDefinition(rcrit, fixed, criterion, std)
-    for rcrit in ("virial_mass", "virial_pressure")
+COLLAPSE_ONSET_DEFINITIONS = (CollapseOnsetDefinition(rcrit_from="tes"),) + tuple(
+    CollapseOnsetDefinition(rcrit_from, fixed, criterion, std)
+    for rcrit_from in ("virial_mass", "virial_pressure")
     for fixed in (True, False)
     for criterion in ("net_force", "overpressure")
     for std in (False, True)
 )
 
 
-def virial_radius(rprofs, numerator, denominator):
+def virial_radius(rprofs, onset_definition):
     """First local ratio maximum at each time, with quadratic interpolation."""
     radii = []
     r = rprofs.r.to_numpy()
     for num in rprofs.num.to_numpy():
         profile = rprofs.sel(num=num)
-        ratio = (profile[numerator] / profile[denominator]).to_numpy()
+        ratio = onset_definition.virial_ratio(profile).to_numpy()
         ratio[0] = 0  # Retain the origin convention for the undefined ratio.
         peaks, = signal.argrelextrema(ratio, np.greater, order=4)
         if len(peaks) == 0:
@@ -1280,7 +1297,7 @@ def virial_radius(rprofs, numerator, denominator):
     return pd.Series(radii, index=rprofs.num.to_numpy())
 
 
-def critical_time(s, cores, rprofs, *, definition):
+def critical_time(s, cores, rprofs, *, onset_definition):
     """Return the onset snapshot and radius, or (NaN, NaN) if unresolved.
 
     Virial conditions must hold continuously through collapse. An undefined
@@ -1290,7 +1307,7 @@ def critical_time(s, cores, rprofs, *, definition):
     cores = cores.loc[:cores.attrs['numcoll']].sort_index()
     if cores.empty:
         return np.nan, np.nan
-    if definition.rcrit == 'tes':
+    if onset_definition.rcrit_from == 'tes':
         return _tes_critical_time(s, cores, rprofs)
 
     candidate = (np.nan, np.nan)
@@ -1300,20 +1317,11 @@ def critical_time(s, cores, rprofs, *, definition):
         if not np.isfinite(radius):
             s.logger.warning(
                 f"{s.basename}: undefined rcrit for pid="
-                f"{cores.attrs['pid']}, num={num}, definition={definition}; "
+                f"{cores.attrs['pid']}, num={num}, onset_definition={onset_definition}; "
                 "critical time is unresolved.")
             return np.nan, np.nan
         profile = rprofs.sel(num=num)
-        at_radius = profile.interp(r=radius)
-        if definition.criterion == 'net_force':
-            satisfied = at_radius.Fnet < 0
-        else:
-            satisfied = at_radius.ptot > at_radius.peq
-        if definition.require_small_std:
-            fnet_std = (0 if radius <= 3*s.dx else
-                        profile.fnet.sel(r=slice(3*s.dx, radius)).std().item())
-            satisfied = satisfied and fnet_std < 0.3
-        if not satisfied:
+        if not onset_definition.is_collapsing(profile, radius):
             return candidate
         candidate = (num, radius)
     # The onset predates or equals the beginning of the tracked history.

@@ -33,8 +33,9 @@ class SpaceTimePlotter():
     """
     def plot_spacetime(self, s, cores, *, size='compact'):
         pid = cores.attrs['pid']
-        definition = tools.CollapseOnsetDefinition(
-            **json.loads(cores.attrs["collapse_definition"]))
+        onset_def = tools.CollapseOnsetDefinition(
+            **json.loads(cores.attrs["onset_definition"]))
+        tes_onset_def = tools.CollapseOnsetDefinition(rcrit_from='tes')
         rprofs = s.rprofs[pid].transpose('t', 'r', ...)
 
         layout = self.create_layout(size)
@@ -260,7 +261,7 @@ class SpaceTimePlotter():
         sa = load_sim.LoadSimAll(mdls_parent, verbose=False)
         for mdl in mdls_parent:
             _s = sa.set_model(mdl)
-            all_cores = _s.select_cores(**asdict(definition))
+            all_cores = _s.select_cores(**asdict(onset_def))
             for _pid in _s.good_cores(all_cores, 8):
                 background_cores = all_cores[_pid]
                 axs['evol_Fnet'].plot(background_cores.tnorm2, background_cores.Fnet, 'k-', lw=lw, alpha=alpha)
@@ -277,7 +278,7 @@ class SpaceTimePlotter():
                 continue
             ax.plot(cores.radius, cores.time, ls='-', c='tab:cyan', label=r'$r_M$', lw=3)
             try:
-                numcrit, rcrit = tools.critical_time(s, cores, rprofs, definition=definition)
+                numcrit, rcrit = tools.critical_time(s, cores, rprofs, onset_definition=onset_def)
                 tcrit = cores.loc[numcrit].time
                 ax.plot(rcrit, tcrit, 'o', c='tab:cyan')
             except:
@@ -291,8 +292,8 @@ class SpaceTimePlotter():
             ax.plot(cores.mw_dst_to_star, cores.time, color='gold', label=r'$D_{*,\mathrm{mw}}$')
             try:
                 numcrit, rcrit = tools.critical_time(
-                    s, s.cores_dict[tools.CollapseOnsetDefinition(rcrit='tes')][pid],
-                    rprofs, definition=tools.CollapseOnsetDefinition(rcrit='tes'))
+                    s, s.cores_dict[tes_onset_def][pid], rprofs,
+                    onset_definition=tes_onset_def)
                 tcrit = cores.loc[numcrit].time
                 ax.plot(rcrit, tcrit, 'o', c='r')
             except:
@@ -454,7 +455,7 @@ def plot_lookback_profiles(
     xlim=(1e-2, 1e0),
     line_kwargs=None,
     nres = 0,
-    rcrit="virial_mass", fixed_form_factor=None,
+    rcrit_from="virial_mass", fixed_form_factor=None,
     criterion="net_force", require_small_std=None
 ):
     """Plot radial quantities by row and lookback times by column.
@@ -486,7 +487,7 @@ def plot_lookback_profiles(
     default_style.update(line_kwargs or {})
 
     for s, pid, cores, rprofs in sa.itercore(
-            nres=nres, rcrit=rcrit, fixed_form_factor=fixed_form_factor,
+            nres=nres, rcrit_from=rcrit_from, fixed_form_factor=fixed_form_factor,
             criterion=criterion, require_small_std=require_small_std):
         if norm:
             tcrit = cores.attrs['tcrit']
@@ -928,8 +929,8 @@ def plot_diagnostics(s, cores, normalize_time=True):
 
 def plot_core_evolution(s, cores, num, hw=0.1):
     pid = cores.attrs["pid"]
-    definition = tools.CollapseOnsetDefinition(
-        **json.loads(cores.attrs["collapse_definition"]))
+    onset_def = tools.CollapseOnsetDefinition(
+        **json.loads(cores.attrs["onset_definition"]))
     # Load data
     if s.mhd:
         ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
@@ -1148,11 +1149,10 @@ def plot_core_evolution(s, cores, num, hw=0.1):
 
     # 7. Critical masses
     plt.sca(axs['mcrit'])
-    if definition.rcrit != 'tes':
-        numerator, denominator = definition.ratio_fields
-        ratio_label = (r'$M_\mathrm{enc}/M_\mathrm{crit}$' if numerator == 'menc'
+    if onset_def.rcrit_from != 'tes':
+        ratio_label = (r'$M_\mathrm{enc}/M_\mathrm{crit}$' if onset_def.rcrit_from == 'virial_mass'
                        else r'$P_\mathrm{tot}/P_\mathrm{max}$')
-        (rprf[numerator]/rprf[denominator]).plot(
+        onset_def.virial_ratio(rprf).plot(
             label=ratio_label, c='tab:red', lw=1)
     (rprf.menc/(rprf.mTES+rprf.mPhi)).plot(label=r'$M_\mathrm{enc}/(M_\mathrm{TES}+M_\mathrm{\Phi})$', c='tab:red', ls='--', lw=1)
     (rprf.menc/rprf.mPhi).plot(label=r'$M_\mathrm{enc}/M_\Phi$', lw=1, c='tab:purple')

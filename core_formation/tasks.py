@@ -399,24 +399,24 @@ def power_spectrum(s, nums=None, overwrite=False):
 
 
 def lagrangian_props(s, cores, *, overwrite=False):
-    """Calculate and save one core/method's Lagrangian properties as NetCDF.
+    """Calculate and save one core/onset definition's Lagrangian properties as NetCDF.
 
     Missing trajectory profiles raise KeyError before writing. Existing files
     are skipped unless overwrite=True; refresh derived-core caches afterward.
     """
     pid = cores.attrs['pid']
-    definition = tools.CollapseOnsetDefinition(
-        **json.loads(cores.attrs["collapse_definition"]))
+    onset_def = tools.CollapseOnsetDefinition(
+        **json.loads(cores.attrs["onset_definition"]))
 
     # Check if file exists
-    ofname = Path(s.savdir, config.CORE_DIR, f'lprops_tcrit_{definition.filename_token}.par{pid}.nc')
+    ofname = Path(s.savdir, config.CORE_DIR, f'lprops_tcrit_{onset_def.filename_token}.par{pid}.nc')
     ofname.parent.mkdir(exist_ok=True)
     if ofname.exists() and not overwrite:
         print('[lagrangian_props] file already exists. Skipping...')
         return
 
     rprofs = s.rprofs[pid]
-    print(f'[lagrangian_props] Calculate Lagrangian props for core {pid} with definition {definition}')
+    print(f'[lagrangian_props] Calculate Lagrangian props for core {pid} with onset definition {onset_def}')
     lprops = tools.lagrangian_property(s, cores, rprofs)
     myio.save_dataframe(lprops.rename_axis('num'), ofname)
 
@@ -653,23 +653,23 @@ def plot_core_evolution(s, cores, num, overwrite=False):
     s : LoadSim
         Simulation metadata.
     cores : pandas.DataFrame
-        Selected trajectory with collapse-definition metadata.
+        Selected trajectory with onset-definition metadata.
     num : int
         Snapshot number.
     overwrite : str, optional
         If true, overwrite output files.
     """
     pid = cores.attrs['pid']
-    definition = tools.CollapseOnsetDefinition(
-        **json.loads(cores.attrs["collapse_definition"]))
+    onset_def = tools.CollapseOnsetDefinition(
+        **json.loads(cores.attrs["onset_definition"]))
 
     fname = Path(s.savdir, 'figures', "{}.par{}.tcrit_{}.{:05d}.png".format(
-                 config.PLOT_PREFIX_CORE_EVOLUTION, pid, definition.filename_token, num))
+                 config.PLOT_PREFIX_CORE_EVOLUTION, pid, onset_def.filename_token, num))
     fname.parent.mkdir(exist_ok=True)
     if fname.exists() and not overwrite:
         print('[plot_core_evolution] file already exists. Skipping...')
         return
-    print(f'[plot_core_evolution] processing model {s.basename} pid: {pid} num: {num}, definition: {definition}')
+    print(f'[plot_core_evolution] processing model {s.basename} pid: {pid} num: {num}, onset definition: {onset_def}')
     fig = plots.plot_core_evolution(s, cores, num)
     fig.savefig(fname, bbox_inches='tight', dpi=200)
     plt.close(fig)
@@ -677,8 +677,8 @@ def plot_core_evolution(s, cores, num, overwrite=False):
 
 def plot_mass_radius(s, cores, overwrite=False):
     pid = cores.attrs['pid']
-    definition = tools.CollapseOnsetDefinition(
-        **json.loads(cores.attrs["collapse_definition"]))
+    onset_def = tools.CollapseOnsetDefinition(
+        **json.loads(cores.attrs["onset_definition"]))
     fig = plt.figure()
     ax = fig.add_subplot()
     for num in cores.index:
@@ -686,7 +686,7 @@ def plot_mass_radius(s, cores, overwrite=False):
         msg = msg.format(s.basename, pid, num)
         print(msg)
         fname = Path(s.savdir, 'figures', "{}.par{}.tcrit_{}.{:05d}.png".format(
-            config.PLOT_PREFIX_MASS_RADIUS, pid, definition.filename_token, num))
+            config.PLOT_PREFIX_MASS_RADIUS, pid, onset_def.filename_token, num))
         fname.parent.mkdir(exist_ok=True)
         if fname.exists() and not overwrite:
             print('[plot_mass_radius] file already exists. Skipping...')
@@ -716,11 +716,11 @@ def plot_sink_history(s, num, overwrite=False):
 
 def plot_core_structure(s, cores, overwrite=False):
     pid = cores.attrs['pid']
-    definition = tools.CollapseOnsetDefinition(
-        **json.loads(cores.attrs["collapse_definition"]))
+    onset_def = tools.CollapseOnsetDefinition(
+        **json.loads(cores.attrs["onset_definition"]))
     rmax = cores.tidal_radius.max()
     for num in cores.index:
-        fname = Path(s.savdir, 'figures', f"core_structure.par{pid}.tcrit_{definition.filename_token}.{num:05d}.png")
+        fname = Path(s.savdir, 'figures', f"core_structure.par{pid}.tcrit_{onset_def.filename_token}.{num:05d}.png")
         fname.parent.mkdir(exist_ok=True)
         if fname.exists() and not overwrite:
             print('[plot_core_structure] file already exists. Skipping...')
@@ -743,15 +743,15 @@ def plot_diagnostics(s, cores, overwrite=False):
     s : LoadSim
         LoadSim instance
     cores : pandas.DataFrame
-        Selected trajectory with collapse-definition metadata
+        Selected trajectory with onset-definition metadata
     overwrite : bool, optional
         Flag to overwrite
     """
     pid = cores.attrs['pid']
-    definition = tools.CollapseOnsetDefinition(
-        **json.loads(cores.attrs["collapse_definition"]))
+    onset_def = tools.CollapseOnsetDefinition(
+        **json.loads(cores.attrs["onset_definition"]))
     fname = Path(s.savdir, 'figures',
-                 f'diagnostics_normalized.par{pid}.tcrit_{definition.filename_token}.png')
+                 f'diagnostics_normalized.par{pid}.tcrit_{onset_def.filename_token}.png')
     fname.parent.mkdir(exist_ok=True)
     if fname.exists() and not overwrite:
         print('[plot_diagnostics] file already exists. Skipping...')
@@ -764,7 +764,7 @@ def plot_diagnostics(s, cores, overwrite=False):
     fig.savefig(fname, bbox_inches='tight', dpi=200)
     plt.close(fig)
 
-    fname = Path(s.savdir, 'figures', f'diagnostics.par{pid}.tcrit_{definition.filename_token}.png')
+    fname = Path(s.savdir, 'figures', f'diagnostics.par{pid}.tcrit_{onset_def.filename_token}.png')
     if fname.exists() and not overwrite:
         return
     fig = plots.plot_diagnostics(s, cores, normalize_time=False)
@@ -776,10 +776,10 @@ def plot_radial_profile_at_tcrit(s, all_cores, nrows=5, ncols=6, overwrite=False
     """Plot resolved cores from one selected population."""
     if not all_cores:
         return
-    definition = tools.CollapseOnsetDefinition(
-        **json.loads(next(iter(all_cores.values())).attrs["collapse_definition"]))
+    onset_def = tools.CollapseOnsetDefinition(
+        **json.loads(next(iter(all_cores.values())).attrs["onset_definition"]))
     fname = Path(s.savdir, 'figures',
-                 f'radial_profile_at_tcrit.tcrit_{definition.filename_token}.png')
+                 f'radial_profile_at_tcrit.tcrit_{onset_def.filename_token}.png')
     fname.parent.mkdir(exist_ok=True)
     if fname.exists() and not overwrite:
         print('[plot_radial_profile_at_tcrit] file already exists. Skipping...')

@@ -130,8 +130,8 @@ if __name__ == "__main__":
         if args.lagrangian_props:
             s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
             print(f"Calculate Lagrangian properties for model {mdl}")
-            for definition in tools.COLLAPSE_ONSET_DEFINITIONS:
-                all_cores = s.select_cores(**asdict(definition))
+            for onset_def in tools.COLLAPSE_ONSET_DEFINITIONS:
+                all_cores = s.select_cores(**asdict(onset_def))
                 def wrapper(pid):
                     tasks.lagrangian_props(s, all_cores[pid], overwrite=args.overwrite)
                 with Pool(args.np) as p:
@@ -261,7 +261,7 @@ if __name__ == "__main__":
                                 srcdir])
             prefix = config.PLOT_PREFIX_CORE_EVOLUTION
             for pid in pids:
-                for definition in [tools.CollapseOnsetDefinition()]:
-                    prf = f"{prefix}.par{pid}.tcrit_{definition.filename_token}"
+                for onset_def in [tools.CollapseOnsetDefinition()]:
+                    prf = f"{prefix}.par{pid}.tcrit_{onset_def.filename_token}"
                     subprocess.run(["make_movie", "-p", prf, "-s", srcdir,
                                     "-d", srcdir])
