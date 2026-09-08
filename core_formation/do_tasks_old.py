@@ -1,3 +1,5 @@
+from dataclasses import asdict
+
 from pathlib import Path
 import numpy as np
 import argparse
@@ -128,11 +130,11 @@ if __name__ == "__main__":
         if args.lagrangian_props:
             s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
             def wrapper(pid):
-                method_list = tools.CRITICAL_TIME_METHODS
-                for method in method_list:
-                    s.select_cores(method)
+                definitions = tools.COLLAPSE_ONSET_DEFINITIONS
+                for definition in definitions:
+                    s.select_cores(**asdict(definition))
                     if pid in s.good_cores(0):
-                        tasks.lagrangian_props(s, pid, method=method, overwrite=args.overwrite)
+                        tasks.lagrangian_props(s, pid, **asdict(definition), overwrite=args.overwrite)
             print(f"Calculate Lagrangian properties for model {mdl}")
             with Pool(args.np) as p:
                 p.map(wrapper, pids)
@@ -202,11 +204,11 @@ if __name__ == "__main__":
             s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
             print(f"draw core evolution plots for model {mdl}")
             for pid in pids:
-                for method in [tools.DEFAULT_CRITICAL_TIME_METHOD]:
-                    s.select_cores(method)
+                for definition in [tools.CollapseOnsetDefinition()]:
+                    s.select_cores(**asdict(definition))
                     cores = s.cores[pid]
                     def wrapper(num):
-                        tasks.plot_core_evolution(s, pid, num, method=method,
+                        tasks.plot_core_evolution(s, pid, num, **asdict(definition),
                                                   overwrite=args.overwrite)
                     with Pool(args.np) as p:
                         p.map(wrapper, [num for num in cores.index if num in s.nums_with_hdf5])
@@ -261,8 +263,8 @@ if __name__ == "__main__":
                                 srcdir])
             prefix = config.PLOT_PREFIX_CORE_EVOLUTION
             for pid in pids:
-                for method in [tools.DEFAULT_CRITICAL_TIME_METHOD]:
-                    s.select_cores(method)
-                    prf = f"{prefix}.par{pid}.tcrit_{method}"
+                for definition in [tools.CollapseOnsetDefinition()]:
+                    s.select_cores(**asdict(definition))
+                    prf = f"{prefix}.par{pid}.tcrit_{definition.filename_token}"
                     subprocess.run(["make_movie", "-p", prf, "-s", srcdir,
                                     "-d", srcdir])

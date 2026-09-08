@@ -1,3 +1,5 @@
+from dataclasses import asdict
+
 """Module containing functions that are not generally reusable"""
 from pathlib import Path
 import datetime
@@ -395,23 +397,28 @@ def power_spectrum(s, nums=None, overwrite=False):
         ps.to_netcdf(ofname)
 
 
-def lagrangian_props(s, pid, *, method, overwrite=False):
+def lagrangian_props(s, pid, *, overwrite=False, rcrit="virial_mass",
+                     fixed_form_factor=None, criterion="net_force",
+                     require_small_std=None):
     """Calculate and save one core/method's Lagrangian properties as NetCDF.
 
     Missing trajectory profiles raise KeyError before writing. Existing files
     are skipped unless overwrite=True; refresh derived-core caches afterward.
     """
+    definition = tools.CollapseOnsetDefinition(
+        rcrit, fixed_form_factor, criterion, require_small_std)
+
     # Check if file exists
-    ofname = Path(s.savdir, config.CORE_DIR, f'lprops_tcrit_{method}.par{pid}.nc')
+    ofname = Path(s.savdir, config.CORE_DIR, f'lprops_tcrit_{definition.filename_token}.par{pid}.nc')
     ofname.parent.mkdir(exist_ok=True)
     if ofname.exists() and not overwrite:
         print('[lagrangian_props] file already exists. Skipping...')
         return
 
-    s.select_cores(method)
+    s.select_cores(**asdict(definition))
     cores = s.cores[pid]
     rprofs = s.rprofs[pid]
-    print(f'[lagrangian_props] Calculate Lagrangian props for core {pid} with version {method}')
+    print(f'[lagrangian_props] Calculate Lagrangian props for core {pid} with definition {definition}')
     lprops = tools.lagrangian_property(s, cores, rprofs)
     myio.save_dataframe(lprops.rename_axis('num'), ofname)
 
@@ -640,7 +647,9 @@ def resample_hdf5(s, level=0):
     uniform.main(**kwargs)
 
 
-def plot_core_evolution(s, pid, num, method=tools.DEFAULT_CRITICAL_TIME_METHOD, overwrite=False):
+def plot_core_evolution(s, pid, num, overwrite=False, *, rcrit="virial_mass",
+                        fixed_form_factor=None, criterion="net_force",
+                        require_small_std=None):
     """Creates multi-panel plot for t_coll core properties
 
     Parameters
@@ -654,15 +663,18 @@ def plot_core_evolution(s, pid, num, method=tools.DEFAULT_CRITICAL_TIME_METHOD, 
     overwrite : str, optional
         If true, overwrite output files.
     """
+    definition = tools.CollapseOnsetDefinition(
+        rcrit, fixed_form_factor, criterion, require_small_std)
+
     fname = Path(s.savdir, 'figures', "{}.par{}.tcrit_{}.{:05d}.png".format(
-                 config.PLOT_PREFIX_CORE_EVOLUTION, pid, method, num))
+                 config.PLOT_PREFIX_CORE_EVOLUTION, pid, definition.filename_token, num))
     fname.parent.mkdir(exist_ok=True)
     if fname.exists() and not overwrite:
         print('[plot_core_evolution] file already exists. Skipping...')
         return
-    print(f'[plot_core_evolution] processing model {s.basename} pid: {pid} num: {num}, tcrit_method: {method}')
-    s.select_cores(method)
-    fig = plots.plot_core_evolution(s, pid, num, method=method)
+    print(f'[plot_core_evolution] processing model {s.basename} pid: {pid} num: {num}, definition: {definition}')
+    s.select_cores(**asdict(definition))
+    fig = plots.plot_core_evolution(s, pid, num, **asdict(definition))
     fig.savefig(fname, bbox_inches='tight', dpi=200)
     plt.close(fig)
 
