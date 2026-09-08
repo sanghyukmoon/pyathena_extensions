@@ -475,7 +475,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 cores['rcrit'] = radius_trajectories[key]
 
             # Find critical time
-            ncrit, rcrit = tools.critical_time(self, cores, rprofs, onset_definition=onset_definition)
+            ncrit, rcrit = tools.critical_time(self, cores, onset_definition=onset_definition)
             cores.attrs['numcrit'] = ncrit
             if np.isnan(ncrit):
                 cores.attrs['tcrit'] = np.nan

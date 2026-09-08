@@ -834,7 +834,7 @@ def radial_profile_projected(s, num, origin):
     return rprofs
 
 
-def lagrangian_property(s, cores, rprofs):
+def lagrangian_property(s, cores):
     """Calculate Lagrangian properties of cores
 
     Parameters
@@ -843,14 +843,14 @@ def lagrangian_property(s, cores, rprofs):
         Object containing simulation metadata.
     cores : pandas.DataFrame
         Object containing core informations.
-    rprofs : xarray.Dataset
-        Object containing radial profiles.
 
     Returns
     -------
     lprops : pandas.DataFrame
         Object containing Lagrangian properties of cores.
     """
+    pid = cores.attrs["pid"]
+    rprofs = s.rprofs[pid]
     # Require radial profiles for every snapshot in the core trajectory.
     cores = cores.sort_index()
     ncrit = cores.attrs['numcrit']
@@ -1297,7 +1297,7 @@ def virial_radius(rprofs, onset_definition):
     return pd.Series(radii, index=rprofs.num.to_numpy())
 
 
-def critical_time(s, cores, rprofs, *, onset_definition):
+def critical_time(s, cores, *, onset_definition):
     """Return the onset snapshot and radius, or (NaN, NaN) if unresolved.
 
     Virial conditions must hold continuously through collapse. An undefined
@@ -1308,8 +1308,10 @@ def critical_time(s, cores, rprofs, *, onset_definition):
     if cores.empty:
         return np.nan, np.nan
     if onset_definition.rcrit_from == 'tes':
-        return _tes_critical_time(s, cores, rprofs)
+        return _tes_critical_time(s, cores)
 
+    pid = cores.attrs["pid"]
+    rprofs = s.rprofs[pid]
     candidate = (np.nan, np.nan)
     for core in cores.iloc[::-1].itertuples():
         num = core.Index
@@ -1328,9 +1330,10 @@ def critical_time(s, cores, rprofs, *, onset_definition):
     return np.nan, np.nan
 
 
-def _tes_critical_time(s, cores, rprofs):
+def _tes_critical_time(s, cores):
     """Historical TES criterion, including its final-two-snapshot exceptions."""
     pid = cores.attrs['pid']
+    rprofs = s.rprofs[pid]
     ncrit = None
     rcrit = None
     # Earliest time after which the net force integrated within r_crit

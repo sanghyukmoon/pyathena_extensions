@@ -415,9 +415,8 @@ def lagrangian_props(s, cores, *, overwrite=False):
         print('[lagrangian_props] file already exists. Skipping...')
         return
 
-    rprofs = s.rprofs[pid]
     print(f'[lagrangian_props] Calculate Lagrangian props for core {pid} with onset definition {onset_def}')
-    lprops = tools.lagrangian_property(s, cores, rprofs)
+    lprops = tools.lagrangian_property(s, cores)
     myio.save_dataframe(lprops.rename_axis('num'), ofname)
 
 

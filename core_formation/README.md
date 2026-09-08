@@ -82,3 +82,8 @@ The latter interpolates internally and derives radial spacing from `profile.r`
 for the optional standard-deviation condition. `critical_time` takes the
 `onset_definition` parameter and handles the backward search. The historical
 TES search retains its separate condition evaluation and terminal exceptions.
+
+`tools.critical_time(s, cores, onset_definition=onset_def)` and
+`tools.lagrangian_property(s, cores)` obtain profiles from
+`s.rprofs[cores.attrs["pid"]]`. Numerical routines that do not receive the
+simulation and core table continue to accept profiles explicitly.
