@@ -1,3 +1,4 @@
+import json
 import os.path as osp
 import warnings
 import pandas as pd
@@ -426,6 +427,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             cache = savdir / f'cores_tcrit_{definition.filename_token}.par{pid}.nc'
             if cache.exists() and not force_override:
                 cores = myio.load_dataframe(cache)
+                cores.attrs["collapse_definition"] = json.dumps(asdict(definition), sort_keys=True)
                 core_dict[pid] = cores
                 continue
 
@@ -590,6 +592,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             except:
                 pass
 
+            cores.attrs["collapse_definition"] = json.dumps(asdict(definition), sort_keys=True)
             # Sort attributes
             cores.attrs = {k: cores.attrs[k] for k in sorted(cores.attrs)}
 
