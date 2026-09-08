@@ -68,22 +68,21 @@ positive values apply the resolution filter. `itercritcore` retains its existing
 `(s, pid, core_series, rprf)` return. Space-time plots select their background
 population using the target table's definition.
 
-Existing derived caches receive current `onset_definition` metadata in memory
-on reading; the obsolete `collapse_definition` attribute is removed from the
-loaded table. Reading does not rewrite the files. Separately saved tables with
-the retired metadata schema are not translated by plot or task consumers. After generating Lagrangian or observational
-products, explicitly refresh derived caches with `override_derived_cores=True`
+Caches must be rebuilt with the current schema. Cache reads return the saved
+tables directly, without metadata repair or compatibility translation. After
+generating Lagrangian or observational products, explicitly refresh derived caches with `override_derived_cores=True`
 on a new `LoadSim`. The selector does not generate these optional products.
 Plots that use dendrogram properties still require those properties.
 
 The definition constructs the chosen ratio with `onset_def.virial_ratio(profile)`
 and evaluates a single snapshot with `onset_def.is_collapsing(profile, rcrit)`.
 The latter interpolates internally and derives radial spacing from `profile.r`
-for the optional standard-deviation condition. `critical_time` takes the
-`onset_definition` parameter and handles the backward search. The historical
-TES search retains its separate condition evaluation and terminal exceptions.
+for the optional standard-deviation condition. `critical_time(s, cores)` reads
+the onset definition from the table metadata and handles the backward search.
+The historical TES search retains its separate condition evaluation and terminal
+exceptions.
 
-`tools.critical_time(s, cores, onset_definition=onset_def)` and
+`tools.critical_time(s, cores)` and
 `tools.lagrangian_property(s, cores)` obtain profiles from
 `s.rprofs[cores.attrs["pid"]]`. Numerical routines that do not receive the
 simulation and core table continue to accept profiles explicitly.

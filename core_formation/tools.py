@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 
 import numpy as np
@@ -1297,7 +1298,7 @@ def virial_radius(rprofs, onset_definition):
     return pd.Series(radii, index=rprofs.num.to_numpy())
 
 
-def critical_time(s, cores, *, onset_definition):
+def critical_time(s, cores):
     """Return the onset snapshot and radius, or (NaN, NaN) if unresolved.
 
     Virial conditions must hold continuously through collapse. An undefined
@@ -1307,7 +1308,9 @@ def critical_time(s, cores, *, onset_definition):
     cores = cores.loc[:cores.attrs['numcoll']].sort_index()
     if cores.empty:
         return np.nan, np.nan
-    if onset_definition.rcrit_from == 'tes':
+    onset_def = CollapseOnsetDefinition(
+        **json.loads(cores.attrs["onset_definition"]))
+    if onset_def.rcrit_from == 'tes':
         return _tes_critical_time(s, cores)
 
     pid = cores.attrs["pid"]
@@ -1319,11 +1322,11 @@ def critical_time(s, cores, *, onset_definition):
         if not np.isfinite(radius):
             s.logger.warning(
                 f"{s.basename}: undefined rcrit for pid="
-                f"{cores.attrs['pid']}, num={num}, onset_definition={onset_definition}; "
+                f"{cores.attrs['pid']}, num={num}, onset_definition={onset_def}; "
                 "critical time is unresolved.")
             return np.nan, np.nan
         profile = rprofs.sel(num=num)
-        if not onset_definition.is_collapsing(profile, radius):
+        if not onset_def.is_collapsing(profile, radius):
             return candidate
         candidate = (num, radius)
     # The onset predates or equals the beginning of the tracked history.

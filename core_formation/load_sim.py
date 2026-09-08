@@ -425,13 +425,11 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         for pid in self.pids:
             cache = savdir / f'cores_tcrit_{onset_definition.filename_token}.par{pid}.nc'
             if cache.exists() and not force_override:
-                cores = myio.load_dataframe(cache)
-                cores.attrs.pop("collapse_definition", None)
-                cores.attrs["onset_definition"] = json.dumps(asdict(onset_definition), sort_keys=True)
-                core_dict[pid] = cores
+                core_dict[pid] = myio.load_dataframe(cache)
                 continue
 
             cores = self.cores[pid].copy()
+            cores.attrs["onset_definition"] = json.dumps(asdict(onset_definition), sort_keys=True)
             rprofs = self.rprofs[pid]
 
             min_dst, mw_dst, min_dst_to_core = [], [], []
@@ -475,7 +473,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 cores['rcrit'] = radius_trajectories[key]
 
             # Find critical time
-            ncrit, rcrit = tools.critical_time(self, cores, onset_definition=onset_definition)
+            ncrit, rcrit = tools.critical_time(self, cores)
             cores.attrs['numcrit'] = ncrit
             if np.isnan(ncrit):
                 cores.attrs['tcrit'] = np.nan
@@ -518,9 +516,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             fname = Path(savdir, f'lprops_tcrit_{onset_definition.filename_token}.par{pid}.nc')
             if fname.exists():
                 lprops = myio.load_dataframe(fname)
-                if set(lprops.columns).issubset(cores.columns):
-                    cores = cores.drop(lprops.columns, axis=1)
-
                 # Save attributes before performing join, which will drop them.
                 attrs = cores.attrs.copy()
                 attrs.update(lprops.attrs)
@@ -571,28 +566,23 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                          (cores.time - cores.attrs['tcoll']) / cores.attrs['dt_coll'])
 
 
-            # Try finding observed properties and attach them
-            try:
-                prestellar_cores = cores.loc[:cores.attrs['numcoll']]
-                oprops = []
-                for num in prestellar_cores.index:
-                    fname = Path(savdir, 'observables.par{}.{:05d}.p'.format(pid, num))
-                    if fname.exists():
-                        oprops.append(pd.read_pickle(fname))
-                if len(oprops) > 0:
-                    oprops = pd.DataFrame(oprops).set_index('num').sort_index().astype('float64')
+            # Load available observed properties and attach them
+            prestellar_cores = cores.loc[:cores.attrs['numcoll']]
+            oprops = []
+            for num in prestellar_cores.index:
+                fname = Path(savdir, 'observables.par{}.{:05d}.p'.format(pid, num))
+                if fname.exists():
+                    oprops.append(pd.read_pickle(fname))
+            if len(oprops) > 0:
+                oprops = pd.DataFrame(oprops).set_index('num').sort_index().astype('float64')
 
-                    # Save attributes before performing join, which will drop them.
-                    attrs = cores.attrs.copy()
-                    attrs.update(oprops.attrs)
-                    cores = cores.join(oprops)
-                    # Reattach attributes
-                    cores.attrs = attrs
-            except:
-                pass
+                # Save attributes before performing join, which will drop them.
+                attrs = cores.attrs.copy()
+                attrs.update(oprops.attrs)
+                cores = cores.join(oprops)
+                # Reattach attributes
+                cores.attrs = attrs
 
-            cores.attrs.pop("collapse_definition", None)
-            cores.attrs["onset_definition"] = json.dumps(asdict(onset_definition), sort_keys=True)
             # Sort attributes
             cores.attrs = {k: cores.attrs[k] for k in sorted(cores.attrs)}
 
