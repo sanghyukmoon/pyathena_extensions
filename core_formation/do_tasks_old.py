@@ -134,7 +134,7 @@ if __name__ == "__main__":
                 for definition in definitions:
                     s.select_cores(**asdict(definition))
                     if pid in s.good_cores(0):
-                        tasks.lagrangian_props(s, pid, **asdict(definition), overwrite=args.overwrite)
+                        tasks.lagrangian_props(s, s.cores[pid], overwrite=args.overwrite)
             print(f"Calculate Lagrangian properties for model {mdl}")
             with Pool(args.np) as p:
                 p.map(wrapper, pids)
@@ -208,7 +208,7 @@ if __name__ == "__main__":
                     s.select_cores(**asdict(definition))
                     cores = s.cores[pid]
                     def wrapper(num):
-                        tasks.plot_core_evolution(s, pid, num, **asdict(definition),
+                        tasks.plot_core_evolution(s, cores, num,
                                                   overwrite=args.overwrite)
                     with Pool(args.np) as p:
                         p.map(wrapper, [num for num in cores.index if num in s.nums_with_hdf5])
@@ -233,7 +233,7 @@ if __name__ == "__main__":
             s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
             print(f"draw diagnostics plots for model {mdl}")
             for pid in s.good_cores():
-                tasks.plot_diagnostics(s, pid, overwrite=args.overwrite)
+                tasks.plot_diagnostics(s, s.cores[pid], overwrite=args.overwrite)
 
         if args.grf_tidal:
             s = sa.set_model(mdl, legacy=args.legacy)

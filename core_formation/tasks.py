@@ -1,3 +1,4 @@
+import json
 from dataclasses import asdict
 
 """Module containing functions that are not generally reusable"""
@@ -397,16 +398,14 @@ def power_spectrum(s, nums=None, overwrite=False):
         ps.to_netcdf(ofname)
 
 
-def lagrangian_props(s, pid, *, overwrite=False, rcrit="virial_mass",
-                     fixed_form_factor=None, criterion="net_force",
-                     require_small_std=None):
+def lagrangian_props(s, cores, *, overwrite=False):
     """Calculate and save one core/method's Lagrangian properties as NetCDF.
 
     Missing trajectory profiles raise KeyError before writing. Existing files
     are skipped unless overwrite=True; refresh derived-core caches afterward.
     """
-    definition = tools.CollapseOnsetDefinition(
-        rcrit, fixed_form_factor, criterion, require_small_std)
+    pid = cores.attrs['pid']
+    definition = tools.CollapseOnsetDefinition(**json.loads(cores.attrs["collapse_definition"]))
 
     # Check if file exists
     ofname = Path(s.savdir, config.CORE_DIR, f'lprops_tcrit_{definition.filename_token}.par{pid}.nc')
@@ -415,8 +414,6 @@ def lagrangian_props(s, pid, *, overwrite=False, rcrit="virial_mass",
         print('[lagrangian_props] file already exists. Skipping...')
         return
 
-    s.select_cores(**asdict(definition))
-    cores = s.cores[pid]
     rprofs = s.rprofs[pid]
     print(f'[lagrangian_props] Calculate Lagrangian props for core {pid} with definition {definition}')
     lprops = tools.lagrangian_property(s, cores, rprofs)
@@ -647,24 +644,22 @@ def resample_hdf5(s, level=0):
     uniform.main(**kwargs)
 
 
-def plot_core_evolution(s, pid, num, overwrite=False, *, rcrit="virial_mass",
-                        fixed_form_factor=None, criterion="net_force",
-                        require_small_std=None):
+def plot_core_evolution(s, cores, num, overwrite=False):
     """Creates multi-panel plot for t_coll core properties
 
     Parameters
     ----------
     s : LoadSim
         Simulation metadata.
-    pid : int
-        Unique ID of a selected particle.
+    cores : pandas.DataFrame
+        Selected trajectory with collapse-definition metadata.
     num : int
         Snapshot number.
     overwrite : str, optional
         If true, overwrite output files.
     """
-    definition = tools.CollapseOnsetDefinition(
-        rcrit, fixed_form_factor, criterion, require_small_std)
+    pid = cores.attrs['pid']
+    definition = tools.CollapseOnsetDefinition(**json.loads(cores.attrs["collapse_definition"]))
 
     fname = Path(s.savdir, 'figures', "{}.par{}.tcrit_{}.{:05d}.png".format(
                  config.PLOT_PREFIX_CORE_EVOLUTION, pid, definition.filename_token, num))
@@ -673,26 +668,27 @@ def plot_core_evolution(s, pid, num, overwrite=False, *, rcrit="virial_mass",
         print('[plot_core_evolution] file already exists. Skipping...')
         return
     print(f'[plot_core_evolution] processing model {s.basename} pid: {pid} num: {num}, definition: {definition}')
-    s.select_cores(**asdict(definition))
-    fig = plots.plot_core_evolution(s, pid, num, **asdict(definition))
+    fig = plots.plot_core_evolution(s, cores, num)
     fig.savefig(fname, bbox_inches='tight', dpi=200)
     plt.close(fig)
 
 
-def plot_mass_radius(s, pid, overwrite=False):
+def plot_mass_radius(s, cores, overwrite=False):
+    pid = cores.attrs['pid']
+    definition = tools.CollapseOnsetDefinition(**json.loads(cores.attrs["collapse_definition"]))
     fig = plt.figure()
     ax = fig.add_subplot()
-    for num in s.cores[pid].index:
+    for num in cores.index:
         msg = '[plot_mass_radius] processing model {} pid {} num {}'
         msg = msg.format(s.basename, pid, num)
         print(msg)
-        fname = Path(s.savdir, 'figures', "{}.par{}.{:05d}.png".format(
-            config.PLOT_PREFIX_MASS_RADIUS, pid, num))
+        fname = Path(s.savdir, 'figures', "{}.par{}.tcrit_{}.{:05d}.png".format(
+            config.PLOT_PREFIX_MASS_RADIUS, pid, definition.filename_token, num))
         fname.parent.mkdir(exist_ok=True)
         if fname.exists() and not overwrite:
             print('[plot_mass_radius] file already exists. Skipping...')
             return
-        plots.mass_radius(s, pid, num, ax=ax)
+        plots.mass_radius(s, cores, num, ax=ax)
         fig.savefig(fname, bbox_inches='tight', dpi=200)
         ax.cla()
 
@@ -715,22 +711,24 @@ def plot_sink_history(s, num, overwrite=False):
     plt.close(fig)
 
 
-def plot_core_structure(s, pid, overwrite=False):
-    rmax = s.cores[pid].tidal_radius.max()
-    for num in s.cores[pid].index:
-        fname = Path(s.savdir, 'figures', "core_structure.par{}.{:05d}.png".format(pid, num))
+def plot_core_structure(s, cores, overwrite=False):
+    pid = cores.attrs['pid']
+    definition = tools.CollapseOnsetDefinition(**json.loads(cores.attrs["collapse_definition"]))
+    rmax = cores.tidal_radius.max()
+    for num in cores.index:
+        fname = Path(s.savdir, 'figures', f"core_structure.par{pid}.tcrit_{definition.filename_token}.{num:05d}.png")
         if fname.exists() and not overwrite:
             print('[plot_core_structure] file already exists. Skipping...')
             return
         msg = '[plot_core_structure] processing model {} pid {} num {}'
         msg = msg.format(s.basename, pid, num)
         print(msg)
-        fig = plots.core_structure(s, pid, num, rmax=rmax)
+        fig = plots.core_structure(s, cores, num, rmax=rmax)
         fig.savefig(fname, bbox_inches='tight', dpi=200)
         plt.close(fig)
 
 
-def plot_diagnostics(s, pid, overwrite=False):
+def plot_diagnostics(s, cores, overwrite=False):
     """Creates diagnostics plots for a given model
 
     Save projections in {basedir}/figures for all snapshots.
@@ -739,13 +737,15 @@ def plot_diagnostics(s, pid, overwrite=False):
     ----------
     s : LoadSim
         LoadSim instance
-    pid : int
-        Particle ID
+    cores : pandas.DataFrame
+        Selected trajectory with collapse-definition metadata
     overwrite : bool, optional
         Flag to overwrite
     """
+    pid = cores.attrs['pid']
+    definition = tools.CollapseOnsetDefinition(**json.loads(cores.attrs["collapse_definition"]))
     fname = Path(s.savdir, 'figures',
-                 'diagnostics_normalized.par{}.png'.format(pid))
+                 f'diagnostics_normalized.par{pid}.tcrit_{definition.filename_token}.png')
     fname.parent.mkdir(exist_ok=True)
     if fname.exists() and not overwrite:
         print('[plot_diagnostics] file already exists. Skipping...')
@@ -754,14 +754,14 @@ def plot_diagnostics(s, pid, overwrite=False):
     msg = '[plot_diagnostics] model {} pid {}'
     print(msg.format(s.basename, pid))
 
-    fig = plots.plot_diagnostics(s, pid, normalize_time=True)
+    fig = plots.plot_diagnostics(s, cores, normalize_time=True)
     fig.savefig(fname, bbox_inches='tight', dpi=200)
     plt.close(fig)
 
-    fname = Path(s.savdir, 'figures', 'diagnostics.par{}.png'.format(pid))
+    fname = Path(s.savdir, 'figures', f'diagnostics.par{pid}.tcrit_{definition.filename_token}.png')
     if fname.exists() and not overwrite:
         return
-    fig = plots.plot_diagnostics(s, pid, normalize_time=False)
+    fig = plots.plot_diagnostics(s, cores, normalize_time=False)
     fig.savefig(fname, bbox_inches='tight', dpi=200)
     plt.close(fig)
 
@@ -781,7 +781,7 @@ def plot_radial_profile_at_tcrit(s, nrows=5, ncols=6, overwrite=False):
     fig, axs = plt.subplots(nrows, ncols, figsize=(6*ncols, 4*nrows), sharex=True,
                             gridspec_kw={'hspace':0.05, 'wspace':0.12})
     for pid, ax in zip(s.good_cores(), axs.flat):
-        plots.radial_profile_at_tcrit(s, pid, ax=ax)
+        plots.radial_profile_at_tcrit(s, s.cores[pid], ax=ax)
         ax.set_xlabel("")
         ax.set_ylabel("")
         ax.text(0.6, 0.86, f"pid {pid}", transform=ax.transAxes)

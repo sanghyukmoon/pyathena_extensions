@@ -1,3 +1,4 @@
+import json
 from dataclasses import asdict
 
 """Collection of plotting scripts
@@ -30,13 +31,9 @@ from . import tools, models, load_sim
 class SpaceTimePlotter():
     """Helper class to create space-time plots with a consistent layout and formatting.
     """
-    def plot_spacetime(self, s, pid, *, size='compact', rcrit="virial_mass",
-                       fixed_form_factor=None, criterion="net_force",
-                       require_small_std=None):
-        definition = tools.CollapseOnsetDefinition(
-            rcrit, fixed_form_factor, criterion, require_small_std)
-        s.select_cores(**asdict(definition))
-        cores = s.cores[pid]
+    def plot_spacetime(self, s, cores, *, size='compact'):
+        pid = cores.attrs['pid']
+        definition = tools.CollapseOnsetDefinition(**json.loads(cores.attrs["collapse_definition"]))
         rprofs = s.rprofs[pid].transpose('t', 'r', ...)
 
         layout = self.create_layout(size)
@@ -264,13 +261,12 @@ class SpaceTimePlotter():
             _s = sa.set_model(mdl)
             _s.select_cores(**asdict(definition))
             for _pid in _s.good_cores(8):
-                cores = _s.cores[_pid]
-                axs['evol_Fnet'].plot(cores.tnorm2, cores.Fnet, 'k-', lw=lw, alpha=alpha)
+                background_cores = _s.cores[_pid]
+                axs['evol_Fnet'].plot(background_cores.tnorm2, background_cores.Fnet, 'k-', lw=lw, alpha=alpha)
                 axs['evol_vin'].plot(cores.tnorm2, cores.vinfall/s.cs, 'k-', lw=lw, alpha=alpha)
                 axs['evol_sigma'].plot(cores.tnorm2, cores.sigma_1d/s.cs, 'k-', lw=lw, alpha=alpha)
                 axs['evol_rho'].plot(cores.tnorm2, cores.center_density/s.rho0, 'k-', lw=lw, alpha=alpha)
-        cores = s.cores[pid]
-        axs['evol_Fnet'].plot(cores.tnorm2, cores.Fnet, c='tab:cyan', lw=lw*2)
+            axs['evol_Fnet'].plot(cores.tnorm2, cores.Fnet, c='tab:cyan', lw=lw*2)
         axs['evol_vin'].plot(cores.tnorm2, cores.vinfall/s.cs, c='tab:cyan', lw=lw*2)
         axs['evol_sigma'].plot(cores.tnorm2, cores.sigma_1d/s.cs, c='tab:cyan', lw=lw*2)
         axs['evol_rho'].plot(cores.tnorm2, cores.center_density/s.rho0, c='tab:cyan', lw=lw*2)
@@ -829,23 +825,24 @@ def plot_forces(s, rprf, ax=None, xlim=(0, 0.2), ylim=(-2, 3)):
     plt.ylim(ylim)
 
 
-def plot_diagnostics(s, pid, normalize_time=True):
+def plot_diagnostics(s, cores, normalize_time=True):
     """Create four-row plot showing history of core properties
 
     Parameters
     ----------
     s : LoadSim
         Simulation metadata
-    pid : int
-        Unique particle ID.
+    cores : pandas.DataFrame
+        Selected core trajectory and derived properties.
     normalize_time : bool, optional
         Flag to use normalized time (t-tcoll)/tff
     """
+    pid = cores.attrs['pid']
     fig, axs = plt.subplots(4, 1, figsize=(7, 15), sharex='col',
                             gridspec_kw=dict(hspace=0.1))
 
     # Load cores
-    cores = s.cores[pid].sort_index()
+    cores = cores.sort_index()
     if normalize_time:
         time = cores.tnorm2
     else:
@@ -857,7 +854,7 @@ def plot_diagnostics(s, pid, normalize_time=True):
     plt.plot(time, fnet, c='k')
     plt.ylim(-1, 1)
     plt.ylabel(r'$F_\mathrm{net}/ F_\mathrm{grv}$')
-    if pid in s.good_cores():
+    if tools.test_resolved_core(s, cores, 8):
         plt.title('{}, core {}'.format(s.basename, pid))
     else:
         plt.title('{}, core {}'.format(s.basename, pid)+r'$^*$')
@@ -928,25 +925,22 @@ def plot_diagnostics(s, pid, normalize_time=True):
     return fig
 
 
-def plot_core_evolution(s, pid, num, hw=0.1, *, rcrit="virial_mass",
-                        fixed_form_factor=None, criterion="net_force",
-                        require_small_std=None):
-    definition = tools.CollapseOnsetDefinition(
-        rcrit, fixed_form_factor, criterion, require_small_std)
-    s.select_cores(**asdict(definition))
+def plot_core_evolution(s, cores, num, hw=0.1):
+    pid = cores.attrs["pid"]
+    definition = tools.CollapseOnsetDefinition(**json.loads(cores.attrs["collapse_definition"]))
     # Load data
     if s.mhd:
         ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
     else:
         ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3'], load_method='xarray')
-    core = s.cores[pid].loc[num]
+    core = cores.loc[num].copy()
     selected_radius = core.rcrit
     if 'radius' not in core:
         core['radius'] = np.nan
     rprf = s.rprofs[pid].sel(num=num)
 
     # Find the location of the core
-    xc, yc, zc = s.flatindex_to_cartesian(s.cores[pid].at[num, 'leaf_id'])
+    xc, yc, zc = s.flatindex_to_cartesian(cores.at[num, 'leaf_id'])
 
     # Load sink particles
     pds = s.load_par(num)
@@ -1212,10 +1206,11 @@ def plot_core_evolution(s, pid, num, hw=0.1, *, rcrit="virial_mass",
     return fig
 
 
-def mass_radius(s, pid, num, rmax=None, ax=None):
+def mass_radius(s, cores, num, rmax=None, ax=None):
+    pid = cores.attrs['pid']
     if rmax is None:
-        rmax = s.cores[pid].tidal_radius.max()
-    core = s.cores[pid].loc[num]
+        rmax = cores.tidal_radius.max()
+    core = cores.loc[num]
     rprf = s.rprofs[pid].sel(num=num)
 
     lw = 1.5
@@ -1225,7 +1220,7 @@ def mass_radius(s, pid, num, rmax=None, ax=None):
 
     tse = tes.TESe(p=core.pindex, xi_s=core.sonic_radius*np.sqrt(core.edge_density))
     uc, rc, mc = tse.get_crit()
-    ymax = s.cores[pid].tidal_mass.max()
+    ymax = cores.tidal_mass.max()
     nsample = 100
     rds, mass = np.zeros(nsample), np.zeros(nsample)
     for i, u0 in enumerate(np.linspace(0, 4*uc, nsample)):
@@ -1255,8 +1250,9 @@ def mass_radius(s, pid, num, rmax=None, ax=None):
     plt.axvline(core.rtes, lw=1, ls='--', c='tab:gray')
 
 
-def core_structure(s, pid, num, rmax=None):
-    core = s.cores[pid].loc[num]
+def core_structure(s, cores, num, rmax=None):
+    pid = cores.attrs['pid']
+    core = cores.loc[num]
     rprf = s.rprofs[pid].sel(num=num)
     if rmax is None:
         rmax = core.tidal_radius
@@ -1327,8 +1323,8 @@ def core_structure(s, pid, num, rmax=None):
     return fig
 
 
-def radial_profile_at_tcrit(s, pid, ax=None, lw=1.5):
-    cores = s.cores[pid]
+def radial_profile_at_tcrit(s, cores, ax=None, lw=1.5):
+    pid = cores.attrs['pid']
     num = cores.attrs['numcrit']
     core = cores.loc[num]
     rprf = s.rprofs[pid].sel(num=num)
