@@ -1294,7 +1294,8 @@ def critical_time(s, cores, rprofs, *, definition):
         return _tes_critical_time(s, cores, rprofs)
 
     candidate = (np.nan, np.nan)
-    for num, core in cores.iloc[::-1].iterrows():
+    for core in cores.iloc[::-1].itertuples():
+        num = core.Index
         radius = core.rcrit
         if not np.isfinite(radius):
             s.logger.warning(
@@ -1338,7 +1339,8 @@ def _tes_critical_time(s, cores, rprofs):
         ncrit = np.nan
         rcrit = np.nan
     else:
-        for num, core in cores.sort_index(ascending=False).iterrows():
+        for core in cores.sort_index(ascending=False).itertuples():
+            num = core.Index
             # Exclude t_coll snapshot at which the turbulence has amplified
             # to produce nagative linewidth-size slope.
             if num in cores.index[-num_buffer:]:
@@ -1560,8 +1562,8 @@ def test_resolved_core(s, cores, nres):
     ----------
     s : LoadSim
         Object containing simulation metadata
-    pid : int
-        Particle ID.
+    cores : pandas.DataFrame
+        Selected trajectory with critical-radius metadata.
     nres : int
         Minimum number of cells to be considered resolved.
 

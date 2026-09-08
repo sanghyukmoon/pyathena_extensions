@@ -33,7 +33,8 @@ class SpaceTimePlotter():
     """
     def plot_spacetime(self, s, cores, *, size='compact'):
         pid = cores.attrs['pid']
-        definition = tools.CollapseOnsetDefinition(**json.loads(cores.attrs["collapse_definition"]))
+        definition = tools.CollapseOnsetDefinition(
+            **json.loads(cores.attrs["collapse_definition"]))
         rprofs = s.rprofs[pid].transpose('t', 'r', ...)
 
         layout = self.create_layout(size)
@@ -259,14 +260,14 @@ class SpaceTimePlotter():
         sa = load_sim.LoadSimAll(mdls_parent, verbose=False)
         for mdl in mdls_parent:
             _s = sa.set_model(mdl)
-            _s.select_cores(**asdict(definition))
-            for _pid in _s.good_cores(8):
-                background_cores = _s.cores[_pid]
+            all_cores = _s.select_cores(**asdict(definition))
+            for _pid in _s.good_cores(all_cores, 8):
+                background_cores = all_cores[_pid]
                 axs['evol_Fnet'].plot(background_cores.tnorm2, background_cores.Fnet, 'k-', lw=lw, alpha=alpha)
-                axs['evol_vin'].plot(cores.tnorm2, cores.vinfall/s.cs, 'k-', lw=lw, alpha=alpha)
-                axs['evol_sigma'].plot(cores.tnorm2, cores.sigma_1d/s.cs, 'k-', lw=lw, alpha=alpha)
-                axs['evol_rho'].plot(cores.tnorm2, cores.center_density/s.rho0, 'k-', lw=lw, alpha=alpha)
-            axs['evol_Fnet'].plot(cores.tnorm2, cores.Fnet, c='tab:cyan', lw=lw*2)
+                axs['evol_vin'].plot(background_cores.tnorm2, background_cores.vinfall/_s.cs, 'k-', lw=lw, alpha=alpha)
+                axs['evol_sigma'].plot(background_cores.tnorm2, background_cores.sigma_1d/_s.cs, 'k-', lw=lw, alpha=alpha)
+                axs['evol_rho'].plot(background_cores.tnorm2, background_cores.center_density/_s.rho0, 'k-', lw=lw, alpha=alpha)
+        axs['evol_Fnet'].plot(cores.tnorm2, cores.Fnet, c='tab:cyan', lw=lw*2)
         axs['evol_vin'].plot(cores.tnorm2, cores.vinfall/s.cs, c='tab:cyan', lw=lw*2)
         axs['evol_sigma'].plot(cores.tnorm2, cores.sigma_1d/s.cs, c='tab:cyan', lw=lw*2)
         axs['evol_rho'].plot(cores.tnorm2, cores.center_density/s.rho0, c='tab:cyan', lw=lw*2)
@@ -927,7 +928,8 @@ def plot_diagnostics(s, cores, normalize_time=True):
 
 def plot_core_evolution(s, cores, num, hw=0.1):
     pid = cores.attrs["pid"]
-    definition = tools.CollapseOnsetDefinition(**json.loads(cores.attrs["collapse_definition"]))
+    definition = tools.CollapseOnsetDefinition(
+        **json.loads(cores.attrs["collapse_definition"]))
     # Load data
     if s.mhd:
         ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')

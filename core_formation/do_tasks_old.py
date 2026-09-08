@@ -129,15 +129,13 @@ if __name__ == "__main__":
         # Calculate Lagrangian properties
         if args.lagrangian_props:
             s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
-            def wrapper(pid):
-                definitions = tools.COLLAPSE_ONSET_DEFINITIONS
-                for definition in definitions:
-                    s.select_cores(**asdict(definition))
-                    if pid in s.good_cores(0):
-                        tasks.lagrangian_props(s, s.cores[pid], overwrite=args.overwrite)
             print(f"Calculate Lagrangian properties for model {mdl}")
-            with Pool(args.np) as p:
-                p.map(wrapper, pids)
+            for definition in tools.COLLAPSE_ONSET_DEFINITIONS:
+                all_cores = s.select_cores(**asdict(definition))
+                def wrapper(pid):
+                    tasks.lagrangian_props(s, all_cores[pid], overwrite=args.overwrite)
+                with Pool(args.np) as p:
+                    p.map(wrapper, [pid for pid in s.good_cores(all_cores, 0) if pid in pids])
 
         if args.projections:
             s = sa.set_model(mdl, legacy=args.legacy)
@@ -178,6 +176,7 @@ if __name__ == "__main__":
         # Calculate radial profiles of t_coll cores and pickle them.
         if args.linewidth_size:
             s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
+            all_cores = s.select_cores()
             for num in [74]:
                 ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3'])
                 ds['vel1'] = ds.mom1/ds.dens
@@ -191,27 +190,25 @@ if __name__ == "__main__":
                 def wrapper2(pid):
                     tasks.calculate_linewidth_size(s, num, pid=pid, overwrite=args.overwrite, ds=ds)
                 with Pool(args.np) as p:
-                    p.map(wrapper2, s.good_cores())
+                    p.map(wrapper2, s.good_cores(all_cores))
 
             def wrapper3(pid):
-                ncrit = s.cores[pid].attrs['numcrit']
+                ncrit = all_cores[pid].attrs['numcrit']
                 tasks.calculate_linewidth_size(s, ncrit, pid=pid, overwrite=args.overwrite)
             with Pool(args.np) as p:
-                p.map(wrapper3, s.good_cores())
+                p.map(wrapper3, s.good_cores(all_cores))
 
         # make plots
         if args.plot_core_evolution:
             s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
             print(f"draw core evolution plots for model {mdl}")
+            all_cores = s.select_cores()
             for pid in pids:
-                for definition in [tools.CollapseOnsetDefinition()]:
-                    s.select_cores(**asdict(definition))
-                    cores = s.cores[pid]
-                    def wrapper(num):
-                        tasks.plot_core_evolution(s, cores, num,
-                                                  overwrite=args.overwrite)
-                    with Pool(args.np) as p:
-                        p.map(wrapper, [num for num in cores.index if num in s.nums_with_hdf5])
+                cores = all_cores[pid]
+                def wrapper(num):
+                    tasks.plot_core_evolution(s, cores, num, overwrite=args.overwrite)
+                with Pool(args.np) as p:
+                    p.map(wrapper, [num for num in cores.index if num in s.nums_with_hdf5])
 
         if args.plot_sink_history:
             s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
@@ -231,9 +228,10 @@ if __name__ == "__main__":
 
         if args.plot_diagnostics:
             s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
+            all_cores = s.select_cores()
             print(f"draw diagnostics plots for model {mdl}")
-            for pid in s.good_cores():
-                tasks.plot_diagnostics(s, s.cores[pid], overwrite=args.overwrite)
+            for pid in s.good_cores(all_cores):
+                tasks.plot_diagnostics(s, all_cores[pid], overwrite=args.overwrite)
 
         if args.grf_tidal:
             s = sa.set_model(mdl, legacy=args.legacy)
@@ -264,7 +262,6 @@ if __name__ == "__main__":
             prefix = config.PLOT_PREFIX_CORE_EVOLUTION
             for pid in pids:
                 for definition in [tools.CollapseOnsetDefinition()]:
-                    s.select_cores(**asdict(definition))
                     prf = f"{prefix}.par{pid}.tcrit_{definition.filename_token}"
                     subprocess.run(["make_movie", "-p", prf, "-s", srcdir,
                                     "-d", srcdir])

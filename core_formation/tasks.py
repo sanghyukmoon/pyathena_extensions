@@ -1,5 +1,4 @@
 import json
-from dataclasses import asdict
 
 """Module containing functions that are not generally reusable"""
 from pathlib import Path
@@ -186,7 +185,8 @@ def critical_tes(s, pid, overwrite=False):
         return
 
     results = []
-    for num, core in s.cores[pid].iterrows():
+    for core in s.cores[pid].itertuples():
+        num = core.Index
         print(f'[critical_tes] processing model {s.basename} pid {pid} num {num}')
         rprf = s.rprofs[pid].sel(num=num)
         result = tools.critical_tes_property(s, rprf, core)
@@ -405,7 +405,8 @@ def lagrangian_props(s, cores, *, overwrite=False):
     are skipped unless overwrite=True; refresh derived-core caches afterward.
     """
     pid = cores.attrs['pid']
-    definition = tools.CollapseOnsetDefinition(**json.loads(cores.attrs["collapse_definition"]))
+    definition = tools.CollapseOnsetDefinition(
+        **json.loads(cores.attrs["collapse_definition"]))
 
     # Check if file exists
     ofname = Path(s.savdir, config.CORE_DIR, f'lprops_tcrit_{definition.filename_token}.par{pid}.nc')
@@ -659,7 +660,8 @@ def plot_core_evolution(s, cores, num, overwrite=False):
         If true, overwrite output files.
     """
     pid = cores.attrs['pid']
-    definition = tools.CollapseOnsetDefinition(**json.loads(cores.attrs["collapse_definition"]))
+    definition = tools.CollapseOnsetDefinition(
+        **json.loads(cores.attrs["collapse_definition"]))
 
     fname = Path(s.savdir, 'figures', "{}.par{}.tcrit_{}.{:05d}.png".format(
                  config.PLOT_PREFIX_CORE_EVOLUTION, pid, definition.filename_token, num))
@@ -675,7 +677,8 @@ def plot_core_evolution(s, cores, num, overwrite=False):
 
 def plot_mass_radius(s, cores, overwrite=False):
     pid = cores.attrs['pid']
-    definition = tools.CollapseOnsetDefinition(**json.loads(cores.attrs["collapse_definition"]))
+    definition = tools.CollapseOnsetDefinition(
+        **json.loads(cores.attrs["collapse_definition"]))
     fig = plt.figure()
     ax = fig.add_subplot()
     for num in cores.index:
@@ -713,10 +716,12 @@ def plot_sink_history(s, num, overwrite=False):
 
 def plot_core_structure(s, cores, overwrite=False):
     pid = cores.attrs['pid']
-    definition = tools.CollapseOnsetDefinition(**json.loads(cores.attrs["collapse_definition"]))
+    definition = tools.CollapseOnsetDefinition(
+        **json.loads(cores.attrs["collapse_definition"]))
     rmax = cores.tidal_radius.max()
     for num in cores.index:
         fname = Path(s.savdir, 'figures', f"core_structure.par{pid}.tcrit_{definition.filename_token}.{num:05d}.png")
+        fname.parent.mkdir(exist_ok=True)
         if fname.exists() and not overwrite:
             print('[plot_core_structure] file already exists. Skipping...')
             return
@@ -743,7 +748,8 @@ def plot_diagnostics(s, cores, overwrite=False):
         Flag to overwrite
     """
     pid = cores.attrs['pid']
-    definition = tools.CollapseOnsetDefinition(**json.loads(cores.attrs["collapse_definition"]))
+    definition = tools.CollapseOnsetDefinition(
+        **json.loads(cores.attrs["collapse_definition"]))
     fname = Path(s.savdir, 'figures',
                  f'diagnostics_normalized.par{pid}.tcrit_{definition.filename_token}.png')
     fname.parent.mkdir(exist_ok=True)
@@ -766,8 +772,14 @@ def plot_diagnostics(s, cores, overwrite=False):
     plt.close(fig)
 
 
-def plot_radial_profile_at_tcrit(s, nrows=5, ncols=6, overwrite=False):
-    fname = Path(s.savdir, 'figures', 'radial_profile_at_tcrit.png')
+def plot_radial_profile_at_tcrit(s, all_cores, nrows=5, ncols=6, overwrite=False):
+    """Plot resolved cores from one selected population."""
+    if not all_cores:
+        return
+    definition = tools.CollapseOnsetDefinition(
+        **json.loads(next(iter(all_cores.values())).attrs["collapse_definition"]))
+    fname = Path(s.savdir, 'figures',
+                 f'radial_profile_at_tcrit.tcrit_{definition.filename_token}.png')
     fname.parent.mkdir(exist_ok=True)
     if fname.exists() and not overwrite:
         print('[plot_radial_profile_at_tcrit] file already exists. Skipping...')
@@ -776,19 +788,19 @@ def plot_radial_profile_at_tcrit(s, nrows=5, ncols=6, overwrite=False):
     msg = '[plot_radial_profile_at_tcrit] Processing model {}'
     print(msg.format(s.basename))
 
-    if len(s.good_cores()) > nrows*ncols:
-        raise ValueError("Number of good cores {} exceeds the number of panels.".format(len(s.good_cores())))
-    fig, axs = plt.subplots(nrows, ncols, figsize=(6*ncols, 4*nrows), sharex=True,
+    pids = s.good_cores(all_cores)
+    if len(pids) > nrows*ncols:
+        raise ValueError("Number of good cores {} exceeds the number of panels.".format(len(pids)))
+    fig, axs = plt.subplots(nrows, ncols, figsize=(6*ncols, 4*nrows), sharex=True, squeeze=False,
                             gridspec_kw={'hspace':0.05, 'wspace':0.12})
-    for pid, ax in zip(s.good_cores(), axs.flat):
-        plots.radial_profile_at_tcrit(s, s.cores[pid], ax=ax)
+    for pid, ax in zip(pids, axs.flat):
+        cores = all_cores[pid]
+        plots.radial_profile_at_tcrit(s, cores, ax=ax)
         ax.set_xlabel("")
         ax.set_ylabel("")
         ax.text(0.6, 0.86, f"pid {pid}", transform=ax.transAxes)
-        cores = s.cores[pid]
         nc = cores.attrs['numcrit']
-        core = cores.loc[nc]
-        ax.text(0.6, 0.73, "{:.2f} tff".format(core.tnorm1),
+        ax.text(0.6, 0.73, "{:.2f} tff".format(cores.at[nc, 'tnorm1']),
                 transform=ax.transAxes)
     for ax in axs[:, 0]:
         ax.set_ylabel(r'$\rho/\rho_0$')

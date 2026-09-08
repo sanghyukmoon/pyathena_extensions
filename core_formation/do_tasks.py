@@ -77,7 +77,26 @@ if __name__ == "__main__":
                                          load_derived_cores=False)
                     else:
                         s = sa.set_model(args.model, override_all=True)
-                    tasks.__dict__[task](s, overwrite=args.overwrite)
+                    if task in ('lagrangian_props', 'plot_mass_radius',
+                                'plot_core_structure', 'plot_diagnostics',
+                                'plot_core_evolution', 'plot_radial_profile_at_tcrit'):
+                        all_cores = s.select_cores()
+                    if task in ('lagrangian_props', 'plot_mass_radius',
+                                'plot_core_structure', 'plot_diagnostics'):
+                        for pid in s.good_cores(all_cores):
+                            tasks.__dict__[task](s, all_cores[pid], overwrite=args.overwrite)
+                    elif task == 'plot_core_evolution':
+                        for pid in s.good_cores(all_cores):
+                            cores = all_cores[pid]
+                            for num in cores.index:
+                                if num in s.nums_with_hdf5:
+                                    tasks.plot_core_evolution(s, cores, num,
+                                                              overwrite=args.overwrite)
+                    elif task == 'plot_radial_profile_at_tcrit':
+                        tasks.plot_radial_profile_at_tcrit(s, all_cores,
+                                                           overwrite=args.overwrite)
+                    else:
+                        tasks.__dict__[task](s, overwrite=args.overwrite)
 #                                         nums=[145, 151], all_minima=True)
     else:
         write_slurm_script(args.model, args.tasks, args.overwrite)

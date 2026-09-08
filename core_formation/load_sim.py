@@ -63,15 +63,15 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
     tcoll_cores : pandas DataFrame
         t_coll core information container.
     cores : dict of pandas DataFrame
-        All preimages of t_coll cores.
+        Base tracked trajectories and TES properties, independent of selection.
+    cores_dict : dict
+        Derived core tables keyed by CollapseOnsetDefinition, then particle ID.
     """
 
     def __init__(self, basedir_or_Mach=None, savdir=None,
                  verbose=False, override_all=False,
                  override_rprofs=False, override_derived_cores=False,
-                 load_derived_cores=True, *, legacy=True,
-                 rcrit="virial_mass", fixed_form_factor=None,
-                 criterion="net_force", require_small_std=None):
+                 load_derived_cores=True, *, legacy=True):
         """The constructor for LoadSim class for core formation simulations.
 
         Parameters
@@ -79,8 +79,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         basedir_or_Mach : str or float
             Path to the directory where all data is stored;
             Alternatively, Mach number
-        rcrit, fixed_form_factor, criterion, require_small_std
-            Critical-radius and collapse-onset choices; see CollapseOnsetDefinition.
         savdir : str
             Name of the directory where pickled data and figures will be saved.
             Default value is basedir.
@@ -98,10 +96,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             load_hdf5 also accepts radial-profile numbers and translates them
             internally. Unscheduled or missing HDF5 snapshots raise.
         """
-        definition = tools.CollapseOnsetDefinition(
-            rcrit, fixed_form_factor, criterion, require_small_std)
-
-
         self.legacy = legacy
         # Set unit system
         # [L] = L_{J,0}, [M] = M_{J,0}, [V] = c_s
@@ -295,7 +289,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                             force_override = override_derived_cores,
                             radius_trajectories = radius_trajectories
                         )
-                    self.select_cores(**asdict(definition))
                 else:
                     self.logger.warning(
                         "Cannot initialize derived core properties: core tracks or "
@@ -386,15 +379,21 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
     def select_cores(self, *, rcrit="virial_mass", fixed_form_factor=None,
                      criterion="net_force", require_small_std=None):
-        """Select core tables using critical-radius and collapse-onset choices."""
+        """Return an independent pid-to-table dictionary for an onset definition.
+
+        The base trajectories in self.cores and cached derived tables in
+        self.cores_dict remain unchanged. Each returned table carries its
+        definition as JSON in attrs["collapse_definition"].
+        """
         definition = tools.CollapseOnsetDefinition(
             rcrit, fixed_form_factor, criterion, require_small_std)
-        self.cores = self.cores_dict[definition].copy()
+        return {pid: cores.copy(deep=True)
+                for pid, cores in self.cores_dict[definition].items()}
 
-    def good_cores(self, nres=8):
-        """List of resolved cores"""
+    def good_cores(self, all_cores, nres=8):
+        """Return resolved particle IDs from the supplied selected population."""
         good_cores = []
-        for pid, cores in self.cores.items():
+        for pid, cores in all_cores.items():
             if tools.test_resolved_core(self, cores, nres):
                 # Exclude cores that are not resolved at the critical time.
                 good_cores.append(pid)
@@ -443,7 +442,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     min_dst.append(np.nan)
                     mw_dst.append(np.nan)
                 else:
-                    for _, par in pds.iterrows():
+                    for par in pds.itertuples():
                         dst.append(self.distance_between(core.leaf_id,
                                                          self.cartesian_to_flatindex(par.x1, par.x2, par.x3))[()])
                         mass.append(par.mass)
@@ -576,7 +575,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             try:
                 prestellar_cores = cores.loc[:cores.attrs['numcoll']]
                 oprops = []
-                for num, core in prestellar_cores.iterrows():
+                for num in prestellar_cores.index:
                     fname = Path(savdir, 'observables.par{}.{:05d}.p'.format(pid, num))
                     if fname.exists():
                         oprops.append(pd.read_pickle(fname))
@@ -999,21 +998,20 @@ class LoadSimAll(object):
     def set_model(self, model, **kwargs):
         return LoadSim(self.basedirs[model], **kwargs)
 
-    def itercore(self, models=None, nres=8, fmul_prune=3, **kwargs):
+    def itercore(self, models=None, nres=8, fmul_prune=3, *,
+                 rcrit="virial_mass", fixed_form_factor=None,
+                 criterion="net_force", require_small_std=None, **kwargs):
+        """Select once per simulation and yield (s, pid, cores, rprofs)."""
         if models is None:
             models = self.models
         for mdl in models:
             s = self.set_model(mdl, **kwargs)
-            if nres == 0:
-                for pid in s.pids:
-                    cores = s.cores[pid]
-                    rprofs = s.rprofs[pid]
-                    yield s, pid, cores, rprofs
-            else:
-                for pid in s.good_cores(nres):
-                    cores = s.cores[pid]
-                    rprofs = s.rprofs[pid]
-                    yield s, pid, cores, rprofs
+            all_cores = s.select_cores(
+                rcrit=rcrit, fixed_form_factor=fixed_form_factor,
+                criterion=criterion, require_small_std=require_small_std)
+            pids = all_cores if nres == 0 else s.good_cores(all_cores, nres)
+            for pid in pids:
+                yield s, pid, all_cores[pid], s.rprofs[pid]
 
     def itercritcore(self, models=None, nres=8, **kwargs):
         if models is None:
