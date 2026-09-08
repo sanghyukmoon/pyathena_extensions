@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import numpy as np
 import xarray as xr
 # Bottleneck does not use stable sum.
@@ -247,7 +249,7 @@ def critical_tes_property(s, rprf, core):
     Returns
     -------
     res : dict
-        center_density, edge_density, critical_radius, pindex, sonic_radius
+        center_density, edge_density, rtes, pindex, sonic_radius
     """
     # Set scale length and mass based on the center and edge densities
     rhoc = rprf.rho.isel(r=0).data[()]
@@ -271,7 +273,7 @@ def critical_tes_property(s, rprf, core):
         pindex, intercept = pmax, res[0]
 
     if pindex <= 0:
-        rs = dcrit = rcrit = mcrit = np.nan
+        rs = dcrit = rtes = mcrit = np.nan
     else:
         # sonic radius
         rs = np.exp(-intercept/pindex)
@@ -281,14 +283,14 @@ def critical_tes_property(s, rprf, core):
         try:
             ts = tes.TES(pindex=pindex, rsonic=xi_s)
             dcrit = np.exp(ts.ucrit)
-            rcrit = ts.rcrit*r0
+            rtes = ts.rcrit*r0
             mcrit = ts.mcrit*m0
         except UserWarning:
-            dcrit = rcrit = mcrit = np.nan
+            dcrit = rtes = mcrit = np.nan
 
     res = dict(center_density=rhoc,
                sonic_radius=rs, pindex=pindex,
-               critical_contrast=dcrit, critical_radius=rcrit,
+               critical_contrast=dcrit, rtes=rtes,
                critical_mass=mcrit)
     return res
 
@@ -873,11 +875,11 @@ def lagrangian_property(s, cores, rprofs):
         r_M = r_lo + (r_hi - r_lo) / (m_hi - m_lo) * (mcore - m_lo)
 
 
-        critical_radius = xr.DataArray(cores.critical_radius.to_numpy(),
+        rtes = xr.DataArray(cores.rtes.to_numpy(),
                                        dims='t',
                                        coords=dict(t=rprofs.t))
-        menc_crit = rprofs.menc.interp(r=critical_radius)
-        menc_crit = menc_crit.where(np.isfinite(critical_radius))
+        menc_crit = rprofs.menc.interp(r=rtes)
+        menc_crit = menc_crit.where(np.isfinite(rtes))
 
         within_r_M = rprofs.r <= r_M
         w = rprofs.r**2*rprofs.rho
@@ -1191,19 +1193,67 @@ def column_density(rcyl, frho, rmax):
     return dcol
 
 
-# Each virial method specifies numerator, denominator, condition and std cutoff.
-CRITICAL_TIME_METHODS = {"empirical": None}
-for numerator, denominator in [("menc", "mmax_all"),
-                               ("menc", "mmax_all0"),
-                               ("ptot", "pmax_all0")]:
-    for condition in ["fnet", "pressure"]:
-        for require_small_std in [False, True]:
-            name = f"{numerator}_{denominator}__{condition}"
-            if require_small_std:
-                name += "__std"
-            CRITICAL_TIME_METHODS[name] = (
-                numerator, denominator, condition, require_small_std)
-DEFAULT_CRITICAL_TIME_METHOD = "menc_mmax_all0__fnet__std"
+@dataclass(frozen=True)
+class CollapseOnsetDefinition:
+    """Critical-radius and onset criteria used to select a core population.
+
+    Virial defaults use fixed form factors and the fnet standard-deviation
+    criterion. TES retains its historical net-force criterion without either
+    option. Omitted defaults are normalized so equivalent selections are equal.
+    """
+    rcrit: str = "virial_mass"
+    fixed_form_factor: bool | None = None
+    criterion: str = "net_force"
+    require_small_std: bool | None = None
+
+    def __post_init__(self):
+        if self.rcrit not in ("tes", "virial_mass", "virial_pressure"):
+            raise ValueError(f"Unknown critical-radius definition: {self.rcrit}")
+        if self.criterion not in ("net_force", "overpressure"):
+            raise ValueError(f"Unknown collapse criterion: {self.criterion}")
+        for name in ("fixed_form_factor", "require_small_std"):
+            value = getattr(self, name)
+            if value is not None and type(value) is not bool:
+                raise ValueError(f"{name} must be True, False or None")
+        if self.rcrit == "tes":
+            if self.fixed_form_factor is not None:
+                raise ValueError("TES does not use a form-factor choice")
+            if self.criterion != "net_force" or self.require_small_std is True:
+                raise ValueError("TES requires net force without the std criterion")
+        elif self.fixed_form_factor is None:
+            object.__setattr__(self, "fixed_form_factor", True)
+        if self.require_small_std is None:
+            object.__setattr__(self, "require_small_std", self.rcrit != "tes")
+
+    @property
+    def ratio_fields(self):
+        """Profile fields defining a virial radius (TES has no ratio)."""
+        if self.rcrit == "tes":
+            return None
+        if self.rcrit == "virial_mass":
+            numerator, denominator = "menc", "mmax_all"
+        else:
+            numerator, denominator = "ptot", "pmax_all"
+        if self.fixed_form_factor:
+            denominator += "0"
+        return numerator, denominator
+
+    @property
+    def filename_token(self):
+        if self.rcrit == "tes":
+            return "tes"
+        form_factor = "fixed" if self.fixed_form_factor else "variable"
+        std = "std" if self.require_small_std else "no_std"
+        return f"{self.rcrit}_{form_factor}_{self.criterion}_{std}"
+
+
+COLLAPSE_ONSET_DEFINITIONS = (CollapseOnsetDefinition(rcrit="tes"),) + tuple(
+    CollapseOnsetDefinition(rcrit, fixed, criterion, std)
+    for rcrit in ("virial_mass", "virial_pressure")
+    for fixed in (True, False)
+    for criterion in ("net_force", "overpressure")
+    for std in (False, True)
+)
 
 
 def virial_radius(rprofs, numerator, denominator):
@@ -1230,37 +1280,35 @@ def virial_radius(rprofs, numerator, denominator):
     return pd.Series(radii, index=rprofs.num.to_numpy())
 
 
-def critical_time(s, cores, rprofs, *, method):
+def critical_time(s, cores, rprofs, *, definition):
     """Return the onset snapshot and radius, or (NaN, NaN) if unresolved.
 
     Virial conditions must hold continuously through collapse. An undefined
     radius in the searched interval leaves the onset unknown. Empirical keeps
     its historical TES exceptions near collapse.
     """
-    specification = CRITICAL_TIME_METHODS[method]
     cores = cores.loc[:cores.attrs['numcoll']].sort_index()
     if cores.empty:
         return np.nan, np.nan
-    if method == 'empirical':
-        return _empirical_critical_time(s, cores, rprofs)
+    if definition.rcrit == 'tes':
+        return _tes_critical_time(s, cores, rprofs)
 
-    _, _, condition, require_small_std = specification
     candidate = (np.nan, np.nan)
     for num, core in cores.iloc[::-1].iterrows():
-        radius = core.virial_rcrit
+        radius = core.rcrit
         if not np.isfinite(radius):
             s.logger.warning(
-                f"{s.basename}: undefined virial_rcrit for pid="
-                f"{cores.attrs['pid']}, num={num}, method={method}; "
+                f"{s.basename}: undefined rcrit for pid="
+                f"{cores.attrs['pid']}, num={num}, definition={definition}; "
                 "critical time is unresolved.")
             return np.nan, np.nan
         profile = rprofs.sel(num=num)
         at_radius = profile.interp(r=radius)
-        if condition == 'fnet':
+        if definition.criterion == 'net_force':
             satisfied = at_radius.Fnet < 0
         else:
             satisfied = at_radius.ptot > at_radius.peq
-        if require_small_std:
+        if definition.require_small_std:
             fnet_std = (0 if radius <= 3*s.dx else
                         profile.fnet.sel(r=slice(3*s.dx, radius)).std().item())
             satisfied = satisfied and fnet_std < 0.3
@@ -1271,10 +1319,9 @@ def critical_time(s, cores, rprofs, *, method):
     return np.nan, np.nan
 
 
-def _empirical_critical_time(s, cores, rprofs):
+def _tes_critical_time(s, cores, rprofs):
     """Historical TES criterion, including its final-two-snapshot exceptions."""
     pid = cores.attrs['pid']
-    method = 'empirical'
     ncrit = None
     rcrit = None
     # Earliest time after which the net force integrated within r_crit
@@ -1295,18 +1342,18 @@ def _empirical_critical_time(s, cores, rprofs):
             # Exclude t_coll snapshot at which the turbulence has amplified
             # to produce nagative linewidth-size slope.
             if num in cores.index[-num_buffer:]:
-                if np.isnan(core.critical_radius):
+                if np.isnan(core.rcrit):
                     n2coll = cores.attrs['numcoll'] - num
                     msg = (f"Critical radius at t_coll - {n2coll}"
-                           f" is NaN for par {pid}, method {method}."
+                           f" is NaN for par {pid}, TES definition."
                            " This may have been caused by negative pindex."
                            " Continuing...")
                     s.logger.warning(msg)
                     continue
-                if np.isinf(core.critical_radius):
+                if np.isinf(core.rcrit):
                     n2coll = cores.attrs['numcoll'] - num
                     msg = (f"Critical radius at t_coll - {n2coll}"
-                           f" is inf for par {pid}, method {method}."
+                           f" is inf for par {pid}, TES definition."
                            " This may have been caused by very small rsonic"
                            " Continuing...")
                     s.logger.warning(msg)
@@ -1314,8 +1361,8 @@ def _empirical_critical_time(s, cores, rprofs):
             rprf = rprofs.sel(num=num)
             # Net force at the critical radius is negative after the
             # critical time, throughout the collapse.
-            if np.isfinite(core.critical_radius):
-                rprf = rprf.interp(r=core.critical_radius)
+            if np.isfinite(core.rcrit):
+                rprf = rprf.interp(r=core.rcrit)
                 fnet = (rprf.Fthm + rprf.Ftrb + rprf.Fcen + rprf.Fani
                         - rprf.Fgrv)
                 if s.mhd:
@@ -1333,15 +1380,15 @@ def _empirical_critical_time(s, cores, rprofs):
                     ncrit = np.nan
                     rcrit = np.nan
                 else:
-                    rcrit = cores.loc[ncrit].critical_radius
+                    rcrit = cores.loc[ncrit].rcrit
                     if not np.isfinite(rcrit):
                         msg = (f"Critical radius at ncrit = {ncrit} is not "
                                f"finite for par {pid}: "
-                               f"method={method}, rcrit={cores.loc[ncrit].critical_radius}.")
+                               f"TES definition, rcrit={cores.loc[ncrit].rcrit}.")
                         s.logger.warning(msg)
                         ncrit = np.nan
                 break
-    if ncrit == cores.attrs['numcoll'] and np.isnan(cores.loc[ncrit].critical_radius):
+    if ncrit == cores.attrs['numcoll'] and np.isnan(cores.loc[ncrit].rcrit):
         # If ncrit is ncoll at which critical radius was nan, set ncrit to NaN.
         ncrit = np.nan
     if ncrit is None or ncrit == cores.index[-1] + 1:

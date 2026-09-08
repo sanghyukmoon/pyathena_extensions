@@ -7,6 +7,8 @@ import xarray as xr
 # Let's disable third party softwares to go conservative.
 # Accuracy is more important than performance.
 xr.set_options(use_bottleneck=False, use_numbagg=False)
+from dataclasses import asdict
+
 import numpy as np
 from pathlib import Path
 import pickle
@@ -63,10 +65,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         All preimages of t_coll cores.
     """
 
-    def __init__(self, basedir_or_Mach=None, method=tools.DEFAULT_CRITICAL_TIME_METHOD, savdir=None,
+    def __init__(self, basedir_or_Mach=None, savdir=None,
                  verbose=False, override_all=False,
                  override_rprofs=False, override_derived_cores=False,
-                 load_derived_cores=True, *, legacy=True):
+                 load_derived_cores=True, *, legacy=True,
+                 rcrit="virial_mass", fixed_form_factor=None,
+                 criterion="net_force", require_small_std=None):
         """The constructor for LoadSim class for core formation simulations.
 
         Parameters
@@ -74,8 +78,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         basedir_or_Mach : str or float
             Path to the directory where all data is stored;
             Alternatively, Mach number
-        method : str
-            Which definition of t_crit to use.
+        rcrit, fixed_form_factor, criterion, require_small_std
+            Critical-radius and collapse-onset choices; see CollapseOnsetDefinition.
         savdir : str
             Name of the directory where pickled data and figures will be saved.
             Default value is basedir.
@@ -93,6 +97,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             load_hdf5 also accepts radial-profile numbers and translates them
             internally. Unscheduled or missing HDF5 snapshots raise.
         """
+        definition = tools.CollapseOnsetDefinition(
+            rcrit, fixed_form_factor, criterion, require_small_std)
+
 
         self.legacy = legacy
         # Set unit system
@@ -279,18 +286,15 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 self.cores_dict = {}
                 if hasattr(self, 'cores') and hasattr(self, 'rprofs'):
                     radius_trajectories = {}
-                    for mtd in tools.CRITICAL_TIME_METHODS:
+                    for onset_definition in tools.COLLAPSE_ONSET_DEFINITIONS:
                         savdir = Path(self.savdir, config.CORE_DIR)
-                        self.cores_dict[mtd] = self.update_core_props(
-                            method = mtd,
+                        self.cores_dict[onset_definition] = self.update_core_props(
+                            definition = onset_definition,
                             savdir = savdir,
                             force_override = override_derived_cores,
                             radius_trajectories = radius_trajectories
                         )
-                    try:
-                        self.select_cores(method)
-                    except KeyError:
-                        self.logger.warning(f"Failed to select core with method {method} for model {self.basename}")
+                    self.select_cores(**asdict(definition))
                 else:
                     self.logger.warning(
                         "Cannot initialize derived core properties: core tracks or "
@@ -379,8 +383,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         with open(fname, 'rb') as handle:
             return pickle.load(handle)
 
-    def select_cores(self, method):
-        self.cores = self.cores_dict[method].copy()
+    def select_cores(self, *, rcrit="virial_mass", fixed_form_factor=None,
+                     criterion="net_force", require_small_std=None):
+        """Select core tables using critical-radius and collapse-onset choices."""
+        definition = tools.CollapseOnsetDefinition(
+            rcrit, fixed_form_factor, criterion, require_small_std)
+        self.cores = self.cores_dict[definition].copy()
 
     def good_cores(self, nres=8):
         """List of resolved cores"""
@@ -391,16 +399,17 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 good_cores.append(pid)
         return good_cores
 
-    def update_core_props(self, method, savdir=None, force_override=False,
+    def update_core_props(self, definition, savdir=None, force_override=False,
                           radius_trajectories=None):
         """Load or calculate complete core properties for a critical-time method.
 
-        Both modes reuse cores_tcrit_{method}.par{pid}.nc until force_override
+        Both modes reuse one cores_tcrit_{token}.par{pid}.nc per definition
+        until force_override
         (override_derived_cores=True on LoadSim). Refresh after changing formulas
         or generating new Lagrangian/observational products. Old aggregate
         pickle caches are ignored. Lagrangian products are loaded, not generated.
 
-        radius_trajectories shares calculated (core, numerator, denominator)
+        radius_trajectories shares calculated (core, radius choice, form-factor choice)
         trajectories across methods during initialization; it is not persisted.
 
         Returns
@@ -408,14 +417,13 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         dict[int, pandas.DataFrame]
             Complete core tables indexed by particle ID.
         """
-        specification = tools.CRITICAL_TIME_METHODS[method]
         savdir = Path(savdir) if savdir is not None else Path(self.savdir, config.CORE_DIR)
         savdir.mkdir(parents=True, exist_ok=True)
         if radius_trajectories is None:
             radius_trajectories = {}
         core_dict = {}
         for pid in self.pids:
-            cache = savdir / f'cores_tcrit_{method}.par{pid}.nc'
+            cache = savdir / f'cores_tcrit_{definition.filename_token}.par{pid}.nc'
             if cache.exists() and not force_override:
                 cores = myio.load_dataframe(cache)
                 core_dict[pid] = cores
@@ -455,16 +463,18 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             cores['mw_dst_to_star'] = np.asarray(mw_dst, dtype=np.float64)
             cores['min_dst_to_pscore'] = np.asarray(min_dst_to_core, dtype=np.float64)
 
-            if method != 'empirical':
-                numerator, denominator, _, _ = specification
-                key = (pid, numerator, denominator)
+            if definition.rcrit == 'tes':
+                cores['rcrit'] = cores['rtes']
+            else:
+                numerator, denominator = definition.ratio_fields
+                key = (pid, definition.rcrit, definition.fixed_form_factor)
                 if key not in radius_trajectories:
                     radius_trajectories[key] = tools.virial_radius(
                         rprofs, numerator, denominator)
-                cores['virial_rcrit'] = radius_trajectories[key]
+                cores['rcrit'] = radius_trajectories[key]
 
             # Find critical time
-            ncrit, rcrit = tools.critical_time(self, cores, rprofs, method=method)
+            ncrit, rcrit = tools.critical_time(self, cores, rprofs, definition=definition)
             cores.attrs['numcrit'] = ncrit
             if np.isnan(ncrit):
                 cores.attrs['tcrit'] = np.nan
@@ -479,7 +489,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 if np.isnan(rcore):
                     raise ValueError("Critical radius at t_crit is NaN: "
                                      f"Model {self.basename}, par {pid}, ncrit = {ncrit}"
-                                     f" crit_method {method}")
+                                     f" definition {definition}")
                 if rcore > rprf.r.max()[()]:
                     # TODO: raise a descriptive ValueError instead of omitting this core.
                     msg = (
@@ -504,7 +514,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 cores.attrs['tff_crit'] = tff_crit
 
             # Load Lagrangian props
-            fname = Path(savdir, f'lprops_tcrit_{method}.par{pid}.nc')
+            fname = Path(savdir, f'lprops_tcrit_{definition.filename_token}.par{pid}.nc')
             if fname.exists():
                 lprops = myio.load_dataframe(fname)
                 if set(lprops.columns).issubset(cores.columns):
@@ -802,6 +812,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 # Save attributes before performing join, which will drop them.
                 attrs = cores.attrs.copy()
                 attrs.update(tes_crit.attrs)
+                cores['rtes'] = tes_crit.pop('rtes')
                 cores = cores.join(tes_crit)
 
                 # Reattach attributes
