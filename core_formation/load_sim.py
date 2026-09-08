@@ -812,7 +812,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 # Save attributes before performing join, which will drop them.
                 attrs = cores.attrs.copy()
                 attrs.update(tes_crit.attrs)
-                cores['rtes'] = tes_crit.pop('rtes')
                 cores = cores.join(tes_crit)
 
                 # Reattach attributes
