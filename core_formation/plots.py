@@ -28,7 +28,7 @@ from . import tools, models, load_sim
 class SpaceTimePlotter():
     """Helper class to create space-time plots with a consistent layout and formatting.
     """
-    def plot_spacetime(self, s, pid, *, size='compact', mtd_crit='virial0'):
+    def plot_spacetime(self, s, pid, *, size='compact', mtd_crit=tools.DEFAULT_CRITICAL_TIME_METHOD):
         s.select_cores(mtd_crit)
         cores = s.cores[pid]
         rprofs = s.rprofs[pid].transpose('t', 'r', ...)
@@ -274,20 +274,21 @@ class SpaceTimePlotter():
                 continue
             ax.plot(cores.radius, cores.time, ls='-', c='tab:cyan', label=r'$r_M$', lw=3)
             try:
-                numcrit, rcrit = tools.critical_time_old(s, cores, rprofs, method=mtd_crit)
+                numcrit, rcrit = tools.critical_time(s, cores, rprofs, method=mtd_crit)
                 tcrit = cores.loc[numcrit].time
                 ax.plot(rcrit, tcrit, 'o', c='tab:cyan')
             except:
                 pass
             ax.plot(cores.critical_radius, cores.time, ls=':', c='tab:red', label=r'$R_\mathrm{MO}$')
-            ax.plot(cores.virial_rcrit, cores.time, ls='--', c='tab:red', label=r'$r_\mathrm{crit}$')
+            if mtd_crit != 'empirical':
+                ax.plot(cores.virial_rcrit, cores.time, ls='--', c='tab:red', label=r'$r_\mathrm{crit}$')
             ax.plot(cores.leaf_radius, cores.time, ls='-.', c='g', label=r'$r_\mathrm{tidal,avg}$')
             ax.plot(cores.tidal_radius, cores.time, ls='--', c='g', label=r'$r_\mathrm{tidal,max}$')
             ax.plot(cores.min_dst_to_star, cores.time, ls='--', color='gold', label=r'$D_*$')
             ax.plot(cores.min_dst_to_pscore, cores.time, ls=':', color='gold', label=r'$D_*$')
             ax.plot(cores.mw_dst_to_star, cores.time, color='gold', label=r'$D_{*,\mathrm{mw}}$')
             try:
-                numcrit, rcrit = tools.critical_time_old(s, cores, rprofs, method='empirical')
+                numcrit, rcrit = tools.critical_time(s, cores, rprofs, method='empirical')
                 tcrit = cores.loc[numcrit].time
                 ax.plot(rcrit, tcrit, 'o', c='r')
             except:
@@ -449,7 +450,7 @@ def plot_lookback_profiles(
     xlim=(1e-2, 1e0),
     line_kwargs=None,
     nres = 0,
-    method = 'virial0'
+    method = tools.DEFAULT_CRITICAL_TIME_METHOD
 ):
     """Plot radial quantities by row and lookback times by column.
 
@@ -917,13 +918,14 @@ def plot_diagnostics(s, pid, normalize_time=True):
     return fig
 
 
-def plot_core_evolution(s, pid, num, hw=0.1, method='virial0'):
+def plot_core_evolution(s, pid, num, hw=0.1, method=tools.DEFAULT_CRITICAL_TIME_METHOD):
     # Load data
     if s.mhd:
         ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
     else:
         ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3'], load_method='xarray')
     core = s.cores[pid].loc[num]
+    rcrit = core['critical_radius' if method == 'empirical' else 'virial_rcrit']
     if 'radius' not in core:
         core['radius'] = np.nan
     rprf = s.rprofs[pid].sel(num=num)
@@ -1021,8 +1023,8 @@ def plot_core_evolution(s, pid, num, hw=0.1, method='virial0'):
             s, d, field=(*fields, 'v_quiver'),
             axis=prj_axis, add_colorbar=False,
         )
-        if np.isfinite(core.virial_rcrit) and core.virial_rcrit <= np.sqrt(2)*hw:
-            c0 = plt.Circle((0, 0), core.virial_rcrit, fill=False, color='r', lw=1, ls='-')
+        if np.isfinite(rcrit) and rcrit <= np.sqrt(2)*hw:
+            c0 = plt.Circle((0, 0), rcrit, fill=False, color='r', lw=1, ls='-')
             plt.gca().add_artist(c0)
         if np.isfinite(core.critical_radius) and core.critical_radius <= np.sqrt(2)*hw:
             c0 = plt.Circle((0, 0), core.critical_radius, fill=False, color='tab:red', lw=1, ls='--')
@@ -1135,13 +1137,12 @@ def plot_core_evolution(s, pid, num, hw=0.1, method='virial0'):
 
     # 7. Critical masses
     plt.sca(axs['mcrit'])
-    if method == 'virial':
-        mmax = 'mmax_all'
-    elif method == 'virial0':
-        mmax = 'mmax_all0'
-    else:
-        raise ValueError(f"Unknown method {method}")
-    (rprf.menc/rprf[mmax]).plot(label=r'$M_\mathrm{enc}/M_\mathrm{crit}$', c='tab:red', lw=1)
+    if method != 'empirical':
+        numerator, denominator, _, _ = tools.CRITICAL_TIME_METHODS[method]
+        ratio_label = (r'$M_\mathrm{enc}/M_\mathrm{crit}$' if numerator == 'menc'
+                       else r'$P_\mathrm{tot}/P_\mathrm{max}$')
+        (rprf[numerator]/rprf[denominator]).plot(
+            label=ratio_label, c='tab:red', lw=1)
     (rprf.menc/(rprf.mTES+rprf.mPhi)).plot(label=r'$M_\mathrm{enc}/(M_\mathrm{TES}+M_\mathrm{\Phi})$', c='tab:red', ls='--', lw=1)
     (rprf.menc/rprf.mPhi).plot(label=r'$M_\mathrm{enc}/M_\Phi$', lw=1, c='tab:purple')
     (rprf.menc/rprf.mTES).plot(label=r'$M_\mathrm{enc}/M_\mathrm{TES}$', lw=1, c='tab:blue')
@@ -1150,7 +1151,7 @@ def plot_core_evolution(s, pid, num, hw=0.1, method='virial0'):
     plt.ylim(0, 2)
     plt.title('')
     plt.xlabel(r'$r/L_{J,0}$')
-    plt.ylabel(r'$M/M_\mathrm{cr}$')
+    plt.ylabel('Critical ratios')
     plt.legend(ncol=2, fontsize=15, loc='lower right')
 
     # Annotations
@@ -1170,7 +1171,7 @@ def plot_core_evolution(s, pid, num, hw=0.1, method='virial0'):
              transform=plt.gca().transAxes, backgroundcolor='w')
     plt.text(0.05, 0.35, r'$r_s=$'+r'${:.2f}$'.format(core.sonic_radius)+r'$\,L_{J,0}$',
              transform=plt.gca().transAxes, backgroundcolor='w')
-    plt.text(0.05, 0.25, r'$r_\mathrm{crit}=$'+r'${:.2f}$'.format(core.virial_rcrit)+r'$\,L_{J,0}$',
+    plt.text(0.05, 0.25, r'$r_\mathrm{crit}=$'+r'${:.2f}$'.format(rcrit)+r'$\,L_{J,0}$',
              transform=plt.gca().transAxes, backgroundcolor='w')
     plt.text(0.05, 0.15, r'$r_\mathrm{TES}=$'+r'${:.2f}$'.format(core.critical_radius)+r'$\,L_{J,0}$',
              transform=plt.gca().transAxes, backgroundcolor='w')
@@ -1180,7 +1181,7 @@ def plot_core_evolution(s, pid, num, hw=0.1, method='virial0'):
     for ax in (axs['rho'][0], axs['rho'][1], axs['force'][0], axs['force'][1],
                axs['vel'], axs['veldisp'], axs['acc'], axs['mcrit']):
         plt.sca(ax)
-        ln1 = plt.axvline(core.virial_rcrit, ls='-', c='r')
+        ln1 = plt.axvline(rcrit, ls='-', c='r')
         ln2 = plt.axvline(core.critical_radius, ls='--', c='tab:red')
         ln3 = plt.axvline(core.sonic_radius, ls=':', c='tab:gray')
         ln4 = plt.axvline(core.radius, ls='-.', c='b')

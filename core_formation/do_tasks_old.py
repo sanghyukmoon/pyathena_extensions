@@ -4,7 +4,7 @@ import argparse
 import subprocess
 import multiprocessing as mp
 
-from core_formation import config, tasks, models, load_sim
+from core_formation import config, tasks, models, load_sim, tools
 
 # Python 3.14 defaults to forkserver on POSIX. This runner relies on
 # inherited state and local wrapper functions, so keep the historical fork
@@ -128,7 +128,7 @@ if __name__ == "__main__":
         if args.lagrangian_props:
             s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
             def wrapper(pid):
-                method_list = ['empirical', 'virial0', 'virial1'] # virial, pred_be, pred_xis
+                method_list = tools.CRITICAL_TIME_METHODS
                 for method in method_list:
                     s.select_cores(method)
                     if pid in s.good_cores(0):
@@ -202,7 +202,7 @@ if __name__ == "__main__":
             s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
             print(f"draw core evolution plots for model {mdl}")
             for pid in pids:
-                for method in ['virial0']:
+                for method in [tools.DEFAULT_CRITICAL_TIME_METHOD]:
                     s.select_cores(method)
                     cores = s.cores[pid]
                     def wrapper(num):
@@ -261,7 +261,7 @@ if __name__ == "__main__":
                                 srcdir])
             prefix = config.PLOT_PREFIX_CORE_EVOLUTION
             for pid in pids:
-                for method in ['virial0']:
+                for method in [tools.DEFAULT_CRITICAL_TIME_METHOD]:
                     s.select_cores(method)
                     prf = f"{prefix}.par{pid}.tcrit_{method}"
                     subprocess.run(["make_movie", "-p", prf, "-s", srcdir,
