@@ -11,7 +11,6 @@ import numpy as np
 from pathlib import Path
 import pickle
 from scipy.interpolate import interp1d
-from scipy import signal
 from astropy import units as au
 from astropy import constants as ac
 from pyathena.load_sim import LoadSim as LoadSimBase
@@ -64,7 +63,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         All preimages of t_coll cores.
     """
 
-    def __init__(self, basedir_or_Mach=None, method='virial0', savdir=None,
+    def __init__(self, basedir_or_Mach=None, method=tools.DEFAULT_CRITICAL_TIME_METHOD, savdir=None,
                  verbose=False, override_all=False,
                  override_rprofs=False, override_derived_cores=False,
                  load_derived_cores=True, *, legacy=True):
@@ -279,12 +278,14 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             if load_derived_cores:
                 self.cores_dict = {}
                 if hasattr(self, 'cores') and hasattr(self, 'rprofs'):
-                    for mtd in ['empirical', 'virial0', 'virial1']:
+                    radius_trajectories = {}
+                    for mtd in tools.CRITICAL_TIME_METHODS:
                         savdir = Path(self.savdir, config.CORE_DIR)
                         self.cores_dict[mtd] = self.update_core_props(
                             method = mtd,
                             savdir = savdir,
-                            force_override = override_derived_cores
+                            force_override = override_derived_cores,
+                            radius_trajectories = radius_trajectories
                         )
                     try:
                         self.select_cores(method)
@@ -390,7 +391,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 good_cores.append(pid)
         return good_cores
 
-    def update_core_props(self, method, savdir=None, force_override=False):
+    def update_core_props(self, method, savdir=None, force_override=False,
+                          radius_trajectories=None):
         """Load or calculate complete core properties for a critical-time method.
 
         Both modes reuse cores_tcrit_{method}.par{pid}.nc until force_override
@@ -398,13 +400,19 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         or generating new Lagrangian/observational products. Old aggregate
         pickle caches are ignored. Lagrangian products are loaded, not generated.
 
+        radius_trajectories shares calculated (core, numerator, denominator)
+        trajectories across methods during initialization; it is not persisted.
+
         Returns
         -------
         dict[int, pandas.DataFrame]
             Complete core tables indexed by particle ID.
         """
+        specification = tools.CRITICAL_TIME_METHODS[method]
         savdir = Path(savdir) if savdir is not None else Path(self.savdir, config.CORE_DIR)
         savdir.mkdir(parents=True, exist_ok=True)
+        if radius_trajectories is None:
+            radius_trajectories = {}
         core_dict = {}
         for pid in self.pids:
             cache = savdir / f'cores_tcrit_{method}.par{pid}.nc'
@@ -447,38 +455,16 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             cores['mw_dst_to_star'] = np.asarray(mw_dst, dtype=np.float64)
             cores['min_dst_to_pscore'] = np.asarray(min_dst_to_core, dtype=np.float64)
 
-            if method in ['virial0', 'virial1']:
-                mmax = 'mmax_all0'
-                r = rprofs.r.to_numpy()
-                rcrit = []
-                for num in cores.index:
-                    rprf = rprofs.sel(num=num)
-                    x = (rprf.menc/rprf[mmax]).to_numpy()
-                    x[0] = 0  # Avoid NaN
-                    # order=4 means that a point is considered a local maximum
-                    # if it is greater than its 4 neighbors on each side.
-                    peaks, = signal.argrelextrema(x, np.greater, order=4)
-                    if len(peaks) > 0:
-                        rl = r[peaks[0]-1]
-                        rc = r[peaks[0]]
-                        rr = r[peaks[0]+1]
-                        yl = x[peaks[0]-1]
-                        yc = x[peaks[0]]
-                        yr = x[peaks[0]+1]
-                        # Quadratic interpolation to find the maximum between cells
-                        b = 0.5*(
-                            ((yr - yc)*(rc - rl)*(rc + rl)
-                             - (yc - yl)*(rr - rc)*(rr + rc))
-                            / ((yr - yc)*(rc - rl) - (yc - yl)*(rr - rc))
-                        )
-                        rcrit.append(b)
-                    else:
-                        rcrit.append(np.nan)
-                cores['virial_rcrit'] = pd.Series(rcrit, index=cores.index)
+            if method != 'empirical':
+                numerator, denominator, _, _ = specification
+                key = (pid, numerator, denominator)
+                if key not in radius_trajectories:
+                    radius_trajectories[key] = tools.virial_radius(
+                        rprofs, numerator, denominator)
+                cores['virial_rcrit'] = radius_trajectories[key]
 
             # Find critical time
-            ncrit, rcrit = tools.critical_time_old(self, cores.copy(),
-                                                   rprofs.copy(), method=method)
+            ncrit, rcrit = tools.critical_time(self, cores, rprofs, method=method)
             cores.attrs['numcrit'] = ncrit
             if np.isnan(ncrit):
                 cores.attrs['tcrit'] = np.nan

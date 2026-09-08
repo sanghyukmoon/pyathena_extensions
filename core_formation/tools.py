@@ -8,6 +8,7 @@ xr.set_options(use_bottleneck=False, use_numbagg=False)
 import pandas as pd
 import dask
 import dask.array as da
+from scipy import signal
 from scipy.special import erfcinv, erfc
 from scipy.optimize import brentq, curve_fit
 from scipy.integrate import quad
@@ -1190,134 +1191,160 @@ def column_density(rcyl, frho, rmax):
     return dcol
 
 
-def critical_time_old(s, cores, rprofs, *, method):
-    """
-    Return
-    ------
-    ncrit : float
-        Critical time in terms of snapshot number.
-    rcrit : float
-        Critical radius at ncrit.
-    """
-    if len(cores) == 0:
-        return np.nan
-    cores = cores.loc[:cores.attrs['numcoll']]
-    pid = cores.attrs['pid']
+# Each virial method specifies numerator, denominator, condition and std cutoff.
+CRITICAL_TIME_METHODS = {"empirical": None}
+for numerator, denominator in [("menc", "mmax_all"),
+                               ("menc", "mmax_all0"),
+                               ("ptot", "pmax_all0")]:
+    for condition in ["fnet", "pressure"]:
+        for require_small_std in [False, True]:
+            name = f"{numerator}_{denominator}__{condition}"
+            if require_small_std:
+                name += "__std"
+            CRITICAL_TIME_METHODS[name] = (
+                numerator, denominator, condition, require_small_std)
+DEFAULT_CRITICAL_TIME_METHOD = "menc_mmax_all0__fnet__std"
 
+
+def virial_radius(rprofs, numerator, denominator):
+    """First local ratio maximum at each time, with quadratic interpolation."""
+    radii = []
+    r = rprofs.r.to_numpy()
+    for num in rprofs.num.to_numpy():
+        profile = rprofs.sel(num=num)
+        ratio = (profile[numerator] / profile[denominator]).to_numpy()
+        ratio[0] = 0  # Retain the origin convention for the undefined ratio.
+        peaks, = signal.argrelextrema(ratio, np.greater, order=4)
+        if len(peaks) == 0:
+            radii.append(np.nan)
+            continue
+        peak = peaks[0]
+        rl, rc, rr = r[peak-1:peak+2]
+        yl, yc, yr = ratio[peak-1:peak+2]
+        radius = 0.5 * (
+            ((yr - yc)*(rc - rl)*(rc + rl)
+             - (yc - yl)*(rr - rc)*(rr + rc))
+            / ((yr - yc)*(rc - rl) - (yc - yl)*(rr - rc))
+        )
+        radii.append(radius)
+    return pd.Series(radii, index=rprofs.num.to_numpy())
+
+
+def critical_time(s, cores, rprofs, *, method):
+    """Return the onset snapshot and radius, or (NaN, NaN) if unresolved.
+
+    Virial conditions must hold continuously through collapse. An undefined
+    radius in the searched interval leaves the onset unknown. Empirical keeps
+    its historical TES exceptions near collapse.
+    """
+    specification = CRITICAL_TIME_METHODS[method]
+    cores = cores.loc[:cores.attrs['numcoll']].sort_index()
+    if cores.empty:
+        return np.nan, np.nan
+    if method == 'empirical':
+        return _empirical_critical_time(s, cores, rprofs)
+
+    _, _, condition, require_small_std = specification
+    candidate = (np.nan, np.nan)
+    for num, core in cores.iloc[::-1].iterrows():
+        radius = core.virial_rcrit
+        if not np.isfinite(radius):
+            s.logger.warning(
+                f"{s.basename}: undefined virial_rcrit for pid="
+                f"{cores.attrs['pid']}, num={num}, method={method}; "
+                "critical time is unresolved.")
+            return np.nan, np.nan
+        profile = rprofs.sel(num=num)
+        at_radius = profile.interp(r=radius)
+        if condition == 'fnet':
+            satisfied = at_radius.Fnet < 0
+        else:
+            satisfied = at_radius.ptot > at_radius.peq
+        if require_small_std:
+            fnet_std = (0 if radius <= 3*s.dx else
+                        profile.fnet.sel(r=slice(3*s.dx, radius)).std().item())
+            satisfied = satisfied and fnet_std < 0.3
+        if not satisfied:
+            return candidate
+        candidate = (num, radius)
+    # The onset predates or equals the beginning of the tracked history.
+    return np.nan, np.nan
+
+
+def _empirical_critical_time(s, cores, rprofs):
+    """Historical TES criterion, including its final-two-snapshot exceptions."""
+    pid = cores.attrs['pid']
+    method = 'empirical'
     ncrit = None
     rcrit = None
-
-    if method == 'empirical':
-        # Earliest time after which the net force integrated within r_crit
-        # remains negative until the end of the collapse.
-        # To find this "empirical critical time", we start from t_coll
-        # and march backward in time.
-        num_buffer = 2
-        if np.all(cores.iloc[-(num_buffer+1):].pindex < 0):
-            s.logger.warning(
-                "pindex in the last three snapshots is negative."
-               f" for pid = {pid}."
-                " cannot calculate critical radius and thus the critical time"
-            )
-            ncrit = np.nan
-            rcrit = np.nan
-        else:
-            for num, core in cores.sort_index(ascending=False).iterrows():
-                # Exclude t_coll snapshot at which the turbulence has amplified
-                # to produce nagative linewidth-size slope.
-                if num in cores.index[-num_buffer:]:
-                    if np.isnan(core.critical_radius):
-                        n2coll = cores.attrs['numcoll'] - num
-                        msg = (f"Critical radius at t_coll - {n2coll}"
-                               f" is NaN for par {pid}, method {method}."
-                               " This may have been caused by negative pindex."
-                               " Continuing...")
-                        s.logger.warning(msg)
-                        continue
-                    if np.isinf(core.critical_radius):
-                        n2coll = cores.attrs['numcoll'] - num
-                        msg = (f"Critical radius at t_coll - {n2coll}"
-                               f" is inf for par {pid}, method {method}."
-                               " This may have been caused by very small rsonic"
-                               " Continuing...")
-                        s.logger.warning(msg)
-                        continue
-                rprf = rprofs.sel(num=num)
-                # Net force at the critical radius is negative after the
-                # critical time, throughout the collapse.
-                if np.isfinite(core.critical_radius):
-                    rprf = rprf.interp(r=core.critical_radius)
-                    fnet = (rprf.Fthm + rprf.Ftrb + rprf.Fcen + rprf.Fani
-                            - rprf.Fgrv)
-                    if s.mhd:
-                        fnet += rprf.Fmag
-                    fnet = fnet.data[()]
-                else:
-                    fnet = np.nan
-                # Whatever fnet is, if it is not negative, we should break.
-                # That is, when rcrit = NaN or inf, we should break.
-                # However, NaN can be artificial, we can probably impose
-                # the upper limit on p.
-                if not fnet < 0:
-                    ncrit = num + 1
-                    if ncrit == cores.index[-1] + 1:
-                        ncrit = np.nan
-                        rcrit = np.nan
-                    else:
-                        rcrit = cores.loc[ncrit].critical_radius
-                        if not np.isfinite(rcrit):
-                            msg = (f"Critical radius at ncrit = {ncrit} is not "
-                                   f"finite for par {pid}: "
-                                   f"method={method}, rcrit={cores.loc[ncrit].critical_radius}.")
-                            s.logger.warning(msg)
-                            ncrit = np.nan
-                    break
-        if ncrit == cores.attrs['numcoll'] and np.isnan(cores.loc[ncrit].critical_radius):
-            # If ncrit is ncoll at which critical radius was nan, set ncrit to NaN.
-            ncrit = np.nan
-    elif method in ['virial0', 'virial1']:
+    # Earliest time after which the net force integrated within r_crit
+    # remains negative until the end of the collapse.
+    # To find this "empirical critical time", we start from t_coll
+    # and march backward in time.
+    num_buffer = 2
+    if np.all(cores.iloc[-(num_buffer+1):].pindex < 0):
+        s.logger.warning(
+            "pindex in the last three snapshots is negative."
+           f" for pid = {pid}."
+            " cannot calculate critical radius and thus the critical time"
+        )
+        ncrit = np.nan
+        rcrit = np.nan
+    else:
         for num, core in cores.sort_index(ascending=False).iterrows():
+            # Exclude t_coll snapshot at which the turbulence has amplified
+            # to produce nagative linewidth-size slope.
+            if num in cores.index[-num_buffer:]:
+                if np.isnan(core.critical_radius):
+                    n2coll = cores.attrs['numcoll'] - num
+                    msg = (f"Critical radius at t_coll - {n2coll}"
+                           f" is NaN for par {pid}, method {method}."
+                           " This may have been caused by negative pindex."
+                           " Continuing...")
+                    s.logger.warning(msg)
+                    continue
+                if np.isinf(core.critical_radius):
+                    n2coll = cores.attrs['numcoll'] - num
+                    msg = (f"Critical radius at t_coll - {n2coll}"
+                           f" is inf for par {pid}, method {method}."
+                           " This may have been caused by very small rsonic"
+                           " Continuing...")
+                    s.logger.warning(msg)
+                    continue
             rprf = rprofs.sel(num=num)
             # Net force at the critical radius is negative after the
             # critical time, throughout the collapse.
-            rcrit = core.virial_rcrit
-            if np.isnan(rcrit):
-                raise Exception(f"{s.basename}: virial_rcrit is NaN at num = {num} for pid = {pid}. Cannot calculate net force at r_crit.")
-            rprf = rprf.interp(r=rcrit)
-            if method == 'virial0':
-                if rcrit <= 3*s.dx:
-                    fnet_std = 0
+            if np.isfinite(core.critical_radius):
+                rprf = rprf.interp(r=core.critical_radius)
+                fnet = (rprf.Fthm + rprf.Ftrb + rprf.Fcen + rprf.Fani
+                        - rprf.Fgrv)
+                if s.mhd:
+                    fnet += rprf.Fmag
+                fnet = fnet.data[()]
+            else:
+                fnet = np.nan
+            # Whatever fnet is, if it is not negative, we should break.
+            # That is, when rcrit = NaN or inf, we should break.
+            # However, NaN can be artificial, we can probably impose
+            # the upper limit on p.
+            if not fnet < 0:
+                ncrit = num + 1
+                if ncrit == cores.index[-1] + 1:
+                    ncrit = np.nan
+                    rcrit = np.nan
                 else:
-                    fnet_std = rprofs.fnet.sel(num=num, r=slice(3*s.dx, rcrit)).std().data[()]
-                if rprf.Fnet > 0 or fnet_std > 0.3:
-                    ncrit = num + 1
-                    if ncrit == cores.index[-1] + 1:
-                        s.logger.warning(f"{s.basename}: Net force is positive at t_coll! pid = {pid}")
-                        rcrit = np.nan
-                    else:
-                        rcrit = cores.loc[ncrit].virial_rcrit
-                    break
-            elif method == 'virial1':
-                if rcrit <= 3*s.dx:
-                    fnet_std = 0
-                else:
-                    fnet_std = rprofs.fnet.sel(num=num, r=slice(3*s.dx, rcrit)).std().data[()]
-                if rprf.ptot < rprf.peq or fnet_std > 0.3:
-                    ncrit = num + 1
-                    if ncrit == cores.index[-1] + 1:
-                        s.logger.warning(f"{s.basename}: ptot < peq at t_coll! pid = {pid}")
-                        rcrit = np.nan
-                    else:
-                        rcrit = cores.loc[ncrit].virial_rcrit
-                    break
-    elif method == 'quadrant':
-        raise ValueError("The 'quadrant' method is no longer supported. Please use 'empirical' method instead.")
-
+                    rcrit = cores.loc[ncrit].critical_radius
+                    if not np.isfinite(rcrit):
+                        msg = (f"Critical radius at ncrit = {ncrit} is not "
+                               f"finite for par {pid}: "
+                               f"method={method}, rcrit={cores.loc[ncrit].critical_radius}.")
+                        s.logger.warning(msg)
+                        ncrit = np.nan
+                break
+    if ncrit == cores.attrs['numcoll'] and np.isnan(cores.loc[ncrit].critical_radius):
+        # If ncrit is ncoll at which critical radius was nan, set ncrit to NaN.
+        ncrit = np.nan
     if ncrit is None or ncrit == cores.index[-1] + 1:
-        # If the critical condition is satisfied for all time, or is not
-        # satisfied at t_coll, set ncrit to NaN.
-        # TODO: we may not want to discard those that the critical condition
-        # is satisfied for all times.
         ncrit = np.nan
         rcrit = np.nan
     return ncrit, rcrit
