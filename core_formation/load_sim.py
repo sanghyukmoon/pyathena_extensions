@@ -280,14 +280,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             if load_derived_cores:
                 self.cores_dict = {}
                 if hasattr(self, 'cores') and hasattr(self, 'rprofs'):
-                    radius_trajectories = {}
                     for onset_def in tools.COLLAPSE_ONSET_DEFINITIONS:
                         savdir = Path(self.savdir, config.CORE_DIR)
                         self.cores_dict[onset_def] = self.update_core_props(
                             onset_definition = onset_def,
                             savdir = savdir,
-                            force_override = override_derived_cores,
-                            radius_trajectories = radius_trajectories
+                            force_override = override_derived_cores
                         )
                 else:
                     self.logger.warning(
@@ -399,8 +397,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 good_cores.append(pid)
         return good_cores
 
-    def update_core_props(self, onset_definition, savdir=None, force_override=False,
-                          radius_trajectories=None):
+    def update_core_props(self, onset_definition, savdir=None, force_override=False):
         """Load or calculate complete core properties for an onset definition.
 
         Both modes reuse one cores_tcrit_{token}.par{pid}.nc per definition
@@ -409,9 +406,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         or generating new Lagrangian/observational products. Old aggregate
         pickle caches are ignored. Lagrangian products are loaded, not generated.
 
-        radius_trajectories shares calculated (core, radius choice, form-factor choice)
-        trajectories across methods during initialization; it is not persisted.
-
         Returns
         -------
         dict[int, pandas.DataFrame]
@@ -419,8 +413,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         """
         savdir = Path(savdir) if savdir is not None else Path(self.savdir, config.CORE_DIR)
         savdir.mkdir(parents=True, exist_ok=True)
-        if radius_trajectories is None:
-            radius_trajectories = {}
         core_dict = {}
         for pid in self.pids:
             cache = savdir / f'cores_tcrit_{onset_definition.filename_token}.par{pid}.nc'
@@ -466,11 +458,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             if onset_definition.rcrit_from == 'tes':
                 cores['rcrit'] = cores['rtes']
             else:
-                key = (pid, onset_definition.rcrit_from, onset_definition.fixed_form_factor)
-                if key not in radius_trajectories:
-                    radius_trajectories[key] = tools.virial_radius(
-                        rprofs, onset_definition)
-                cores['rcrit'] = radius_trajectories[key]
+                cores['rcrit'] = tools.virial_radius(rprofs, onset_definition)
 
             # Find critical time
             ncrit, rcrit = tools.critical_time(self, cores)
