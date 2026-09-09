@@ -6,7 +6,7 @@ import uuid
 from dask.distributed import Client
 from dask_jobqueue.slurm import SLURMRunner
 
-from core_formation import config, tasks, models, load_sim
+from core_formation import config, tasks, models, load_sim, tools
 
 jobid = uuid.uuid4().hex[:8]
 SCRIPT_PATH = f"./job{jobid}.slurm"
@@ -70,18 +70,27 @@ if __name__ == "__main__":
                 client.wait_for_workers(runner.n_workers)
 
                 for task in args.tasks:
-                    if task in ('save_minima', 'projections'):
-                        s = sa.set_model(args.model, load_derived_cores=False)
+                    if task in ('save_minima', 'projections', 'core_tracking',
+                                'critical_tes', 'collapse_history'):
+                        s = sa.set_model(args.model, skip_collapse_history=True)
                     elif task == 'radial_profile':
                         s = sa.set_model(args.model,
-                                         load_derived_cores=False)
+                                         skip_collapse_history=True)
                     else:
-                        s = sa.set_model(args.model, override_all=True)
-                    if task in ('lagrangian_props', 'plot_mass_radius',
+                        s = sa.set_model(args.model)
+                    if task in ('plot_mass_radius',
                                 'plot_core_structure', 'plot_diagnostics',
                                 'plot_core_evolution', 'plot_radial_profile_at_tcrit'):
                         all_cores = s.select_cores()
-                    if task in ('lagrangian_props', 'plot_mass_radius',
+                    if task == 'collapse_history':
+                        for onset_def in tools.COLLAPSE_ONSET_DEFINITIONS:
+                            for pid in s.pids:
+                                tasks.collapse_history(s, s.cores[pid], onset_def,
+                                                       overwrite=args.overwrite)
+                    elif task == 'critical_tes':
+                        for pid in s.pids:
+                            tasks.critical_tes(s, pid, overwrite=args.overwrite)
+                    elif task in ('plot_mass_radius',
                                 'plot_core_structure', 'plot_diagnostics'):
                         for pid in s.good_cores(all_cores):
                             tasks.__dict__[task](s, all_cores[pid], overwrite=args.overwrite)

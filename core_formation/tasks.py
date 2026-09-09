@@ -1,4 +1,5 @@
 import json
+from dataclasses import asdict
 
 """Module containing functions that are not generally reusable"""
 from pathlib import Path
@@ -398,26 +399,150 @@ def power_spectrum(s, nums=None, overwrite=False):
         ps.to_netcdf(ofname)
 
 
-def lagrangian_props(s, cores, *, overwrite=False):
-    """Calculate and save one core/onset definition's Lagrangian properties as NetCDF.
-
-    Missing trajectory profiles raise KeyError before writing. Existing files
-    are skipped unless overwrite=True; refresh derived-core caches afterward.
-    """
+def collapse_history(s, cores, onset_definition, *, overwrite=False):
+    """Calculate and save one core's intrinsic collapse and Lagrangian history."""
     pid = cores.attrs['pid']
-    onset_def = tools.CollapseOnsetDefinition(
-        **json.loads(cores.attrs["onset_definition"]))
-
-    # Check if file exists
-    ofname = Path(s.savdir, config.CORE_DIR, f'lprops_tcrit_{onset_def.filename_token}.par{pid}.nc')
+    ofname = Path(s.savdir, config.CORE_DIR,
+                  f'collapse_history_{onset_definition.filename_token}.par{pid}.nc')
     ofname.parent.mkdir(exist_ok=True)
     if ofname.exists() and not overwrite:
-        print('[lagrangian_props] file already exists. Skipping...')
         return
 
-    print(f'[lagrangian_props] Calculate Lagrangian props for core {pid} with onset definition {onset_def}')
-    lprops = tools.lagrangian_property(s, cores)
-    myio.save_dataframe(lprops.rename_axis('num'), ofname)
+    cores = cores.copy()
+    cores.attrs["onset_definition"] = json.dumps(asdict(onset_definition), sort_keys=True)
+    rprofs = s.rprofs[pid]
+
+    min_dst, mw_dst, min_dst_to_core = [], [], []
+    for core in cores.itertuples():
+        num = core.Index
+        pds = s.load_par(num)
+        dst, mass = [], []
+        if len(pds) == 0:
+            min_dst.append(np.nan)
+            mw_dst.append(np.nan)
+        else:
+            for par in pds.itertuples():
+                dst.append(s.distance_between(core.leaf_id,
+                                                 s.cartesian_to_flatindex(par.x1, par.x2, par.x3))[()])
+                mass.append(par.mass)
+            min_dst.append(min(dst))
+            mw_dst.append(np.average(dst, weights=mass))
+        for cid in s.pids:
+            other_cores = s.cores[cid]
+            if num not in other_cores.index:
+                continue
+            other_leaf_id = other_cores.at[num, 'leaf_id']
+            if other_leaf_id == core.leaf_id:
+                continue
+            dst.append(s.distance_between(core.leaf_id, other_leaf_id))
+        if len(dst) == 0:
+            min_dst_to_core.append(np.inf)
+        else:
+            min_dst_to_core.append(min(dst))
+    cores['min_dst_to_star'] = np.asarray(min_dst, dtype=np.float64)
+    cores['mw_dst_to_star'] = np.asarray(mw_dst, dtype=np.float64)
+    cores['min_dst_to_pscore'] = np.asarray(min_dst_to_core, dtype=np.float64)
+
+    if onset_definition.rcrit_from == 'tes':
+        cores['rcrit'] = cores['rtes']
+    else:
+        cores['rcrit'] = tools.virial_radius(rprofs, onset_definition)
+
+    # Find critical time
+    ncrit, rcrit = tools.critical_time(s, cores)
+    cores.attrs['numcrit'] = ncrit
+    if np.isnan(ncrit):
+        cores.attrs['tcrit'] = np.nan
+        cores.attrs['rcore'] = np.nan
+        cores.attrs['mcore'] = np.nan
+        cores.attrs['mean_density'] = np.nan
+        cores.attrs['tff_crit'] = np.nan
+    else:
+        core = cores.loc[ncrit]
+        rprf = rprofs.sel(num=ncrit)
+        rcore = rcrit
+        if np.isnan(rcore):
+            raise ValueError("Critical radius at t_crit is NaN: "
+                             f"Model {s.basename}, par {pid}, ncrit = {ncrit}"
+                             f" definition {onset_definition}")
+        if rcore > rprf.r.max()[()]:
+            msg = (
+                f"Core radius exceeds the maximum rprof radius for "
+                f"model {s.basename}, par {pid}. ncrit = {ncrit}, "
+                f"rcore = {rcore:.2f}; rprf_max = {rprf.r.max().data[()]:.2f}"
+            )
+            raise ValueError(msg)
+        if np.isfinite(rcore):
+            mcore = rprf.menc.interp(r=rcore).data[()]
+            mean_density = mcore / (4*np.pi*rcore**3/3)
+            tff_crit = tools.tfreefall(mean_density, s.gconst)
+        else:
+            mcore = np.nan
+            mean_density = np.nan
+            tff_crit = np.nan
+        cores.attrs['tcrit'] = core.time
+        cores.attrs['rcore'] = rcore
+        cores.attrs['mcore'] = mcore
+        cores.attrs['mean_density'] = mean_density
+        cores.attrs['tff_crit'] = tff_crit
+
+    # Calculate Lagrangian properties after determining the onset.
+    if np.isfinite(ncrit):
+        lprops = tools.lagrangian_property(s, cores)
+        # Save attributes before performing join, which will drop them.
+        attrs = cores.attrs.copy()
+        attrs.update(lprops.attrs)
+        cores = cores.join(lprops)
+        # Reattach attributes
+        cores.attrs = attrs
+
+        # Net force
+        Fnet = cores.Fthm + cores.Ftrb + cores.Fcen + cores.Fani - cores.Fgrv
+        if s.mhd:
+            Fnet += cores.Fmag
+        cores['Fnet'] = Fnet / cores.Fgrv
+
+    mcore = cores.attrs['mcore']
+    rcore = cores.attrs['rcore']
+
+    # Building time
+    if np.isnan(ncrit):
+        cores.attrs['dt_build'] = np.nan
+    else:
+        rprf = rprofs.sel(num=ncrit)
+        mdot = (-4*np.pi*rcore**2*rprf.rho*rprf.vel1_mw).interp(r=rcore).data[()]
+        cores.attrs['dt_build'] = mcore / mdot
+
+    # Collapse time
+    cores.attrs['dt_coll'] = cores.attrs['tcoll'] - cores.attrs['tcrit']
+
+    # Infall time
+    if np.isnan(mcore):
+        tf = np.nan
+    else:
+        phst = s.load_parhst(pid)
+        idx = phst.mass.sub(mcore).abs().argmin()
+        if idx == phst.index[-1]:
+            tf = np.nan
+        else:
+            tf = phst.loc[idx].time
+    cores.attrs['tinfall_end'] = tf
+    cores.attrs['dt_infall'] = tf - cores.attrs['tcoll']
+
+    # Calculate normalized times
+    cores.insert(1, 'tnorm1',
+                 (cores.time - cores.attrs['tcoll'])
+                  / cores.attrs['tff_crit'])
+    cores.insert(2, 'tnorm2',
+                 (cores.time - cores.attrs['tcrit']) / cores.attrs['dt_coll'])
+    cores.insert(3, 'tnorm3',
+                 (cores.time - cores.attrs['tcoll']) / cores.attrs['dt_coll'])
+
+
+    cores.attrs = {k: cores.attrs[k] for k in sorted(cores.attrs)}
+    myio.save_dataframe(cores, ofname)
+    ofname.with_name(f'collapse_history_{onset_definition.filename_token}.p').unlink(
+        missing_ok=True)
 
 
 def projections(s, nums=None, overwrite=False):

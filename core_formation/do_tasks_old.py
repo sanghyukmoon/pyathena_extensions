@@ -1,5 +1,3 @@
-from dataclasses import asdict
-
 from pathlib import Path
 import numpy as np
 import argparse
@@ -39,8 +37,8 @@ if __name__ == "__main__":
                         help="Perform reverse core tracking (prestellar phase)")
     parser.add_argument("--critical-tes", action="store_true",
                         help="Calculate critical TES of each cores")
-    parser.add_argument("--lagrangian-props", action="store_true",
-                        help="Calculate Lagrangian properties of cores")
+    parser.add_argument("--collapse-history", action="store_true",
+                        help="Calculate intrinsic collapse histories")
     parser.add_argument("--projections", action="store_true",
                         help="Calculate projections")
     parser.add_argument("--prj-radial-profile", action="store_true",
@@ -68,7 +66,7 @@ if __name__ == "__main__":
 
     # Select models
     for mdl in args.models:
-        s = sa.set_model(mdl, legacy=args.legacy, load_derived_cores=False)
+        s = sa.set_model(mdl, legacy=args.legacy, skip_collapse_history=True)
         if args.pid_start is not None and args.pid_end is not None:
             pids = np.arange(args.pid_start, args.pid_end+1)
         else:
@@ -109,7 +107,7 @@ if __name__ == "__main__":
 
         # Find t_coll cores and save their GRID-dendro node ID's.
         if args.track_cores:
-            s = sa.set_model(mdl, legacy=args.legacy, load_derived_cores=False)
+            s = sa.set_model(mdl, legacy=args.legacy, skip_collapse_history=True)
             def wrapper(pid):
                 tasks.core_tracking(s, [pid,], overwrite=args.overwrite)
             print(f"Perform core tracking for model {mdl}")
@@ -118,24 +116,22 @@ if __name__ == "__main__":
 
         # Find critical tes
         if args.critical_tes:
-            s = sa.set_model(mdl, legacy=args.legacy, override_rprofs=True,
-                             load_derived_cores=False)
+            s = sa.set_model(mdl, legacy=args.legacy, skip_collapse_history=True)
             print(f"find critical tes for cores for model {mdl}")
             def wrapper(pid):
                 tasks.critical_tes(s, pid, overwrite=args.overwrite)
             with Pool(args.np) as p:
                 p.map(wrapper, pids)
 
-        # Calculate Lagrangian properties
-        if args.lagrangian_props:
-            s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
-            print(f"Calculate Lagrangian properties for model {mdl}")
+        # Calculate each requested core's collapse history.
+        if args.collapse_history:
+            s = sa.set_model(mdl, legacy=args.legacy, skip_collapse_history=True)
             for onset_def in tools.COLLAPSE_ONSET_DEFINITIONS:
-                all_cores = s.select_cores(**asdict(onset_def))
                 def wrapper(pid):
-                    tasks.lagrangian_props(s, all_cores[pid], overwrite=args.overwrite)
+                    tasks.collapse_history(s, s.cores[pid], onset_def,
+                                           overwrite=args.overwrite)
                 with Pool(args.np) as p:
-                    p.map(wrapper, [pid for pid in s.good_cores(all_cores, 0) if pid in pids])
+                    p.map(wrapper, pids)
 
         if args.projections:
             s = sa.set_model(mdl, legacy=args.legacy)

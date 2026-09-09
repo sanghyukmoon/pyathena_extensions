@@ -8,7 +8,6 @@ import xarray as xr
 # Let's disable third party softwares to go conservative.
 # Accuracy is more important than performance.
 xr.set_options(use_bottleneck=False, use_numbagg=False)
-from dataclasses import asdict
 
 import numpy as np
 from pathlib import Path
@@ -70,8 +69,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
     def __init__(self, basedir_or_Mach=None, savdir=None,
                  verbose=False, override_all=False,
-                 override_rprofs=False, override_derived_cores=False,
-                 load_derived_cores=True, *, legacy=True):
+                 override_rprofs=False, override_collapse_history=False,
+                 skip_collapse_history=False, *, legacy=True):
         """The constructor for LoadSim class for core formation simulations.
 
         Parameters
@@ -106,7 +105,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
         if override_all==True:
             override_rprofs = True
-            override_derived_cores = True
+            override_collapse_history = True
 
         if isinstance(basedir_or_Mach, (Path, str)):
             basedir = basedir_or_Mach
@@ -276,22 +275,20 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     else:
                         self.logger.warning("Cannot find on-the-fly radial profile files to load.")
                     pass
-            # Load derived core informations using various alternative critical times
-            if load_derived_cores:
+            # Preparation does not require collapse-history products.
+            if not skip_collapse_history:
                 self.cores_dict = {}
-                if hasattr(self, 'cores') and hasattr(self, 'rprofs'):
-                    for onset_def in tools.COLLAPSE_ONSET_DEFINITIONS:
-                        savdir = Path(self.savdir, config.CORE_DIR)
-                        self.cores_dict[onset_def] = self.update_core_props(
-                            onset_definition = onset_def,
-                            savdir = savdir,
-                            force_override = override_derived_cores
-                        )
-                else:
-                    self.logger.warning(
-                        "Cannot initialize derived core properties: core tracks or "
-                        "radial profiles are unavailable."
-                    )
+                observations = self._load_observables()
+                for onset_def in tools.COLLAPSE_ONSET_DEFINITIONS:
+                    histories = self.load_collapse_history(onset_def)
+                    for pid, cores in histories.items():
+                        if pid in observations:
+                            attrs = cores.attrs.copy()
+                            attrs.update(observations[pid].attrs)
+                            cores = cores.join(observations[pid])
+                            cores.attrs = {k: attrs[k] for k in sorted(attrs)}
+                            histories[pid] = cores
+                    self.cores_dict[onset_def] = histories
         elif isinstance(basedir_or_Mach, (float, int)):
             self.Mach = basedir_or_Mach
             tools.LognormalPDF.__init__(self, self.Mach)
@@ -397,187 +394,29 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 good_cores.append(pid)
         return good_cores
 
-    def update_core_props(self, onset_definition, savdir=None, force_override=False):
-        """Load or calculate complete core properties for an onset definition.
-
-        Both modes reuse one cores_tcrit_{token}.par{pid}.nc per definition
-        until force_override
-        (override_derived_cores=True on LoadSim). Refresh after changing formulas
-        or generating new Lagrangian/observational products. Old aggregate
-        pickle caches are ignored. Lagrangian products are loaded, not generated.
-
-        Returns
-        -------
-        dict[int, pandas.DataFrame]
-            Complete core tables indexed by particle ID.
-        """
+    def load_collapse_history(self, onset_definition, savdir=None):
+        """Read complete intrinsic histories; missing core files raise."""
         savdir = Path(savdir) if savdir is not None else Path(self.savdir, config.CORE_DIR)
-        savdir.mkdir(parents=True, exist_ok=True)
-        core_dict = {}
-        for pid in self.pids:
-            cache = savdir / f'cores_tcrit_{onset_definition.filename_token}.par{pid}.nc'
-            if cache.exists() and not force_override:
-                core_dict[pid] = myio.load_dataframe(cache)
-                continue
+        return {
+            pid: myio.load_dataframe(
+                savdir / f'collapse_history_{onset_definition.filename_token}.par{pid}.nc')
+            for pid in self.pids
+        }
 
-            cores = self.cores[pid].copy()
-            cores.attrs["onset_definition"] = json.dumps(asdict(onset_definition), sort_keys=True)
-            rprofs = self.rprofs[pid]
-
-            min_dst, mw_dst, min_dst_to_core = [], [], []
-            for core in cores.itertuples():
-                num = core.Index
-                pds = self.load_par(num)
-                dst, mass = [], []
-                if len(pds) == 0:
-                    min_dst.append(np.nan)
-                    mw_dst.append(np.nan)
-                else:
-                    for par in pds.itertuples():
-                        dst.append(self.distance_between(core.leaf_id,
-                                                         self.cartesian_to_flatindex(par.x1, par.x2, par.x3))[()])
-                        mass.append(par.mass)
-                    min_dst.append(min(dst))
-                    mw_dst.append(np.average(dst, weights=mass))
-                for cid in self.pids:
-                    other_cores = self.cores[cid]
-                    if num not in other_cores.index:
-                        continue
-                    other_leaf_id = other_cores.at[num, 'leaf_id']
-                    if other_leaf_id == core.leaf_id:
-                        continue
-                    dst.append(self.distance_between(core.leaf_id, other_leaf_id))
-                if len(dst) == 0:
-                    min_dst_to_core.append(np.inf)
-                else:
-                    min_dst_to_core.append(min(dst))
-            cores['min_dst_to_star'] = np.asarray(min_dst, dtype=np.float64)
-            cores['mw_dst_to_star'] = np.asarray(mw_dst, dtype=np.float64)
-            cores['min_dst_to_pscore'] = np.asarray(min_dst_to_core, dtype=np.float64)
-
-            if onset_definition.rcrit_from == 'tes':
-                cores['rcrit'] = cores['rtes']
-            else:
-                cores['rcrit'] = tools.virial_radius(rprofs, onset_definition)
-
-            # Find critical time
-            ncrit, rcrit = tools.critical_time(self, cores)
-            cores.attrs['numcrit'] = ncrit
-            if np.isnan(ncrit):
-                cores.attrs['tcrit'] = np.nan
-                cores.attrs['rcore'] = np.nan
-                cores.attrs['mcore'] = np.nan
-                cores.attrs['mean_density'] = np.nan
-                cores.attrs['tff_crit'] = np.nan
-            else:
-                core = cores.loc[ncrit]
-                rprf = rprofs.sel(num=ncrit)
-                rcore = rcrit
-                if np.isnan(rcore):
-                    raise ValueError("Critical radius at t_crit is NaN: "
-                                     f"Model {self.basename}, par {pid}, ncrit = {ncrit}"
-                                     f" definition {onset_definition}")
-                if rcore > rprf.r.max()[()]:
-                    # TODO: raise a descriptive ValueError instead of omitting this core.
-                    msg = (
-                        f"Core radius exceeds the maximum rprof radius for "
-                        f"model {self.basename}, par {pid}. ncrit = {ncrit}, "
-                        f"rcore = {rcore:.2f}; rprf_max = {rprf.r.max().data[()]:.2f}"
-                    )
-                    self.logger.warning(msg)
-                    continue
-                if np.isfinite(rcore):
-                    mcore = rprf.menc.interp(r=rcore).data[()]
-                    mean_density = mcore / (4*np.pi*rcore**3/3)
-                    tff_crit = tools.tfreefall(mean_density, self.gconst)
-                else:
-                    mcore = np.nan
-                    mean_density = np.nan
-                    tff_crit = np.nan
-                cores.attrs['tcrit'] = core.time
-                cores.attrs['rcore'] = rcore
-                cores.attrs['mcore'] = mcore
-                cores.attrs['mean_density'] = mean_density
-                cores.attrs['tff_crit'] = tff_crit
-
-            # Load Lagrangian props
-            fname = Path(savdir, f'lprops_tcrit_{onset_definition.filename_token}.par{pid}.nc')
-            if fname.exists():
-                lprops = myio.load_dataframe(fname)
-                # Save attributes before performing join, which will drop them.
-                attrs = cores.attrs.copy()
-                attrs.update(lprops.attrs)
-                cores = cores.join(lprops)
-                # Reattach attributes
-                cores.attrs = attrs
-
-                # Net force
-                Fnet = cores.Fthm + cores.Ftrb + cores.Fcen + cores.Fani - cores.Fgrv
-                if self.mhd:
-                    Fnet += cores.Fmag
-                cores['Fnet'] = Fnet / cores.Fgrv
-
-            mcore = cores.attrs['mcore']
-            rcore = cores.attrs['rcore']
-
-            # Building time
-            if np.isnan(ncrit):
-                cores.attrs['dt_build'] = np.nan
-            else:
-                rprf = rprofs.sel(num=ncrit)
-                mdot = (-4*np.pi*rcore**2*rprf.rho*rprf.vel1_mw).interp(r=rcore).data[()]
-                cores.attrs['dt_build'] = mcore / mdot
-
-            # Collapse time
-            cores.attrs['dt_coll'] = cores.attrs['tcoll'] - cores.attrs['tcrit']
-
-            # Infall time
-            if np.isnan(mcore):
-                tf = np.nan
-            else:
-                phst = self.load_parhst(pid)
-                idx = phst.mass.sub(mcore).abs().argmin()
-                if idx == phst.index[-1]:
-                    tf = np.nan
-                else:
-                    tf = phst.loc[idx].time
-            cores.attrs['tinfall_end'] = tf
-            cores.attrs['dt_infall'] = tf - cores.attrs['tcoll']
-
-            # Calculate normalized times
-            cores.insert(1, 'tnorm1',
-                         (cores.time - cores.attrs['tcoll'])
-                          / cores.attrs['tff_crit'])
-            cores.insert(2, 'tnorm2',
-                         (cores.time - cores.attrs['tcrit']) / cores.attrs['dt_coll'])
-            cores.insert(3, 'tnorm3',
-                         (cores.time - cores.attrs['tcoll']) / cores.attrs['dt_coll'])
-
-
-            # Load available observed properties and attach them
-            prestellar_cores = cores.loc[:cores.attrs['numcoll']]
-            oprops = []
-            for num in prestellar_cores.index:
-                fname = Path(savdir, 'observables.par{}.{:05d}.p'.format(pid, num))
+    def _load_observables(self, savdir=None):
+        """Read available observational products independently of onset definition."""
+        savdir = Path(savdir) if savdir is not None else Path(self.savdir, config.CORE_DIR)
+        observations = {}
+        for pid, cores in self.cores.items():
+            rows = []
+            for num in cores.loc[:cores.attrs['numcoll']].index:
+                fname = savdir / f'observables.par{pid}.{num:05d}.p'
                 if fname.exists():
-                    oprops.append(pd.read_pickle(fname))
-            if len(oprops) > 0:
-                oprops = pd.DataFrame(oprops).set_index('num').sort_index().astype('float64')
-
-                # Save attributes before performing join, which will drop them.
-                attrs = cores.attrs.copy()
-                attrs.update(oprops.attrs)
-                cores = cores.join(oprops)
-                # Reattach attributes
-                cores.attrs = attrs
-
-            # Sort attributes
-            cores.attrs = {k: cores.attrs[k] for k in sorted(cores.attrs)}
-
-            myio.save_dataframe(cores, cache)
-            core_dict[pid] = cores
-
-        return core_dict
+                    rows.append(pd.read_pickle(fname))
+            if rows:
+                observations[pid] = (pd.DataFrame(rows).set_index('num')
+                                     .sort_index().astype('float64'))
+        return observations
 
     def flatindex_to_cartesian(self, flatindex, return_index=False):
         """Cartesian coordinates corresponding to flattened index
