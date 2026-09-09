@@ -99,7 +99,9 @@ old files are not translated or deleted. Normal analysis requires all expected
 cores for every configured onset definition. Preparation uses
 `skip_collapse_history=True` and does not require these files.
 
-`load_collapse_history(onset_def)` reads intrinsic histories only. Initialization
+`_load_collapse_history` is an internal reader of intrinsic histories. Its
+required `filebase` and `savdir` arguments are supplied by initialization, which
+checks that every expected core is present. Initialization
 separately joins available observational products for consumers; observations
 never enter the intrinsic history NetCDF or its aggregate pickle. Updating
 observations does not require recomputing collapse histories.

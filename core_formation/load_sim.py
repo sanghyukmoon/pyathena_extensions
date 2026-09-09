@@ -297,8 +297,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     savdir=Path(self.savdir, config.CORE_DIR),
                     force_override=override_observables)
                 for onset_def in tools.COLLAPSE_ONSET_DEFINITIONS:
-                    histories = self.load_collapse_history(
-                        onset_def, force_override=override_collapse_history)
+                    histories = self._load_collapse_history(
+                        filebase=f'collapse_history_{onset_def.filename_token}',
+                        savdir=Path(self.savdir, config.CORE_DIR),
+                        force_override=override_collapse_history)
+                    if set(histories) != set(self.pids):
+                        raise ValueError("Collapse-history cache does not contain the expected pids")
                     for pid, cores in histories.items():
                         if pid in observations:
                             attrs = cores.attrs.copy()
@@ -412,23 +416,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 good_cores.append(pid)
         return good_cores
 
-    def load_collapse_history(self, onset_definition, *, force_override=False):
-        """Load every core's intrinsic history for one onset definition.
-
-        force_override rebuilds the aggregate from NetCDF; scientific
-        recomputation belongs to tasks.collapse_history.
-        """
-        histories = self._load_collapse_history(
-            savdir=Path(self.savdir, config.CORE_DIR),
-            filebase=f'collapse_history_{onset_definition.filename_token}',
-            force_override=force_override)
-        if set(histories) != set(self.pids):
-            raise ValueError("Collapse-history cache does not contain the expected pids")
-        return histories
-
     @LoadSimBase.Decorators.check_pickle
-    def _load_collapse_history(self, prefix='collapse_history', filebase=None,
-                               savdir=None, force_override=False):
+    def _load_collapse_history(self, *, filebase, savdir, force_override=False):
         """Read one definition's complete NetCDF histories for aggregation."""
         return {
             pid: myio.load_dataframe(Path(savdir, f'{filebase}.par{pid}.nc'))
