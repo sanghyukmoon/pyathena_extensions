@@ -199,6 +199,7 @@ def critical_tes(s, pid, overwrite=False):
         return
     frame = pd.DataFrame(results).set_index('num').sort_index()
     myio.save_dataframe(frame, ofname)
+    ofname.with_name("cores.p").unlink(missing_ok=True)
 
 
 def core_tracking(s, pids=None, overwrite=False):
@@ -230,6 +231,7 @@ def core_tracking(s, pids=None, overwrite=False):
 
         cores = tools.track_cores(s, pid)
         myio.save_dataframe(cores, ofname)
+        ofname.with_name("cores.p").unlink(missing_ok=True)
 
 
 def radial_profile(s, nums=None, pids=None, overwrite=False, all_minima=False):
@@ -630,6 +632,7 @@ def observables(s, pid, num, overwrite=False):
         ofname.unlink()
     with open(ofname, 'wb') as handle:
         pickle.dump(observables, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    ofname.with_name("observables.p").unlink(missing_ok=True)
 
 
 def save_minima(s, overwrite=False):

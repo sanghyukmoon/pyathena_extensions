@@ -68,11 +68,72 @@ positive values apply the resolution filter. `itercritcore` retains its existing
 `(s, pid, core_series, rprf)` return. Space-time plots select their background
 population using the target table's definition.
 
-Caches must be rebuilt with the current schema. Cache reads return the saved
-tables directly, without metadata repair or compatibility translation. After
-generating Lagrangian or observational products, explicitly refresh derived caches with `override_derived_cores=True`
-on a new `LoadSim`. The selector does not generate these optional products.
-Plots that use dendrogram properties still require those properties.
+## Preparation and loading
+
+The preparation order is tracking, radial profiles, critical TES, then collapse
+history. TES products remain independent of the onset definition. Legacy
+individual and concatenated profiles are stable inputs.
+
+```python
+from core_formation import tasks, tools
+
+s = load_sim.LoadSim(basedir, savdir=savdir, skip_collapse_history=True)
+for onset_def in tools.COLLAPSE_ONSET_DEFINITIONS:
+    for pid, cores in s.cores.items():
+        tasks.collapse_history(s, cores, onset_def, overwrite=True)
+
+s = load_sim.LoadSim(basedir, savdir=savdir)
+all_cores = s.select_cores()
+```
+
+The multiprocessing runner exposes `--collapse-history` in place of
+`--lagrangian-props`; the Dask runner uses the `collapse_history` task name.
+`--critical-tes` remains separate. History preparation includes every requested
+core, without resolution filtering. An unresolved onset is saved with NaN onset
+properties and no Lagrangian calculation.
+
+Each intrinsic history is stored as
+`cores/collapse_history_<onset_token>.par<pid>.nc`. These files replace the old
+separate derived-core and Lagrangian products. Run the new task to generate them;
+old files are not translated or deleted. Normal analysis requires all expected
+cores for every configured onset definition. Preparation uses
+`skip_collapse_history=True` and does not require these files.
+
+`load_collapse_history(onset_def)` reads intrinsic histories only. Initialization
+separately joins available observational products for consumers; observations
+never enter the intrinsic history NetCDF or its aggregate pickle. Updating
+observations does not require recomputing collapse histories.
+
+The existing pyathena `check_pickle` decorator accelerates loading with disposable
+aggregate dictionaries:
+
+| Data | Pickle |
+|---|---|
+| Base trajectories and TES | `cores/cores.p` |
+| Complete radial profiles | `radial_profile/radial_profile.p` |
+| Intrinsic histories | `cores/collapse_history_<onset_token>.p` |
+| Observations | `cores/observables.p` |
+
+`override_cores`, `override_rprofs`, `override_collapse_history`, and
+`override_observables` rebuild their respective aggregates. `override_all` refreshes
+all enabled loading stages; it does not enable skipped histories. Constructor
+`override_collapse_history=True` (or reader `force_override=True`) reloads NetCDF,
+not scientific calculations. Use `tasks.collapse_history(..., overwrite=True)`
+for scientific recomputation.
+
+History, tracking/TES, and observational tasks invalidate their directly affected
+aggregate pickles. Reload for analysis after preparation. Upstream scientific
+changes require explicit downstream task reruns. No timestamp scans, compatibility
+repair, or automatic downstream recalculation are performed. Delete incompatible
+pickle caches or explicitly override them; their durable source products remain.
+
+For legacy profiles, `override_rprofs=True` recomputes derived fields from the
+existing concatenation and replaces only the complete-profile pickle. Concatenation
+is created if absent or rebuilt by explicitly calling `concat_radial_profiles()`.
+For non-legacy profiles, the aggregate is rebuilt directly from on-the-fly outputs;
+per-core complete-profile NetCDF intermediates are no longer used. Continue using
+separate savdirs when comparing the two source modes. Plots requiring dendrogram
+properties still require those products.
 
 The definition constructs the chosen ratio with `onset_def.virial_ratio(profile)`
 and evaluates a single snapshot with `onset_def.is_collapsing(profile, rcrit)`.

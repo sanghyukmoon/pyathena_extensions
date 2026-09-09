@@ -68,8 +68,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
     """
 
     def __init__(self, basedir_or_Mach=None, savdir=None,
-                 verbose=False, override_all=False,
+                 verbose=False, override_all=False, override_cores=False,
                  override_rprofs=False, override_collapse_history=False,
+                 override_observables=False,
                  skip_collapse_history=False, *, legacy=True):
         """The constructor for LoadSim class for core formation simulations.
 
@@ -88,6 +89,13 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             ('NOTSET', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
             Numerical values from 0 ('NOTSET') to 50 ('CRITICAL') are also
             accepted.
+        skip_collapse_history : bool
+            Skip history and observational loading during preparation.
+        override_cores, override_rprofs, override_collapse_history, override_observables : bool
+            Rebuild the corresponding aggregate pickle. History refresh reads
+            NetCDF products; only the collapse_history task recomputes them.
+        override_all : bool
+            Refresh all enabled loading stages. Does not enable skipped histories.
         legacy : bool
             Read existing Python radial profiles (default True), or on-the-fly
             profiles. Use separate savdirs when comparing the two sources.
@@ -103,9 +111,11 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         self.gconst = np.pi
         self.tff0 = tools.tfreefall(self.rho0, self.gconst)
 
-        if override_all==True:
+        if override_all:
+            override_cores = True
             override_rprofs = True
             override_collapse_history = True
+            override_observables = True
 
         if isinstance(basedir_or_Mach, (Path, str)):
             basedir = basedir_or_Mach
@@ -253,7 +263,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 try:
                     # Load cores
                     savdir = Path(self.savdir, config.CORE_DIR)
-                    self.cores = self._load_cores(savdir=savdir)
+                    self.cores = self._load_cores(
+                        savdir=savdir, force_override=override_cores)
+                    if set(self.cores) != set(self.pids):
+                        raise ValueError("Base-core cache does not contain the expected pids")
                 except FileNotFoundError:
                     self.logger.warning("Cannot find core files to load.")
                     pass
@@ -266,6 +279,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                         savdir = savdir,
                         force_override = override_rprofs
                     )
+                    if set(self.rprofs) != set(self.cores):
+                        raise ValueError("Radial-profile cache does not contain the expected pids")
                 except FileNotFoundError:
                     if self.legacy:
                         self.logger.warning("Cannot find radial profile files to load. "
@@ -278,9 +293,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             # Preparation does not require collapse-history products.
             if not skip_collapse_history:
                 self.cores_dict = {}
-                observations = self._load_observables()
+                observations = self._load_observables(
+                    savdir=Path(self.savdir, config.CORE_DIR),
+                    force_override=override_observables)
                 for onset_def in tools.COLLAPSE_ONSET_DEFINITIONS:
-                    histories = self.load_collapse_history(onset_def)
+                    histories = self.load_collapse_history(
+                        onset_def, force_override=override_collapse_history)
                     for pid, cores in histories.items():
                         if pid in observations:
                             attrs = cores.attrs.copy()
@@ -394,16 +412,32 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 good_cores.append(pid)
         return good_cores
 
-    def load_collapse_history(self, onset_definition, savdir=None):
-        """Read complete intrinsic histories; missing core files raise."""
-        savdir = Path(savdir) if savdir is not None else Path(self.savdir, config.CORE_DIR)
+    def load_collapse_history(self, onset_definition, *, force_override=False):
+        """Load every core's intrinsic history for one onset definition.
+
+        force_override rebuilds the aggregate from NetCDF; scientific
+        recomputation belongs to tasks.collapse_history.
+        """
+        histories = self._load_collapse_history(
+            savdir=Path(self.savdir, config.CORE_DIR),
+            filebase=f'collapse_history_{onset_definition.filename_token}',
+            force_override=force_override)
+        if set(histories) != set(self.pids):
+            raise ValueError("Collapse-history cache does not contain the expected pids")
+        return histories
+
+    @LoadSimBase.Decorators.check_pickle
+    def _load_collapse_history(self, prefix='collapse_history', filebase=None,
+                               savdir=None, force_override=False):
+        """Read one definition's complete NetCDF histories for aggregation."""
         return {
-            pid: myio.load_dataframe(
-                savdir / f'collapse_history_{onset_definition.filename_token}.par{pid}.nc')
+            pid: myio.load_dataframe(Path(savdir, f'{filebase}.par{pid}.nc'))
             for pid in self.pids
         }
 
-    def _load_observables(self, savdir=None):
+    @LoadSimBase.Decorators.check_pickle
+    def _load_observables(self, prefix="observables", savdir=None,
+                          force_override=False):
         """Read available observational products independently of onset definition."""
         savdir = Path(savdir) if savdir is not None else Path(self.savdir, config.CORE_DIR)
         observations = {}
@@ -589,7 +623,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         tcoll_cores.index.name = 'pid'
         return tcoll_cores
 
-    def _load_cores(self, savdir=None):
+    @LoadSimBase.Decorators.check_pickle
+    def _load_cores(self, prefix="cores", savdir=None, force_override=False):
+        savdir = Path(savdir) if savdir is not None else Path(self.savdir, config.CORE_DIR)
         cores_dict = {}
         pids_not_found = []
 
@@ -722,27 +758,20 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             pickle.dump(rprofs_dict, handle)
         return rprofs_dict
 
-    def _load_radial_profiles(self, savdir=None, force_override=False):
-        """Load complete profiles, using per-core NetCDF caches in non-legacy mode.
+    @LoadSimBase.Decorators.check_pickle
+    def _load_radial_profiles(self, prefix='radial_profile', savdir=None,
+                              force_override=False):
+        """Assemble and derive complete profiles for the aggregate pickle.
 
-        Existing non-legacy caches are reused without assembly or derivation.
-        Set force_override=True (override_rprofs=True on LoadSim) to rebuild
-        after changing derived formulas. Old non-legacy pickle caches are ignored.
-        Use separate savdirs when comparing legacy and non-legacy profiles.
+        Legacy concatenated profiles are stable inputs. Non-legacy profiles
+        are assembled directly from on-the-fly outputs. Use separate savdirs
+        when comparing the two modes.
         """
         if self.legacy:
-            return self._load_radial_profiles_legacy(
-                savdir=savdir, force_override=force_override)
+            return self._load_radial_profiles_legacy(savdir=savdir)
 
-        savdir = Path(savdir or Path(self.savdir, config.RPROF_DIR))
-        savdir.mkdir(parents=True, exist_ok=True)
         rprofs_dict = {}
         for pid, cores in self.cores.items():
-            fname = savdir / f'radial_profile.par{pid}.nc'
-            if fname.exists() and not force_override:
-                rprofs_dict[pid] = xr.load_dataset(fname, engine='netcdf4')
-                continue
-
             profiles = []
             for core in cores.itertuples():
                 num = core.Index
@@ -751,27 +780,21 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 profiles.append(profile.expand_dims(t=[self.times[num]]))
             profile = xr.concat(profiles, 't', join='exact', combine_attrs='drop_conflicts')
             raw = profile.assign_coords(num=('t', cores.index))
-            complete = radial_profiles.derive_radial_profiles(self, raw)
-            complete.to_netcdf(fname, engine='netcdf4')
-            rprofs_dict[pid] = complete
+            rprofs_dict[pid] = radial_profiles.derive_radial_profiles(self, raw)
         return rprofs_dict
 
-    @LoadSimBase.Decorators.check_pickle
-    def _load_radial_profiles_legacy(self, prefix='radial_profile', savdir=None,
-                                    force_override=False):
-        """Load legacy profiles with the existing concatenation and pickle caches."""
-        fname_concat = savdir / 'radial_profile.concatenated.p'
+    def _load_radial_profiles_legacy(self, savdir=None):
+        """Derive complete legacy profiles from the stable raw concatenation."""
+        fname_concat = Path(savdir, 'radial_profile.concatenated.p')
         if not fname_concat.exists():
             raw_rprofs_dict = self.concat_radial_profiles()
         else:
             with open(fname_concat, 'rb') as handle:
                 raw_rprofs_dict = pickle.load(handle)
-
-        rprofs_dict = {}
-        for pid, rprofs in raw_rprofs_dict.items():
-            rprofs_dict[pid] = radial_profiles.derive_radial_profiles(self, rprofs)
-
-        return rprofs_dict
+        return {
+            pid: radial_profiles.derive_radial_profiles(self, rprofs)
+            for pid, rprofs in raw_rprofs_dict.items()
+        }
 
     def load_power_spectrum(self, force_override=False):
         """
