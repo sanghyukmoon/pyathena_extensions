@@ -291,7 +291,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                         self.logger.warning("Cannot find on-the-fly radial profile files to load.")
                     pass
             # Preparation does not require collapse-history products.
-            if not skip_collapse_history:
+            if hasattr(self, 'cores') and hasattr(self, 'rprofs') and not skip_collapse_history:
                 self.cores_dict = {}
                 observations = self._load_observables(
                     savdir=Path(self.savdir, config.CORE_DIR),
@@ -405,7 +405,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         """
         onset_def = tools.CollapseOnsetDefinition(
             rcrit_from, fixed_form_factor, criterion, require_small_std)
-        return self.cores_dict[onset_def].copy()
+        return self.cores_dict[onset_def]
 
     def good_cores(self, all_cores, nres=8):
         """Return resolved particle IDs from the supplied selected population."""
