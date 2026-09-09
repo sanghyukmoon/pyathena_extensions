@@ -396,16 +396,16 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
     def select_cores(self, *, rcrit_from="virial_mass", fixed_form_factor=None,
                      criterion="net_force", require_small_std=None):
-        """Return an independent pid-to-table dictionary for an onset definition.
+        """Return a shallow copy of the pid-to-table dictionary for a definition.
 
-        The base trajectories in self.cores and cached derived tables in
-        self.cores_dict remain unchanged. Each returned table carries its
-        definition as JSON in attrs["onset_definition"].
+        DataFrames are shared with self.cores_dict; changes to their contents
+        affect the cached tables. Adding or removing dictionary entries does
+        not affect self.cores_dict. Each table carries its definition as JSON
+        in attrs["onset_definition"].
         """
         onset_def = tools.CollapseOnsetDefinition(
             rcrit_from, fixed_form_factor, criterion, require_small_std)
-        return {pid: cores.copy(deep=True)
-                for pid, cores in self.cores_dict[onset_def].items()}
+        return self.cores_dict[onset_def].copy()
 
     def good_cores(self, all_cores, nres=8):
         """Return resolved particle IDs from the supplied selected population."""

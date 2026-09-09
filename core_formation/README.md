@@ -2,8 +2,9 @@
 
 `LoadSim` keeps tracked trajectories and TES properties in `s.cores`. Derived
 trajectories for all 17 definitions are cached in `s.cores_dict[onset_def][pid]`.
-Selection returns independent DataFrame copies and leaves both collections
-unchanged.
+Selection returns a shallow dictionary copy whose DataFrames are shared with
+`s.cores_dict`. Adding or removing dictionary entries affects only the returned
+dictionary; editing a DataFrame also changes the cached table.
 
 ```python
 from core_formation import load_sim, plots
