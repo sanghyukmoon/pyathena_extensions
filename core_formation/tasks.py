@@ -294,10 +294,10 @@ def radial_profile(s, nums=None, pids=None, overwrite=False, all_minima=False):
             center = dict(zip(['x', 'y', 'z'], center))
 
             # Roll the data such that the core is at the center of the domain
-            ds, center, _ = tools.recenter_dataset(ds0, center)
+            ds = tools.recenter_dataset(ds0, center)
 
             # Calculate radial profile
-            rprf = tools.radial_profile(s, ds, list(center.values()),
+            rprf = tools.radial_profile(s, ds, (0, 0, 0),
                                         rmax=0.53, compute_flux=True)
             rprf = rprf.expand_dims(dict(t=[ds.Time,]))
 
@@ -901,8 +901,8 @@ def calculate_linewidth_size(s, num, seed=None, pid=None, overwrite=False, ds=No
     else:
         raise ValueError("Provide either seed or pid")
 
-    ds, origin, _ = tools.recenter_dataset(ds, dict(x=origin[0], y=origin[1], z=origin[2]))
-    ds.coords['r'] = np.sqrt((ds.z - origin['z'])**2 + (ds.y - origin['y'])**2 + (ds.x - origin['x'])**2)
+    ds = tools.recenter_dataset(ds, dict(x=origin[0], y=origin[1], z=origin[2]))
+    ds.coords['r'] = np.sqrt(ds.z**2 + ds.y**2 + ds.x**2)
 
     rmax = s.Lbox/2
 
@@ -915,12 +915,12 @@ def calculate_linewidth_size(s, num, seed=None, pid=None, overwrite=False, ds=No
     for dim, axis in zip(['x', 'y', 'z'], [1, 2, 3]):
         # Recenter velocity
         vel_ = ds['vel{}'.format(axis)]
-        dvel_ = vel_ - vel_.sel(x=origin['x'], y=origin['y'], z=origin['z'])
+        dvel_ = vel_ - vel_.sel(x=0, y=0, z=0)
         ds[f'vel{axis}'] = dvel_
         vel[dim] = dvel_
 
     _, (ds['vels1'], ds['vels2'], ds['vels3'])\
-        = transform.to_spherical(vel.values(), origin.values())
+        = transform.to_spherical(vel.values(), (0, 0, 0))
 
     rprf = {}
     for cum_flag, suffix in zip([True, False], ['', '_sh']):

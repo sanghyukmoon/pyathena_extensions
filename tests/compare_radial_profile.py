@@ -41,8 +41,8 @@ def main():
         abs(float(ds.Time)), abs(onthefly.attrs['time']))
     center = dict(zip(('x', 'y', 'z'), s.flatindex_to_cartesian(center_id)))
     print(f'num={args.num}, center_id={center_id}, center={center}', flush=True)
-    ds, center, _ = tools.recenter_dataset(ds, center)
-    python = tools.radial_profile(s, ds, list(center.values()),
+    ds = tools.recenter_dataset(ds, center)
+    python = tools.radial_profile(s, ds, (0, 0, 0),
                                  rmax=onthefly.attrs['rmax'], nsub=onthefly.attrs['nsub'],
                                  compute_flux=True).compute()
     onthefly.to_netcdf(work / 'onthefly.nc')

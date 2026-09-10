@@ -729,16 +729,14 @@ def radial_profile_projected(s, num, origin):
         x1, x2 = xycoordnames[ax]
         x1c, x2c = xycenters[ax]
         ds = prj[ax][qty].copy(deep=True)
-        ds, new_center, _ = recenter_dataset(ds, {x1:x1c, x2:x2c})
-        ds.coords['R'] = np.sqrt((ds.coords[x1] - new_center[x1])**2
-                                 + (ds.coords[x2] - new_center[x2])**2)
-        rprf_c = ds.sel({x1:new_center[x1], x2:new_center[x2]}).drop_vars([x1, x2])
+        ds = recenter_dataset(ds, {x1:x1c, x2:x2c})
+        ds.coords['R'] = np.sqrt(ds.coords[x1]**2 + ds.coords[x2]**2)
+        rprf_c = ds.sel({x1: 0, x2: 0}).drop_vars([x1, x2])
         if mass_weighted:
             method, nth = qty.split('mtd')[1].split('_nc')
             w = prj[ax][f'Sigma_gas_mtd{method}_nc{nth}'].copy(deep=True)
-            w, _, _ = recenter_dataset(w, {x1:x1c, x2:x2c})
-            w.coords['R'] = np.sqrt((w.coords[x1] - new_center[x1])**2
-                                    + (w.coords[x2] - new_center[x2])**2)
+            w = recenter_dataset(w, {x1:x1c, x2:x2c})
+            w.coords['R'] = np.sqrt(w.coords[x1]**2 + w.coords[x2]**2)
             if rms:
                 rprf = np.sqrt(transform.groupby_bins(ds**2*w, 'R', nbin, (hdx, redge), skipna=True)
                                / transform.groupby_bins(w, 'R', nbin, (hdx, redge), skipna=True))
@@ -911,15 +909,13 @@ def observable(s, pid, num):
 
     # Read 3d data cube
     dens_3d = s.load_hdf5(num, quantities=['dens']).dens
-    dens_3d, new_center_3d, _ = recenter_dataset(dens_3d, dict(x=xc, y=yc, z=zc))
+    dens_3d = recenter_dataset(dens_3d, dict(x=xc, y=yc, z=zc))
     for i, ax in enumerate(['x', 'y', 'z']):
         x1, x2 = xycoordnames[ax]
         x1c, x2c = xycenters[ax]
-        dens_3d.coords[f'{ax}_rpos'] = np.sqrt((dens_3d.coords[x1] -
-                                                new_center_3d[x1])**2
-                                               + (dens_3d.coords[x2] -
-                                                  new_center_3d[x2])**2)
-        dens_3d.coords[f'{ax}_rlos'] = np.abs(dens_3d.coords[ax] - new_center_3d[ax])
+        dens_3d.coords[f'{ax}_rpos'] = np.sqrt(dens_3d.coords[x1]**2
+                                               + dens_3d.coords[x2]**2)
+        dens_3d.coords[f'{ax}_rlos'] = np.abs(dens_3d.coords[ax])
 
     # Simplest background subtraction -- average column in the whole box
     dcol_bgr0 = s.rho0*s.Lbox
@@ -980,10 +976,9 @@ def observable(s, pid, num):
                 # Set up 2D maps
                 dcol_map = prj[ax][f'Sigma_gas_mtd{threshold_method}_nc{nthr}'].copy(deep=True)
                 dv_map = prj[ax][f'veldisp_mtd{threshold_method}_nc{nthr}'].copy(deep=True)
-                dcol_map, _, _ = recenter_dataset(dcol_map, {x1: x1c, x2: x2c})
-                dv_map, new_center, _ = recenter_dataset(dv_map, {x1: x1c, x2: x2c})
-                rpos = np.sqrt((dv_map.coords[x1] - new_center[x1])**2
-                               + (dv_map.coords[x2] - new_center[x2])**2)
+                dcol_map = recenter_dataset(dcol_map, {x1: x1c, x2: x2c})
+                dv_map = recenter_dataset(dv_map, {x1: x1c, x2: x2c})
+                rpos = np.sqrt(dv_map.coords[x1]**2 + dv_map.coords[x2]**2)
 
                 # POS radius at which any pixel falls below dcol_bgr
                 dcol_c = dcol_prf.isel(R=0).data[()]
@@ -1388,26 +1383,25 @@ def get_sonic(Mach_outer, l_outer, p=0.5):
 
 
 def recenter_dataset(ds, center, by_index=False):
-    """Recenter whole dataset or dataarray.
+    """Roll data periodically and place the selected cell at coordinate zero.
 
     Parameters
     ----------
     ds : xarray.Dataset or xarray.DataArray
-        Dataset to be recentered.
+        Dataset or array to recenter; the input is not modified.
     center : dict
-        {x:xc, y:yc} or {x:xc, y:yc, z:zc}, etc.
+        Cell coordinates in the dimensions to recenter, e.g. {x: xc, y: yc}.
+    by_index : bool, optional
+        Interpret center values as cell indices instead of coordinates.
 
     Returns
     -------
-    ds_recentered : xarray.Dataset or xarray.DataArray
-        Recentered dataset.
-    new_center : tuple
-        Position of the new center. This must be the grid coordinates
-        closest, but not exactly the same, to (0, 0, 0).
-    shift : dict
-        Shifts in each dimension.
+    xarray.Dataset or xarray.DataArray
+        Data rolled to place the selected cell at index N // 2 in each
+        requested dimension, with coordinates translated to put it at zero.
+        Other dimensions are unchanged. No interpolation is performed.
     """
-    shift, new_center = {}, {}
+    shift = {}
     for dim, pos in center.items():
         hNx = ds.sizes[dim] // 2
         coords = ds.coords[dim].data
@@ -1416,10 +1410,11 @@ def recenter_dataset(ds, center, by_index=False):
             shift[dim] = hNx - pos
         else:
             shift[dim] = hNx - np.where(np.isclose(coords, pos, atol=0.1*dx))[0][0]
-        new_center[dim] = ds.coords[dim].isel({dim: hNx}).data[()]
-    ds_recentered = ds.roll(shift)
-
-    return ds_recentered, new_center, shift
+    recentered = ds.roll(shift, roll_coords=False)
+    return recentered.assign_coords({
+        dim: ds.coords[dim] - ds.coords[dim].isel({dim: ds.sizes[dim] // 2})
+        for dim in center
+    })
 
 
 def get_rhocrit_KM05(lmb_sonic):

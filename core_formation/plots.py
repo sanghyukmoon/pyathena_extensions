@@ -898,11 +898,11 @@ def plot_core_evolution(s, cores, num, hw=0.1):
 
     # Zoom-in dataset
     sel = dict(x=slice(-hw, hw), y=slice(-hw, hw), z=slice(-hw, hw))
-    d, center, _ = tools.recenter_dataset(ds, dict(x=xc, y=yc, z=zc))
+    d = tools.recenter_dataset(ds, dict(x=xc, y=yc, z=zc))
     d = d.sel(sel)
     for i in '123':
         vel = d[f'mom{i}']/d.dens
-        vel_origin = vel.sel(x=center['x'], y=center['y'], z=center['z'])
+        vel_origin = vel.sel(x=0, y=0, z=0)
         d[f'vel{i}'] = vel - vel_origin
 
     fields = ('dens', 'b_stream') if s.mhd else 'dens'
