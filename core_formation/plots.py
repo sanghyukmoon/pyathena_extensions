@@ -1134,7 +1134,10 @@ def plot_sinkhistory(s, num):
     # plot particle history
     plt.sca(ax3)
     nformed = (s.tcoll_cores.time <= snapshot_time).sum()
-    ax3.text(0.01, 0.93, rf"$\text{{number of sinks formed}}={nformed}/{len(s.pids)}$", transform=ax3.transAxes)
+    sfe = pds.mass.sum() / (s.rho0*s.Lbox**3)
+    ax3.text(0.01, 0.93,
+             rf"$\text{{number of sinks formed}}={nformed}/{len(s.pids)},\quad "
+             rf"\mathrm{{SFE}}={100*sfe:.2f}\%$", transform=ax3.transAxes)
     for pid in s.pids:
         phst = s.load_parhst(pid)
         time = phst.time

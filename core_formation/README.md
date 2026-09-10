@@ -47,7 +47,9 @@ The `plot_core_evolution` and `plot_sink_history` batch tasks use discovered
 projection epochs and initialize in non-legacy mode. Filenames and overwrite
 behavior are unchanged; explicitly overwrite existing images to regenerate
 them. The sink-history label shows sinks formed by the snapshot time over the
-total historical count, including sinks that later merged. Curves retain the
+total historical count, including sinks that later merged. Beside it, SFE is
+the current snapshot's total sink mass divided by the initial uniform gas mass
+(`rho0 * Lbox**3`), displayed as a percentage. Curves retain the
 strict snapshot-time cutoff and the `tend + 0.01` right-hand limit so the final
 marker remains visible.
 
