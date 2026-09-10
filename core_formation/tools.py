@@ -89,7 +89,7 @@ class LognormalPDF:
 
 
 def find_tcoll_core(s, pid):
-    """Find the GRID-dendro ID of the t_coll core of particle pid
+    """Find the minima corresponding to t_coll core of given pid
 
     Parameters
     ----------
@@ -147,11 +147,6 @@ def track_cores(s, pid):
     print(msg)
 
     lid = find_tcoll_core(s, pid)
-
-    # Test if any star particle is contained inside t_coll core.
-    # TODO: This requires dendrogram construction; We should change algorithm
-    # for usage in AthenaK
-
     nums_track = [num,]
     time = [s.times[num],]
     leaf_id = [lid,]
@@ -176,60 +171,6 @@ def track_cores(s, pid):
     cores.attrs['numcoll'] = numcoll
 
     return cores
-
-
-def tidal_radius():
-    # TODO implement tidal radius calculation based on radial profiles of
-    # sign of gravitational acceleration
-    pass
-
-def local_dendrogram(arr, center_pos, domain_left_edge, domain_cell_size,
-                     hw=0.5, prune=True, ncells_min=27):
-    """Construct a local dendrogram
-
-    Parameters
-    ----------
-    arr : xarray.DataArray
-        Input array to construct dendrogram. Usually, gravitational potential.
-    center_pos : tuple
-        Center position of the local dendrogram (x, y, z).
-    domain_left_edge : tuple
-        Left edge of the global domain. (xmin, ymin, zmin)
-    domain_cell_size : tuple
-        Cell size of the global domain. (dx, dy, dz)
-    hw : float, optional
-        Half width of the local domain. Default to 0.5.
-    ncells_min : int, optional
-        Minimum number of cells in a leaf. Default to 27.
-
-    Returns
-    -------
-    gd : grid_dendro.Dendrogram
-    """
-    from grid_dendro import dendrogram
-    x0, y0, z0 = center_pos
-    xl, yl, zl = domain_left_edge
-    dx, dy, dz = domain_cell_size
-    arr, center, shift = recenter_dataset(arr, dict(x=x0, y=y0, z=z0))
-    shape = arr.shape
-    arr = arr.sel(dict(x=slice(-hw, hw), y=slice(-hw, hw), z=slice(-hw, hw)))
-
-    il = ((arr.x[0].data - xl) // dx).astype(np.int32)
-    jl = ((arr.y[0].data - yl) // dy).astype(np.int32)
-    kl = ((arr.z[0].data - zl) // dz).astype(np.int32)
-    start_indices = np.array([kl, jl, il]) - np.array([shift['z'], shift['y'], shift['x']])
-
-    if isinstance(arr.data, da.Array):
-        arr = arr.data.compute()
-    else:
-        arr = arr.data
-    gd = dendrogram.Dendrogram(arr, boundary_flag='outflow')
-    gd.construct()
-    if prune:
-        gd.prune(ncells_min)
-    gd.reindex(start_indices, shape, direction='backward')
-    return gd
-
 
 def critical_tes_property(s, rprf, core):
     """Calculates critical tes given the radial profile.
@@ -951,70 +892,6 @@ def lagrangian_property(s, cores):
     lprops.attrs['tff_coll'] = tfreefall(lprops.loc[ncoll].mean_density, s.gconst)
 
     return lprops
-
-
-def cumulative_energy(s, rprf, core):
-    """Calculate cumulative energies based on radial profiles
-
-    Use the mass-weighted mean gravitational potential at the tidal radius
-    as the reference point. Mass-weighted mean is appropriate if we want
-    the d(egrv)/dr = 0 as R -> Rtidal.
-
-    Parameters
-    ----------
-    s : LoadSim
-        Object containing simulation metadata.
-    rprf : xarray.Dataset
-        Object containing radial profiles.
-    core : pandas.Series
-        Object containing core informations.
-
-    Returns
-    -------
-    rprf : xarray.Dataset
-        Object containing radial profiles, augmented by energy fields
-    """
-    # TODO(SMOON) change the argument core to rmax and
-    # substitute tidal_radius below to rmax.
-    # Also, return the bound radius.
-    # from scipy.interpolate import interp1d
-    # etot_f = interp1d(rprf.r, rprf.etot)
-    # rcore = brentq(etot_f, rprf.r[1], core.tidal_radius)
-
-    # Thermal energy
-    gm1 = (5/3 - 1)
-    ethm = (4*np.pi*rprf.r**2*s.cs**2*rprf.rho/gm1).cumulative_integrate('r')
-
-    # Kinetic energy
-    vsq = rprf.vel1_sq_mw + rprf.vel2_sq_mw + rprf.vel3_sq_mw
-    vcomsq = rprf.vel1_mw**2 + rprf.vel2_mw**2 + rprf.vel3_mw**2
-    ekin = ((4*np.pi*rprf.r**2*0.5*rprf.rho*vsq).cumulative_integrate('r')
-            - vcomsq*(4*np.pi*rprf.r**2*0.5*rprf.rho).cumulative_integrate('r'))
-
-    # Gravitational energy
-    phi0 = rprf.phi_mw.interp(r=core.tidal_radius)
-    egrv = ((4*np.pi*rprf.r**2*rprf.rho*rprf.phi_mw).cumulative_integrate('r')
-            - phi0*(4*np.pi*rprf.r**2*rprf.rho).cumulative_integrate('r'))
-
-    rprf['ethm'] = ethm
-    rprf['ekin'] = ekin
-    rprf['egrv'] = egrv
-    rprf['etot'] = ethm + ekin + egrv
-
-    return rprf
-
-
-def infall_rate(rprofs, cores):
-    time, vr, mdot = [], [], []
-    for num, rtidal in cores.tidal_radius.items():
-        rprf = rprofs.sel(num=num).interp(r=rtidal)
-        time.append(rprf.t.data[()])
-        vr.append(-rprf.vel1_mw.data[()])
-        mdot.append((-4*np.pi*rprf.r**2*rprf.rho*rprf.vel1_mw).data[()])
-    rprofs['infall_speed'] = xr.DataArray(vr, coords=dict(t=time))
-    rprofs['infall_rate'] = xr.DataArray(mdot, coords=dict(t=time))
-    return rprofs
-
 
 def observable(s, pid, num):
     """Calculate observable properties of a core"""
@@ -1766,25 +1643,3 @@ def dask_init(ncores=96, memory='740 GiB', nprocs=32, scale=1, wtime='00:30:00')
     cluster.scale(scale)
     client = Client(cluster)
     return client
-
-
-def find_closest_leaf(s, gd, flatidx):
-    """Find the closest leaf to the given position
-
-    Parameters
-    ----------
-    s : LoadSim
-        LoadSim instance.
-    gd : grid_dendro.Dendrogram
-        Dendrogram object.
-    flatidx : int
-        Flat index of the cell.
-
-    Returns
-    -------
-    lid : int
-        Flat index of the closest leaf node.
-    """
-    dst = [s.distance_between(lid, flatidx) for lid in gd.leaves]
-    lid = gd.leaves[np.argmin(dst)]
-    return lid

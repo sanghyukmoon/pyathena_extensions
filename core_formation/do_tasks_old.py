@@ -57,7 +57,6 @@ if __name__ == "__main__":
                         help="Create density pdf and velocity power spectrum")
     parser.add_argument("--plot-diagnostics", action="store_true",
                         help="Create diagnostics plot for each core")
-    parser.add_argument("--grf-tidal", action="store_true")
     parser.add_argument("--pid-start", type=int)
     parser.add_argument("--pid-end", type=int)
 
@@ -228,20 +227,6 @@ if __name__ == "__main__":
             print(f"draw diagnostics plots for model {mdl}")
             for pid in s.good_cores(all_cores):
                 tasks.plot_diagnostics(s, all_cores[pid], overwrite=args.overwrite)
-
-        if args.grf_tidal:
-            s = sa.set_model(mdl, legacy=args.legacy)
-
-            # Dirty fix; given the model name with, e.g., N512, turn into N1024 model, for example.
-            s.domain['Nx'] *= 2
-            s.domain['dx'] /= 2
-            s.dx /= 2
-
-            for pindex in [-6.0, -6.5, -7.0, -7.5]:
-#            for pindex in [-3.8]:
-                print(f"Calculate grf tidal radii model {mdl}, pindex {pindex}")
-                for iseed in args.pids:  # use pid as a random seed
-                    tasks.random_field_rtidal(s, iseed, pindex, mode=0)
 
         # make movie
         if args.make_movie:

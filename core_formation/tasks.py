@@ -21,7 +21,6 @@ import h5py
 import glob
 import logging
 from pyathena.util import uniform, transform
-from grid_dendro import dendrogram
 from scipy import fft
 
 from . import plots, tools, config, stats, myio
@@ -205,7 +204,7 @@ def critical_tes(s, pid, overwrite=False):
 def core_tracking(s, pids=None, overwrite=False):
     """Loops over all sink particles and find their progenitor cores
 
-    Finds a unique grid-dendro leaf at each snapshot that is going to collapse.
+    Finds a unique minima at each snapshot that is going to collapse.
     For each sink particle, back-traces the evolution of its progenitor cores.
     Saves the resulting trajectories as NetCDF.
 
@@ -654,7 +653,6 @@ def save_minima(s, overwrite=False):
 
     minima = dict()
     for num in s.nums:
-        # Load data and construct dendrogram
         print('[save_minima] processing model {} num {}'.format(s.basename, num))
         ds = s.load_hdf5(num, chunks=config.CHUNKSIZE)
         arr = ds.phi.data
@@ -666,80 +664,6 @@ def save_minima(s, overwrite=False):
 
     with open(ofname, 'wb') as handle:
         pickle.dump(minima, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-
-def run_grid(s, num, overwrite=False):
-    """Run GRID-dendro
-
-    Parameters
-    ----------
-    s : LoadSim
-        Simulation metadata.
-    num : int
-        Snapshot number.
-    """
-    # Check if file exists
-    ofname = Path(s.savdir, 'GRID',
-                  'dendrogram.{:05d}.p'.format(num))
-    ofname.parent.mkdir(exist_ok=True)
-    if ofname.exists() and not overwrite:
-        print('[run_grid] file already exists. Skipping...')
-        return
-
-    # Load data and construct dendrogram
-    print('[run_grid] processing model {} num {}'.format(s.basename, num))
-    ds = s.load_hdf5(num, quantities=['phi',],
-                     load_method='xarray').transpose('z', 'y', 'x')
-    phi = ds.phi.to_numpy()
-    gd = dendrogram.Dendrogram(phi, verbose=False)
-    gd.construct()
-
-    # Write to file
-    with open(ofname, 'wb') as handle:
-        pickle.dump(gd, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-
-def prune(s, num, overwrite=False):
-    """Prune GRID-dendro
-
-    Parameters
-    ----------
-    s : LoadSim
-        Simulation metadata.
-    num : int
-        Snapshot number.
-    """
-    # Check if file exists
-    ofname = Path(s.savdir, 'GRID',
-                  'dendrogram.pruned.{:05d}.p'.format(num))
-    ofname.parent.mkdir(exist_ok=True)
-    if ofname.exists() and not overwrite:
-        print('[prune] file already exists. Skipping...')
-        return
-
-    # Load original dendrogram and prune it
-    print('[prune] processing model {} num {}'.format(s.basename, num))
-    gd = s.load_dendro(num, pruned=False)
-    gd.prune()
-
-    # Write to file
-    with open(ofname, 'wb') as handle:
-        pickle.dump(gd, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-def simplify_dendro(s):
-    for num in s.nums:
-        for pruned, suffix in zip([True, False], ['.pruned.', '.']):
-            ofname = Path(s.savdir, 'GRID', f'dendrogram{suffix}{num:05d}.p')
-            if ofname.exists():
-                gd = s.load_dendro(num, pruned=pruned)
-                if isinstance(list(gd.nodes.values())[0], np.ndarray):
-                    gd.nodes = {k: len(v) for k, v in gd.nodes.items()}
-                gd.cells_ordered = None
-                ofname.unlink()
-                with open(ofname, 'wb') as handle:
-                    pickle.dump(gd, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-
 
 def resample_hdf5(s, level=0):
     """Resamples AMR output into uniform resolution.
@@ -841,25 +765,6 @@ def plot_sink_history(s, num, overwrite=False):
     plt.close(fig)
 
 
-def plot_core_structure(s, cores, overwrite=False):
-    pid = cores.attrs['pid']
-    onset_def = tools.CollapseOnsetDefinition(
-        **json.loads(cores.attrs["onset_definition"]))
-    rmax = cores.tidal_radius.max()
-    for num in cores.index:
-        fname = Path(s.savdir, 'figures', f"core_structure.par{pid}.tcrit_{onset_def.filename_token}.{num:05d}.png")
-        fname.parent.mkdir(exist_ok=True)
-        if fname.exists() and not overwrite:
-            print('[plot_core_structure] file already exists. Skipping...')
-            return
-        msg = '[plot_core_structure] processing model {} pid {} num {}'
-        msg = msg.format(s.basename, pid, num)
-        print(msg)
-        fig = plots.core_structure(s, cores, num, rmax=rmax)
-        fig.savefig(fname, bbox_inches='tight', dpi=200)
-        plt.close(fig)
-
-
 def plot_diagnostics(s, cores, overwrite=False):
     """Creates diagnostics plots for a given model
 
@@ -930,9 +835,9 @@ def plot_radial_profile_at_tcrit(s, all_cores, nrows=5, ncols=6, overwrite=False
         ax.text(0.6, 0.73, "{:.2f} tff".format(cores.at[nc, 'tnorm1']),
                 transform=ax.transAxes)
     for ax in axs[:, 0]:
-        ax.set_ylabel(r'$\rho/\rho_0$')
+        ax.set_ylabel(r'$\rho/\rho_c$')
     for ax in axs[-1, :]:
-        ax.set_xlabel(r'$r/R_\mathrm{tidal}$')
+        ax.set_xlabel(r'$r/r_\mathrm{TES}$')
     fig.savefig(fname, bbox_inches='tight', dpi=200)
     plt.close(fig)
 
@@ -1036,34 +941,6 @@ def calculate_linewidth_size(s, num, seed=None, pid=None, overwrite=False, ds=No
     rprf.to_netcdf(ofname)
 
 
-def calculate_go15_core_mass(s, overwrite=False):
-    """Calculate core mass using the definition of GO15
-
-    Core mass is defined as the enclosed mass within the largest closed contour
-    at t_coll
-    """
-    fname = Path(s.savdir) / 'mcore_go15.p'
-    if fname.exists():
-        if not overwrite:
-            return
-        else:
-            fname.unlink()
-    mcore = {}
-    for pid in s.pids:
-        cores = s.cores[pid]
-        ncoll = cores.attrs['numcoll']
-        ds = s.load_hdf5(ncoll, quantities=['dens'])
-        gd = s.load_dendro(ncoll)
-        lid = cores.at[ncoll, 'leaf_id']
-        if np.isnan(lid):
-            mcore[pid] = np.nan
-        else:
-            rho = gd.filter_data(ds.dens, lid, drop=True)
-            mcore[pid] = (rho*s.dV).sum()
-    with open(fname, 'wb') as f:
-        pickle.dump(mcore, f)
-
-
 def plot_pdfs(s, num, overwrite=False):
     """Creates density PDF and velocity power spectrum for a given model
 
@@ -1088,51 +965,3 @@ def plot_pdfs(s, num, overwrite=False):
     fig.tight_layout()
     fig.savefig(fname, bbox_inches='tight')
     plt.close(fig)
-
-
-def random_field_rtidal(s, iseed, pindex, mode=0):
-    # Check if file exists
-    ofname = Path(f'rtidal_mode{mode}_pindex{pindex}_{iseed:03d}.npy')
-    ofname2 = Path(f'rtidal_mode{mode}_pindex{pindex}_pruned_{iseed:03d}.npy')
-    if ofname.exists() and ofname2.exists():
-        return
-
-    lbox = s.Lbox
-    nx = s.domain['Nx'][0]
-    dx = s.dx
-
-    np.random.seed(iseed)
-    if mode==0:
-        # Phi is a Gaussian random field
-        phi = stats.generate_grf(nx, lbox, 0, 1.0, pindex)
-    elif mode==1:
-        # Phi is a gravitational potential corresponding to lognormal density field
-        logrho = stats.generate_grf(nx, lbox, -s.mu, s.var, pindex)
-        rho = np.exp(logrho/s.rho0)
-        rhok = fft.fftn(rho)
-        kx = 2*np.pi*fft.fftfreq(nx, d=dx)
-        kx_d = kx*np.sinc(kx*dx/(2*np.pi))
-        ksq = kx_d[:, None, None]**2 + kx_d[None, :, None]**2 + kx_d[None, None, :]**2
-        phik = -rhok/ksq
-        phik[0,0,0] = 0
-        phi = fft.ifftn(phik).real
-    # Construct dendrogram
-    gd = dendrogram.Dendrogram(phi)
-    gd.construct()
-    rtidal = []
-    if len(gd.leaves) > 1:
-        for lid in gd.leaves:
-            rtidal.append(np.min([s.distance_between(lid, nid) for nid in gd.nodes if nid != lid]))
-    if not ofname.exists():
-        with open(ofname, 'wb') as f:
-            np.save(f, rtidal)
-
-    # As a bonus, save the result with the pruned dendrogram
-    gd.prune()
-    rtidal = []
-    if len(gd.leaves) > 1:
-        for lid in gd.leaves:
-            rtidal.append(np.min([s.distance_between(lid, nid) for nid in gd.nodes if nid != lid]))
-    if not ofname2.exists():
-        with open(ofname2, 'wb') as f:
-            np.save(f, rtidal)

@@ -374,26 +374,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         else:
             raise FileNotFoundError("partab or parbin not found")
 
-    def load_dendro(self, num, pruned=True):
-        """Load pickled dendrogram object
-
-        Parameters
-        ----------
-        num : int
-            Snapshot number.
-        pruned : bool
-            If true, load the pruned dendrogram
-        """
-        if pruned:
-            fname = Path(self.savdir, 'GRID',
-                         'dendrogram.pruned.{:05d}.p'.format(num))
-        else:
-            fname = Path(self.savdir, 'GRID',
-                         'dendrogram.{:05d}.p'.format(num))
-
-        with open(fname, 'rb') as handle:
-            return pickle.load(handle)
-
     def select_cores(self, *, rcrit_from="virial_mass", fixed_form_factor=None,
                      criterion="net_force", require_small_std=None):
         """Return a shallow copy of the pid-to-table dictionary for a definition.

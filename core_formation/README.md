@@ -135,8 +135,7 @@ existing concatenation and replaces only the complete-profile pickle. Concatenat
 is created if absent or rebuilt by explicitly calling `concat_radial_profiles()`.
 For non-legacy profiles, the aggregate is rebuilt directly from on-the-fly outputs;
 per-core complete-profile NetCDF intermediates are no longer used. Continue using
-separate savdirs when comparing the two source modes. Plots requiring dendrogram
-properties still require those products.
+separate savdirs when comparing the two source modes.
 
 The definition constructs the chosen ratio with `onset_def.virial_ratio(profile)`
 and evaluates a single snapshot with `onset_def.is_collapsing(profile, rcrit)`.

@@ -23,7 +23,6 @@ import pandas as pd
 # Accuracy is more important than performance.
 xr.set_options(use_bottleneck=False, use_numbagg=False)
 from tesphere import tes
-from grid_dendro import energy
 
 from . import tools, models, load_sim
 
@@ -285,8 +284,6 @@ class SpaceTimePlotter():
                 pass
             ax.plot(cores.rtes, cores.time, ls=':', c='tab:red', label=r'$r_\mathrm{TES}$')
             ax.plot(cores.rcrit, cores.time, ls='--', c='tab:red', label=r'$r_\mathrm{crit}$')
-            ax.plot(cores.leaf_radius, cores.time, ls='-.', c='g', label=r'$r_\mathrm{tidal,avg}$')
-            ax.plot(cores.tidal_radius, cores.time, ls='--', c='g', label=r'$r_\mathrm{tidal,max}$')
             ax.plot(cores.min_dst_to_star, cores.time, ls='--', color='gold', label=r'$D_*$')
             ax.plot(cores.min_dst_to_pscore, cores.time, ls=':', color='gold', label=r'$D_*$')
             ax.plot(cores.mw_dst_to_star, cores.time, color='gold', label=r'$D_{*,\mathrm{mw}}$')
@@ -678,106 +675,6 @@ def plot_projection(s, ds, field='dens', axis='z',
         plt.colorbar(cax=cax)
 
 
-def plot_energies(s, ds, rprf, core, gd, node, ax=None):
-    if ax is not None:
-        plt.sca(ax)
-
-    rprf = tools.cumulative_energy(s, rprf, core)
-    plt.plot(rprf.r, rprf.ethm, ls='-', c='tab:blue', label='thermal')
-    plt.plot(rprf.r, rprf.ekin, ls='-', c='tab:orange', label='kinetic')
-    plt.plot(rprf.r, rprf.egrv, ls='-', c='tab:green', label='gravitational')
-    plt.plot(rprf.r, rprf.etot, ls='-', c='tab:red', label='total')
-
-    data = dict(rho=ds.dens.to_numpy(),
-                vel1=(ds.mom1/ds.dens).to_numpy(),
-                vel2=(ds.mom2/ds.dens).to_numpy(),
-                vel3=(ds.mom3/ds.dens).to_numpy(),
-                prs=s.cs**2*ds.dens.to_numpy(),
-                phi=ds.phi.to_numpy(),
-                dvol=s.dV)
-    reff, engs = energy.calculate_cumulative_energies(gd, data, node)
-    plt.plot(reff, engs['ethm'], ls='--', c='tab:blue')
-    plt.plot(reff, engs['ekin'], ls='--', c='tab:orange')
-    plt.plot(reff, engs['egrv'], ls='--', c='tab:green')
-    plt.plot(reff, engs['etot'], ls='--', c='tab:red')
-    plt.axhline(0, linestyle=':', color='tab:gray')
-    plt.legend(loc='lower left')
-
-
-def plot_grid_dendro_contours(s, gd, nodes, coords, axis='z', color='k',
-                              lw=0.5, ax=None, transpose=False, recenter=None,
-                              select=None):
-    """Draw contours at the boundary of GRID-dendro objects
-
-    Parameters
-    ----------
-    s : LoadSim
-        Object containing simulation metadata.
-    gd : grid_dendro.dendrogram.Dendrogram
-        GRID-dendro dendrogram instance.
-    nodes : int or array of ints
-        ID of selected GRID-dendro nodes
-    coords : xarray.core.coordinates.DatasetCoordinates
-        xarray coordinate instance.
-    axis : str, optional
-        Axis to project.
-    color : str, optional
-        Contour line color.
-    lw : float, optional
-        Contour line width.
-    ax : matplotlib.axes, optional
-        Axes to draw contours.
-    transpose : bool, optional
-        If true, transpose x and y axis.
-    recenter : tuple, optional
-        New (x, y, z) coordinates of the center.
-    select : dict, optional
-        Selected region to slice data. If recenter is True, the selected
-        region is understood in the recentered coordinates.
-    """
-    # some domain informations
-    xmin, xmax = coords['x'].min(), coords['x'].max()
-    ymin, ymax = coords['y'].min(), coords['y'].max()
-    zmin, zmax = coords['z'].min(), coords['z'].max()
-    sizes = coords.sizes
-    extent = dict(zip(('x', 'y', 'z'), ((ymin, ymax, zmin, zmax),
-                                        (zmin, zmax, xmin, xmax),
-                                        (xmin, xmax, ymin, ymax))))
-    permutations = dict(z=('y', 'x'), y=('x', 'z'), x=('z', 'y'))
-
-    if isinstance(nodes, (int, np.int32, np.int64)):
-        nodes = [nodes,]
-    for nd in nodes:
-        mask = xr.DataArray(np.ones([sizes['z'], sizes['y'], sizes['x']],
-                                    dtype=bool), coords=coords)
-        mask = gd.filter_data(mask, nd, fill_value=0)
-        if recenter is not None:
-            mask, _, _ = tools.recenter_dataset(mask, recenter)
-        if select is not None:
-            mask = mask.sel(select)
-
-        mask = mask.max(dim=axis)
-
-        if mask.max() == 0 or mask.min() == 1:
-            # If a core is outside the selected region, or the
-            # selected region is entirely contained in a core,
-            # no contour can be drawn.
-            continue
-
-        mask = mask.transpose(*permutations[axis])
-
-        if ax is not None:
-            plt.sca(ax)
-        if transpose:
-            mask = mask.T
-            extent = {k: v[2:] + v[0:2] for k, v in extent.items()}
-
-        mask.plot.contour(levels=[0.5], linewidths=lw, colors=color,
-                          add_labels=False)
-    plt.xlim(extent[axis][0], extent[axis][1])
-    plt.ylim(extent[axis][2], extent[axis][3])
-
-
 def plot_cum_forces(s, rprf, core, ax=None, lw=1):
     """Plot cumulative force per unit mass
     """
@@ -873,8 +770,6 @@ def plot_diagnostics(s, cores, normalize_time=True):
 
     # Plot radii
     plt.sca(axs[1])
-    plt.plot(time, cores.tidal_radius, c='tab:blue',
-             label=r'$R_\mathrm{tidal}$')
     plt.plot(time, cores.leaf_radius, c='tab:blue', ls='-', lw=1)
     plt.plot(time, cores.sonic_radius, c='tab:green',
              label=r'$R_\mathrm{sonic}$')
@@ -889,8 +784,6 @@ def plot_diagnostics(s, cores, normalize_time=True):
 
     # Plot mass
     plt.sca(axs[2])
-    plt.plot(time, cores.tidal_mass, c='tab:blue',
-             label=r'$M_\mathrm{tidal}$')
     plt.plot(time, cores.menc_crit, c='tab:blue', ls='-.',
              label=r'$M_\mathrm{enc}$')
     plt.plot(time, cores.critical_mass, c='tab:red',
@@ -1204,123 +1097,6 @@ def plot_core_evolution(s, cores, num, hw=0.1):
                      loc='upper right')
     plt.gca().add_artist(lgd)
 
-    return fig
-
-
-def mass_radius(s, cores, num, rmax=None, ax=None):
-    pid = cores.attrs['pid']
-    if rmax is None:
-        rmax = cores.tidal_radius.max()
-    core = cores.loc[num]
-    rprf = s.rprofs[pid].sel(num=num)
-
-    lw = 1.5
-
-    menc = (4*np.pi*rprf.r**2*rprf.rho).cumulative_integrate('r')
-    plt.plot(rprf.r, menc, 'k-+', lw=lw)
-
-    tse = tes.TESe(p=core.pindex, xi_s=core.sonic_radius*np.sqrt(core.edge_density))
-    uc, rc, mc = tse.get_crit()
-    ymax = cores.tidal_mass.max()
-    nsample = 100
-    rds, mass = np.zeros(nsample), np.zeros(nsample)
-    for i, u0 in enumerate(np.linspace(0, 4*uc, nsample)):
-        rds[i] = tse.get_radius(u0)
-        mass[i] = tse.get_mass(u0)
-    for i in [1,2,4]:
-        rhoe = core.edge_density*i
-        plt.plot(rds/np.sqrt(rhoe), mass/np.sqrt(rhoe), 'k-', lw=lw/2)
-    plt.plot(rds, rds*mc/rc, 'k-', lw=lw)
-    plt.fill_between(rds, rds*mc/rc, y2=ymax, facecolor='lightgray')
-
-    # Critical equilibrium profile
-    rhoe = core.edge_density/1.25
-    r = np.linspace(0.01, rc)
-    u, _ = tse.solve(r, uc)
-    rho = xr.DataArray(np.exp(u), coords=dict(r=r))
-    menc = (4*np.pi*r**2*rho).cumulative_integrate('r')
-    plt.plot(r/np.sqrt(rhoe), menc/np.sqrt(rhoe), c='k', lw=lw, ls='-.')
-
-    plt.xlim(0, rmax)
-    plt.ylim(0, ymax)
-    plt.xlabel(r'$R/L_{J,0}$')
-    plt.ylabel(r'$M/M_{J,0}$')
-    plt.axvline(core.tidal_radius, lw=1, ls='-', c='tab:gray')
-    plt.axvline(core.critical_radius_e, lw=1, ls='-.', c='tab:gray')
-    plt.axhline(core.critical_mass_e, lw=1, ls='-.', c='tab:gray')
-    plt.axvline(core.rtes, lw=1, ls='--', c='tab:gray')
-
-
-def core_structure(s, cores, num, rmax=None):
-    pid = cores.attrs['pid']
-    core = cores.loc[num]
-    rprf = s.rprofs[pid].sel(num=num)
-    if rmax is None:
-        rmax = core.tidal_radius
-
-    # Create figure
-    fig, axs = plt.subplots(2, 2, figsize=(14, 10),
-                            gridspec_kw=dict(hspace=0.1, wspace=0.1))
-
-    for ax in axs[0]:
-        plt.sca(ax)
-        plt.plot(rprf.r, rprf.rho, 'k-+')
-        rhoLP = tools.lpdensity(rprf.r, s.cs, s.gconst)
-        plt.plot(rprf.r, rhoLP, 'k--', lw=1)
-
-        # overplot critical tes
-        r0 = s.cs / np.sqrt(4*np.pi*s.gconst*core.center_density)
-        xi_min = rprf.r.isel(r=1).data[()]/r0
-        xi_max = rprf.r.isel(r=-1).data[()]/r0
-        xi = np.logspace(np.log10(xi_min), np.log10(xi_max))
-        if not np.isnan(core.sonic_radius) and not np.isinf(core.sonic_radius):
-            ts = tes.TES(pindex=core.pindex, rsonic=core.sonic_radius/r0)
-            plt.plot(xi*r0, ts.density(xi), 'r--', lw=1.5)
-
-        # overplot critical BE
-        ts = tes.TES()
-        plt.plot(xi*r0, ts.density(xi), 'r:', lw=1)
-
-        plt.axhline(core.edge_density, ls='-.', c='tab:gray')
-        plt.yscale('log')
-        plt.ylim(1e0, tools.lpdensity(s.dx/2, s.cs, s.gconst))
-
-    for ax in axs[1]:
-        plot_cum_forces(s, rprf, core, ax)
-
-    axs[0,0].set_ylabel(r'$\rho/\rho_0$')
-    for ax in axs[:,0]:
-        ax.set_xscale('log')
-    for ax in axs[:,1]:
-        ax.set_ylabel('')
-    for ax in axs[:,0]:
-        ax.set_xlim(rprf.r[0]/2, rmax*2)
-    for ax in axs[:,1]:
-        ax.set_xlim(0, rmax)
-    for ax in axs[1]:
-        ax.set_xlabel(r'$r/L_{J,0}$')
-
-    plt.sca(axs[0,0])
-    plt.text(0.5, 0.9, r'$t={:.3f}$'.format(core.time)+r'$\,t_{J,0}$',
-             transform=plt.gca().transAxes, backgroundcolor='w')
-    plt.text(0.5, 0.8, r'$M={:.2f}$'.format(core.tidal_mass)+r'$\,M_{J,0}$',
-             transform=plt.gca().transAxes, backgroundcolor='w')
-    plt.text(0.5, 0.7, r'$R={:.2f}$'.format(core.tidal_radius)+r'$\,L_{J,0}$',
-             transform=plt.gca().transAxes, backgroundcolor='w')
-    plt.text(0.05, 0.05, r'$t-t_\mathrm{crit}=$'+r'${:.2f}$'.format(core.tnorm2)
-             + r'$\,\Delta t_\mathrm{coll}$', transform=plt.gca().transAxes,
-             backgroundcolor='w')
-
-    for ax in axs.flat:
-        plt.sca(ax)
-        ln1 = plt.axvline(core.tidal_radius, c='tab:gray', lw=1)
-        ln2 = plt.axvline(core.rtes, ls='--', c='tab:gray')
-        ln3 = plt.axvline(core.sonic_radius, ls=':', c='tab:gray')
-    plt.sca(axs[0,1])
-    lgd = plt.legend([ln1, ln2, ln3], [r'$R_\mathrm{tidal}$',
-                                       r'$R_\mathrm{crit,c}$',
-                                       r'$R_\mathrm{sonic}$'],
-                     loc='upper right')
     return fig
 
 
