@@ -199,7 +199,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                             or abs(ratio - round(ratio)) > tolerance):
                         raise ValueError('HDF5 interval must be an integer multiple of rprof')
                     self._hdf5_stride = int(round(ratio))
-                self.nums = self.nums_rprof
+                self.nums = getattr(self, 'nums_rprof', [])
                 self.minima, self.times = {}, {}
                 for num in self.nums:
                     header = self.load_rprof(num, metadata_only=True)
