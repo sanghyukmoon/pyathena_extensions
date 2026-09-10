@@ -23,6 +23,34 @@ plots.plot_core_evolution(s, pressure_core, num)
 resolved_pids = s.good_cores(all_cores, nres=8)
 ```
 
+
+## Evolution figures from stored projections
+
+`plot_core_evolution(s, cores, num)` and `plot_sinkhistory(s, num)` require
+on-the-fly `.proj.h5` files and a simulation loaded with `legacy=False`.
+Choose `num` from `s.nums_with_projection`; for core evolution it must also
+belong to the selected trajectory. Neither figure loads volumetric HDF5.
+
+Both figures display viewing axes in z, y, x order, with horizontal/vertical
+coordinates (x, y), (x, z), and (y, z), respectively. Core-evolution zoom panels
+crop the full-LOS maps in the image plane. Velocity arrows are density-weighted
+means relative to the central-cell velocity saved in the same radial profile;
+magnetic streamlines use density-weighted means. Particle and minimum markers
+in zoom panels represent the local 3D cube, including periodic neighbors.
+
+`plot_projection(s, projection, field='Sigma_gas', axis='z', ...)` now renders
+2D maps. `b_stream` uses the transverse `rhoB1/2/3` integrals divided by
+`Sigma_gas`; `v_quiver` requires prepared transverse `vel1/2/3` maps in the
+caller's chosen velocity frame. There is no volume-input or legacy fallback.
+
+The `plot_core_evolution` and `plot_sink_history` batch tasks use discovered
+projection epochs and initialize in non-legacy mode. Filenames and overwrite
+behavior are unchanged; explicitly overwrite existing images to regenerate
+them. Sink-history curves retain the strict snapshot-time cutoff and the
+`tend + 0.01` right-hand limit so the final marker remains visible.
+
+## Selection details
+
 The selection keywords are `rcrit_from` (`"tes"`, `"virial_mass"`, or
 `"virial_pressure"`), `fixed_form_factor`, `criterion` (`"net_force"` or
 `"overpressure"`), and `require_small_std`. Virial defaults are fixed form

@@ -565,7 +565,7 @@ def plot_lookback_profiles(
 
     return fig, axs
 
-def plot_projection(s, ds, field='dens', axis='z',
+def plot_projection(s, ds, field='Sigma_gas', axis='z',
                     vmin=1e-1, vmax=2e2, cmap='pink_r', alpha=1,
                     ax=None, cax=None, add_colorbar=True):
     """Plot one or more projected layers along the selected axis.
@@ -575,12 +575,14 @@ def plot_projection(s, ds, field='dens', axis='z',
     s : LoadSim
         Object containing simulation metadata.
     ds : xarray.Dataset
-        Object containing fluid variables.
+        Axis-specific 2D maps from load_projection. Magnetic overlays use
+        rhoB1/2/3 divided by Sigma_gas. Velocity overlays use supplied
+        vel1/2/3 maps, already normalized and in the desired reference frame.
     field : str or sequence of str, optional
-        Raster variable or vector overlay (`b_stream` or `v_quiver`) to
-        plot. Multiple layers are drawn in the supplied order.
+        Surface density (Sigma_gas) or vector overlay (b_stream or v_quiver).
+        Multiple layers are drawn in the supplied order.
     axis : str, optional
-        Axis to project.
+        Viewing (line-of-sight) axis.
     vmin : float, optional
         Minimum color range.
     vmax : float, optional
@@ -594,66 +596,39 @@ def plot_projection(s, ds, field='dens', axis='z',
     cax : matplotlib.axes, optional
         Axes to draw color bar.
     add_colorbar : bool, optional
-        If true, add color bar.
+        Add a color bar when Sigma_gas is drawn.
     """
-    fields_are_scalar = isinstance(field, str)
-    fields = (field,) if fields_are_scalar else tuple(field)
-
-    # domain information
-    xmin = ds.x[0] - 0.5*s.dx
-    ymin = ds.y[0] - 0.5*s.dy
-    zmin = ds.z[0] - 0.5*s.dz
-    xmax = ds.x[-1] + 0.5*s.dx
-    ymax = ds.y[-1] + 0.5*s.dy
-    zmax = ds.z[-1] + 0.5*s.dz
-    extent = dict(zip(
-        ('x', 'y', 'z'),
-        ((ymin, ymax, zmin, zmax),
-         (xmin, xmax, zmin, zmax),
-         (xmin, xmax, ymin, ymax))
-    ))
-    permutations = dict(z=('x', 'y'), y=('x', 'z'), x=('y', 'z'))
-    axis1, axis2 = permutations[axis]
-    magnetic_fields = dict(x='Bcc1', y='Bcc2', z='Bcc3')
-    velocity_fields = dict(x='vel1', y='vel2', z='vel3')
+    fields = (field,) if isinstance(field, str) else tuple(field)
+    axis1, axis2 = {'z': ('x', 'y'), 'y': ('x', 'z'), 'x': ('y', 'z')}[axis]
+    components = {'x': 1, 'y': 2, 'z': 3}
+    i1, i2 = components[axis1], components[axis2]
+    cell_widths = {'x': s.dx, 'y': s.dy, 'z': s.dz}
+    ds = ds.transpose(axis2, axis1)
+    x1 = ds.coords[axis1].to_numpy()
+    x2 = ds.coords[axis2].to_numpy()
+    extent = (x1[0] - 0.5*cell_widths[axis1],
+              x1[-1] + 0.5*cell_widths[axis1],
+              x2[0] - 0.5*cell_widths[axis2],
+              x2[-1] + 0.5*cell_widths[axis2])
 
     if ax is None:
         ax = plt.gca()
 
-    projected = dict(dens=(ds.dens*s.dx).sum(axis))
-    if 'b_stream' in fields:
-        projected['b1'] = (
-            ds.dens*ds[magnetic_fields[axis1]]*s.dx
-        ).sum(axis) / projected['dens']
-        projected['b2'] = (
-            ds.dens*ds[magnetic_fields[axis2]]*s.dx
-        ).sum(axis) / projected['dens']
-    if 'v_quiver' in fields:
-        projected['v1'] = (
-            ds.dens*ds[velocity_fields[axis1]]*s.dx
-        ).sum(axis) / projected['dens']
-        projected['v2'] = (
-            ds.dens*ds[velocity_fields[axis2]]*s.dx
-        ).sum(axis) / projected['dens']
-    projected = xr.Dataset(projected).transpose(axis2, axis1)
-
-    x1 = ds.coords[axis1].to_numpy()
-    x2 = ds.coords[axis2].to_numpy()
     for fld in fields:
-        if fld == 'dens':
-            prj = projected[fld].to_numpy()
-            ax.imshow(
+        if fld == 'Sigma_gas':
+            prj = ds.Sigma_gas.to_numpy()
+            im = ax.imshow(
                 prj, norm=LogNorm(vmin, vmax), origin='lower',
-                extent=extent[axis], cmap=cmap, alpha=alpha,
+                extent=extent, cmap=cmap, alpha=alpha,
             )
         elif fld == 'b_stream':
-            b1 = projected.b1.to_numpy()
-            b2 = projected.b2.to_numpy()
+            b1 = (ds[f'rhoB{i1}'] / ds.Sigma_gas).to_numpy()
+            b2 = (ds[f'rhoB{i2}'] / ds.Sigma_gas).to_numpy()
             ax.streamplot(
                 x1, x2, b1, b2, linewidth=1, color='tab:gray',
                 density=1, arrowsize=0.5,
             )
-        else:
+        elif fld == 'v_quiver':
             def sample_indices(size, count=10):
                 count = min(count, size)
                 return ((np.arange(count) + 0.5)*size/count).astype(int)
@@ -661,8 +636,8 @@ def plot_projection(s, ds, field='dens', axis='z',
             idx1 = sample_indices(ds.sizes[axis1])
             idx2 = sample_indices(ds.sizes[axis2])
             select = {axis1: idx1, axis2: idx2}
-            vel1 = projected.v1.isel(select).to_numpy()
-            vel2 = projected.v2.isel(select).to_numpy()
+            vel1 = ds[f'vel{i1}'].isel(select).to_numpy()
+            vel2 = ds[f'vel{i2}'].isel(select).to_numpy()
             ax.quiver(
                 x1[idx1], x2[idx2], vel1, vel2,
                 angles='xy', scale_units='width', scale=40*s.cs,
@@ -671,8 +646,8 @@ def plot_projection(s, ds, field='dens', axis='z',
                 headlength=4.5, headaxislength=4, minlength=0.25,
                 zorder=3,
             )
-    if add_colorbar:
-        plt.colorbar(cax=cax)
+    if add_colorbar and 'Sigma_gas' in fields:
+        ax.figure.colorbar(im, ax=ax, cax=cax)
 
 
 def plot_cum_forces(s, rprf, core, ax=None, lw=1):
@@ -823,11 +798,7 @@ def plot_core_evolution(s, cores, num, hw=0.1):
     pid = cores.attrs["pid"]
     onset_def = tools.CollapseOnsetDefinition(
         **json.loads(cores.attrs["onset_definition"]))
-    # Load data
-    if s.mhd:
-        ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
-    else:
-        ds = s.load_hdf5(num, quantities=['dens', 'mom1', 'mom2', 'mom3'], load_method='xarray')
+    # Load the selected core and its radial profile.
     core = cores.loc[num].copy()
     selected_radius = core.rcrit
     if 'radius' not in core:
@@ -837,37 +808,18 @@ def plot_core_evolution(s, cores, num, hw=0.1):
     # Find the location of the core
     xc, yc, zc = s.flatindex_to_cartesian(cores.at[num, 'leaf_id'])
 
-    # Load sink particles
-    pds = s.load_par(num)
-    pds = pds[((pds.x1 > xc - hw) & (pds.x1 < xc + hw)
-             & (pds.x2 > yc - hw) & (pds.x2 < yc + hw)
-             & (pds.x3 > zc - hw) & (pds.x3 < zc + hw))]
-    pds.loc[:, ('x1', 'x2', 'x3')] -= np.array([xc, yc, zc])
-    for pos, idx in zip(['x1', 'x2', 'x3'], [0, 1, 2]):
-        pds.loc[:, pos] = tools.sawtooth(
-            pds[pos],
-            s.domain['le'][idx],
-            s.domain['re'][idx],
-            s.domain['le'][idx],
-            s.domain['re'][idx]
-        )
+    # Express marker positions relative to the core before selecting its local cube.
+    position_columns = ['x1', 'x2', 'x3']
+    origin = np.array([xc, yc, zc])
+    pds = (s.load_par(num)[position_columns] - origin + s.Lbox/2) % s.Lbox - s.Lbox/2
+    pds = pds[(pds.abs() < hw).all(axis=1)]
 
-    # Load minima positions
-    pos_minima = {}
-    for lid in s.minima[num]:
-        x, y, z = s.flatindex_to_cartesian(lid)
-        if (x > xc - hw) and (x < xc + hw) and (y > yc - hw) and (y < yc + hw) and (z > zc - hw) and (z < zc + hw):
-            pos_minima[lid] = x, y, z
-    pos_minima = pd.DataFrame.from_dict(pos_minima, orient='index', columns=['x1', 'x2', 'x3'])
-    pos_minima.loc[:, ('x1', 'x2', 'x3')] -= np.array([xc, yc, zc])
-    for pos, idx in zip(['x1', 'x2', 'x3'], [0, 1, 2]):
-        pos_minima.loc[:, pos] = tools.sawtooth(
-            pos_minima[pos],
-            s.domain['le'][idx],
-            s.domain['re'][idx],
-            s.domain['le'][idx],
-            s.domain['re'][idx]
-        )
+    pos_minima = pd.DataFrame(
+        [s.flatindex_to_cartesian(lid) for lid in s.minima[num]],
+        columns=position_columns,
+    )
+    pos_minima = (pos_minima - origin + s.Lbox/2) % s.Lbox - s.Lbox/2
+    pos_minima = pos_minima[(pos_minima.abs() < hw).all(axis=1)]
 
     # Create figure
     fig = plt.figure(figsize=(35, 21))
@@ -896,21 +848,21 @@ def plot_core_evolution(s, cores, num, hw=0.1):
                acc=fig.add_subplot(gs[:-1, 4]),
                mcrit=fig.add_subplot(gs[-1, 4]))
 
-    # Zoom-in dataset
-    sel = dict(x=slice(-hw, hw), y=slice(-hw, hw), z=slice(-hw, hw))
-    d = tools.recenter_dataset(ds, dict(x=xc, y=yc, z=zc))
-    d = d.sel(sel)
-    for i in '123':
-        vel = d[f'mom{i}']/d.dens
-        vel_origin = vel.sel(x=0, y=0, z=0)
-        d[f'vel{i}'] = vel - vel_origin
-
-    fields = ('dens', 'b_stream') if s.mhd else 'dens'
-    for i, prj_axis in enumerate(['z', 'y', 'x']):
+    transverse_axes = {'z': ('x', 'y'), 'y': ('x', 'z'), 'x': ('y', 'z')}
+    components = {'x': 1, 'y': 2, 'z': 3}
+    center = dict(x=xc, y=yc, z=zc)
+    fields = ('Sigma_gas', 'b_stream') if s.mhd else ('Sigma_gas',)
+    for i, prj_axis in enumerate(('z', 'y', 'x')):
+        transverse = transverse_axes[prj_axis]
+        quantities = ['Sigma_gas'] + [f'mom{components[dim]}' for dim in transverse]
+        if s.mhd:
+            quantities += [f'rhoB{components[dim]}' for dim in transverse]
+        projection = s.load_projection(num, axis=prj_axis, quantities=quantities)
+        snapshot_time = projection.attrs['time']
         # 1. Projections
         plt.sca(axs['proj'][i])
         plot_projection(
-            s, ds, field=fields, axis=prj_axis, add_colorbar=False,
+            s, projection, field=fields, axis=prj_axis, add_colorbar=False,
         )
         rec = plt.Rectangle((xlim[prj_axis][0], ylim[prj_axis][0]),
                             2*hw, 2*hw, fill=False, ec='r')
@@ -921,10 +873,17 @@ def plot_core_evolution(s, cores, num, hw=0.1):
         plt.xlabel(xlabel[prj_axis])
         plt.ylabel(ylabel[prj_axis])
 
-        # 2. Zoom-in projections
+        # 2. Crop the full-LOS map in the image plane and subtract the core velocity.
+        zoom = tools.recenter_dataset(projection, {dim: center[dim] for dim in transverse})
+        zoom = zoom.sel({dim: slice(-hw, hw) for dim in transverse})
+        zoom = zoom.assign({
+            f'vel{components[dim]}': zoom[f'mom{components[dim]}'] / zoom.Sigma_gas
+                                    - rprf[f'vel{dim}_origin']
+            for dim in transverse
+        })
         plt.sca(axs['zoom'][i])
         plot_projection(
-            s, d, field=(*fields, 'v_quiver'),
+            s, zoom, field=(*fields, 'v_quiver'),
             axis=prj_axis, add_colorbar=False,
         )
         if np.isfinite(selected_radius) and selected_radius <= np.sqrt(2)*hw:
@@ -1059,7 +1018,7 @@ def plot_core_evolution(s, cores, num, hw=0.1):
 
     # Annotations
     plt.sca(axs['rho'][0])
-    plt.text(0.6, 0.9, r'$t={:.3f}$'.format(ds.Time)+r'$\,t_{J,0}$',
+    plt.text(0.6, 0.9, r'$t={:.3f}$'.format(snapshot_time)+r'$\,t_{J,0}$',
              transform=plt.gca().transAxes, backgroundcolor='w')
 
     # Annotate normalized time; if this core failed to find t_crit,
@@ -1136,11 +1095,6 @@ def radial_profile_at_tcrit(s, cores, ax=None, lw=1.5):
     plt.yscale('log')
 
 def plot_sinkhistory(s, num):
-    # Load data
-    if s.mhd:
-        ds = s.load_hdf5(num, quantities=['dens', 'Bcc1', 'Bcc2', 'Bcc3'], load_method='xarray')
-    else:
-        ds = s.load_hdf5(num, quantities=['dens',], load_method='xarray')
     pds = s.load_par(num)
 
     # find end time
@@ -1155,10 +1109,16 @@ def plot_sinkhistory(s, num):
     ax3 = fig.add_subplot(gs[1, :])
 
     # plot projections
-    fields = ('dens', 'b_stream') if s.mhd else 'dens'
+    fields = ('Sigma_gas', 'b_stream') if s.mhd else ('Sigma_gas',)
+    transverse_components = {'z': (1, 2), 'y': (1, 3), 'x': (2, 3)}
     for ax, axis in zip((ax0, ax1, ax2), ('z', 'y', 'x')):
+        quantities = ['Sigma_gas']
+        if s.mhd:
+            quantities += [f'rhoB{i}' for i in transverse_components[axis]]
+        projection = s.load_projection(num, axis=axis, quantities=quantities)
+        snapshot_time = projection.attrs['time']
         plot_projection(
-            s, ds, field=fields, axis=axis, ax=ax, add_colorbar=False
+            s, projection, field=fields, axis=axis, ax=ax, add_colorbar=False
         )
         ax.set_xticks([])
         ax.set_yticks([])
@@ -1176,9 +1136,9 @@ def plot_sinkhistory(s, num):
         phst = s.load_parhst(pid)
         time = phst.time
         mass = phst.mass
-        tslc = time < ds.Time
+        tslc = time < snapshot_time
         plt.plot(time[tslc], mass[tslc])
-    plt.axvline(ds.Time, linestyle=':', color='k', linewidth=0.5)
+    plt.axvline(snapshot_time, linestyle=':', color='k', linewidth=0.5)
     if len(s.tcoll_cores) > 0:
         plt.xlim(s.tcoll_cores.time.iloc[0]-0.01, tend+0.01)
     plt.ylim(1e-2, 1e1)

@@ -70,7 +70,9 @@ if __name__ == "__main__":
                 client.wait_for_workers(runner.n_workers)
 
                 for task in args.tasks:
-                    if task in ('save_minima', 'projections', 'core_tracking',
+                    if task in ('plot_core_evolution', 'plot_sink_history'):
+                        s = sa.set_model(args.model, legacy=False)
+                    elif task in ('save_minima', 'projections', 'core_tracking',
                                 'critical_tes', 'collapse_history'):
                         s = sa.set_model(args.model, skip_collapse_history=True)
                     elif task == 'radial_profile':
@@ -98,9 +100,12 @@ if __name__ == "__main__":
                         for pid in s.good_cores(all_cores):
                             cores = all_cores[pid]
                             for num in cores.index:
-                                if num in s.nums_with_hdf5:
+                                if num in s.nums_with_projection:
                                     tasks.plot_core_evolution(s, cores, num,
                                                               overwrite=args.overwrite)
+                    elif task == 'plot_sink_history':
+                        for num in s.nums_with_projection:
+                            tasks.plot_sink_history(s, num, overwrite=args.overwrite)
                     elif task == 'plot_radial_profile_at_tcrit':
                         tasks.plot_radial_profile_at_tcrit(s, all_cores,
                                                            overwrite=args.overwrite)
