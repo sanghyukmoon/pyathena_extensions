@@ -1404,13 +1404,13 @@ def recenter_dataset(ds, center, by_index=False):
     shift, new_coords = {}, {}
     for dim, pos in center.items():
         hNx = ds.sizes[dim] // 2
-        coords = ds.coords[dim].data
-        dx = coords[1] - coords[0]
+        coords = ds.coords[dim]
+        dx = (coords[1] - coords[0]).item()
         if by_index:
             shift[dim] = hNx - pos
         else:
             shift[dim] = hNx - np.where(np.isclose(coords, pos, atol=0.1*dx))[0][0]
-        new_coords[dim] = ds.coords[dim] - ds.coords[dim].isel({dim: hNx})
+        new_coords[dim] = coords - coords.isel({dim: hNx})
     return ds.roll(shift, roll_coords=False).assign_coords(new_coords)
 
 
