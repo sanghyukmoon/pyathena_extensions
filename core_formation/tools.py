@@ -1401,7 +1401,7 @@ def recenter_dataset(ds, center, by_index=False):
         requested dimension, with coordinates translated to put it at zero.
         Other dimensions are unchanged. No interpolation is performed.
     """
-    shift = {}
+    shift, new_coords = {}, {}
     for dim, pos in center.items():
         hNx = ds.sizes[dim] // 2
         coords = ds.coords[dim].data
@@ -1410,11 +1410,8 @@ def recenter_dataset(ds, center, by_index=False):
             shift[dim] = hNx - pos
         else:
             shift[dim] = hNx - np.where(np.isclose(coords, pos, atol=0.1*dx))[0][0]
-    recentered = ds.roll(shift, roll_coords=False)
-    return recentered.assign_coords({
-        dim: ds.coords[dim] - ds.coords[dim].isel({dim: ds.sizes[dim] // 2})
-        for dim in center
-    })
+        new_coords[dim] = ds.coords[dim] - ds.coords[dim].isel({dim: hNx})
+    return ds.roll(shift, roll_coords=False).assign_coords(new_coords)
 
 
 def get_rhocrit_KM05(lmb_sonic):
