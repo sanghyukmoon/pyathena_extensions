@@ -46,8 +46,10 @@ caller's chosen velocity frame. There is no volume-input or legacy fallback.
 The `plot_core_evolution` and `plot_sink_history` batch tasks use discovered
 projection epochs and initialize in non-legacy mode. Filenames and overwrite
 behavior are unchanged; explicitly overwrite existing images to regenerate
-them. Sink-history curves retain the strict snapshot-time cutoff and the
-`tend + 0.01` right-hand limit so the final marker remains visible.
+them. The sink-history label shows sinks formed by the snapshot time over the
+total historical count, including sinks that later merged. Curves retain the
+strict snapshot-time cutoff and the `tend + 0.01` right-hand limit so the final
+marker remains visible.
 
 ## Selection details
 

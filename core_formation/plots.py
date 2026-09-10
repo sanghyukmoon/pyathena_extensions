@@ -646,6 +646,8 @@ def plot_projection(s, ds, field='Sigma_gas', axis='z',
                 headlength=4.5, headaxislength=4, minlength=0.25,
                 zorder=3,
             )
+    ax.set_xlim(extent[:2])
+    ax.set_ylim(extent[2:])
     if add_colorbar and 'Sigma_gas' in fields:
         ax.figure.colorbar(im, ax=ax, cax=cax)
 
@@ -1131,7 +1133,8 @@ def plot_sinkhistory(s, num):
 
     # plot particle history
     plt.sca(ax3)
-    ax3.text(0.01, 0.93, rf"$\text{{number of sinks formed}}={len(s.pids)}$", transform=ax3.transAxes)
+    nformed = (s.tcoll_cores.time <= snapshot_time).sum()
+    ax3.text(0.01, 0.93, rf"$\text{{number of sinks formed}}={nformed}/{len(s.pids)}$", transform=ax3.transAxes)
     for pid in s.pids:
         phst = s.load_parhst(pid)
         time = phst.time
