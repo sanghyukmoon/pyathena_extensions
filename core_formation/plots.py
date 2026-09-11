@@ -824,9 +824,9 @@ def plot_core_evolution(s, cores, num, hw=0.1):
     pos_minima = pos_minima[(pos_minima.abs() < hw).all(axis=1)]
 
     # Create figure
-    fig = plt.figure(figsize=(35, 21))
-    gs = gridspec.GridSpec(3, 5, wspace=0.23, hspace=0.15,
-                           width_ratios=[1.2, 1.2, 1.2, 1.2, 1.2])
+    fig = plt.figure(figsize=(42, 21))
+    gs = gridspec.GridSpec(3, 6, wspace=0.23, hspace=0.15,
+                           width_ratios=[1.2, 1.2, 1.2, 1.2, 1.2, 1.2])
 
     xlim = dict(z=(xc-hw, xc+hw),
                 x=(yc-hw, yc+hw),
@@ -843,12 +843,13 @@ def plot_core_evolution(s, cores, num, hw=0.1):
 
     axs = dict(proj=[fig.add_subplot(gs[i, 0]) for i in [0, 1, 2]],
                zoom=[fig.add_subplot(gs[i, 1]) for i in [0, 1, 2]],
-               rho=[fig.add_subplot(gs[0, i]) for i in [2, 3]],
-               force=[fig.add_subplot(gs[1, i]) for i in [2, 3]],
-               veldisp=fig.add_subplot(gs[2, 2]),
-               vel=fig.add_subplot(gs[2, 3]),
-               acc=fig.add_subplot(gs[:-1, 4]),
-               mcrit=fig.add_subplot(gs[-1, 4]))
+               zoom2=[fig.add_subplot(gs[i, 2]) for i in [0, 1, 2]],
+               rho=[fig.add_subplot(gs[0, i]) for i in [3, 4]],
+               force=[fig.add_subplot(gs[1, i]) for i in [3, 4]],
+               veldisp=fig.add_subplot(gs[2, 3]),
+               vel=fig.add_subplot(gs[2, 4]),
+               acc=fig.add_subplot(gs[:-1, 5]),
+               mcrit=fig.add_subplot(gs[-1, 5]))
 
     transverse_axes = {'z': ('x', 'y'), 'y': ('x', 'z'), 'x': ('y', 'z')}
     components = {'x': 1, 'y': 2, 'z': 3}
@@ -886,6 +887,7 @@ def plot_core_evolution(s, cores, num, hw=0.1):
         plt.sca(axs['zoom'][i])
         plot_projection(
             s, zoom, field=(*fields, 'v_quiver'),
+            vmin=1e0, vmax=4e2,
             axis=prj_axis, add_colorbar=False,
         )
         if np.isfinite(selected_radius) and selected_radius <= np.sqrt(2)*hw:
@@ -905,6 +907,29 @@ def plot_core_evolution(s, cores, num, hw=0.1):
                     marker=MarkerStyle('+'), color='tab:gray')
         plt.xlim(-hw, hw)
         plt.ylim(-hw, hw)
+        plt.xlabel(xlabel[prj_axis])
+        plt.ylabel(ylabel[prj_axis])
+
+        # 3. Further zoom-in view
+        qhw = hw / 4
+        zoom2 = zoom.sel({dim: slice(-qhw, qhw) for dim in transverse})
+        plt.sca(axs['zoom2'][i])
+        plot_projection(
+            s, zoom2, field=(*fields, 'v_quiver'),
+            vmin=1e0, vmax=4e2,
+            axis=prj_axis, add_colorbar=False,
+        )
+        if np.isfinite(selected_radius) and selected_radius <= np.sqrt(2)*qhw:
+            c0 = plt.Circle((0, 0), selected_radius, fill=False, color='r', lw=1, ls='-')
+            plt.gca().add_artist(c0)
+        if np.isfinite(core.rtes) and core.rtes <= np.sqrt(2)*qhw:
+            c0 = plt.Circle((0, 0), core.rtes, fill=False, color='tab:red', lw=1, ls='--')
+            plt.gca().add_artist(c0)
+        if np.isfinite(core.radius) and core.radius <= np.sqrt(2)*qhw:
+            c0 = plt.Circle((0, 0), core.radius, fill=False, color='b', lw=1, ls='-.')
+            plt.gca().add_artist(c0)
+        plt.xlim(-qhw, qhw)
+        plt.ylim(-qhw, qhw)
         plt.xlabel(xlabel[prj_axis])
         plt.ylabel(ylabel[prj_axis])
 
