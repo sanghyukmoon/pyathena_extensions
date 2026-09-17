@@ -167,14 +167,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             tools.LognormalPDF.__init__(self, self.Mach)
             TimingReader.__init__(self, self.basedir, self.problem_id)
 
-            # Recorded output times, including runs whose HDF5 files were moved.
-            hdf5 = [v for k, v in self.par.items()
-                    if k.startswith('output') and v['file_type'] == 'hdf5']
-            if len(hdf5) > 1 or (hdf5 and hdf5[0]['variable'] != 'cons'):
-                raise ValueError('Core formation requires at most one cons HDF5 output')
             # Native HDF5 discovery belongs to FindFiles, not the analysis timeline.
             if hasattr(self, 'nums_hdf5'):
                 del self.nums_hdf5
+
             if self.legacy:
                 if getattr(self, 'nums', None):
                     self.times = {num: self.load_hdf5(num, header_only=True)['Time']
@@ -187,18 +183,19 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     self.times = {num: self.load_par(num, header_only=True)['time']
                                   for num in self.nums}
             else:
-                if hdf5:
-                    dt_rprof = self.dt_output['rprof']
-                    dt_hdf5 = self.dt_output['hdf5']
-                    if (not np.isfinite(dt_rprof) or dt_rprof <= 0
-                            or not np.isfinite(dt_hdf5) or dt_hdf5 <= 0):
-                        raise ValueError('HDF5 and rprof intervals must be finite and positive')
-                    ratio = dt_hdf5 / dt_rprof
-                    tolerance = 64*np.finfo(float).eps*max(1, abs(ratio))
-                    if (not np.isfinite(ratio) or round(ratio) < 1
-                            or abs(ratio - round(ratio)) > tolerance):
-                        raise ValueError('HDF5 interval must be an integer multiple of rprof')
-                    self._hdf5_stride = int(round(ratio))
+                if 'rprof' not in self.dt_output:
+                    return
+                dt_rprof = self.dt_output['rprof']
+                dt_hdf5 = self.dt_output['hdf5']
+                if (not np.isfinite(dt_rprof) or dt_rprof <= 0
+                        or not np.isfinite(dt_hdf5) or dt_hdf5 <= 0):
+                    raise ValueError('HDF5 and rprof intervals must be finite and positive')
+                ratio = dt_hdf5 / dt_rprof
+                tolerance = 64*np.finfo(float).eps*max(1, abs(ratio))
+                if (not np.isfinite(ratio) or round(ratio) < 1
+                        or abs(ratio - round(ratio)) > tolerance):
+                    raise ValueError('HDF5 interval must be an integer multiple of rprof')
+                self._hdf5_stride = int(round(ratio))
                 self.nums = getattr(self, 'nums_rprof', [])
                 self.minima, self.times = {}, {}
                 for num in self.nums:
@@ -231,7 +228,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
 
             # Available HDF5 epochs use the same numbering as self.nums.
             native_hdf5_nums = getattr(self.ff, 'nums_hdf5', {}).get('cons') or []
-            stride = 1 if self.legacy or not hdf5 else self._hdf5_stride
+            stride = 1 if self.legacy else self._hdf5_stride
             self.nums_with_hdf5 = sorted(
                 set(self.nums) & {native_hdf5_num * stride
                                   for native_hdf5_num in native_hdf5_nums}
