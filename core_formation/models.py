@@ -20,3 +20,8 @@ M5N1024 = {f"M5J2P{iseed}N1024": f"/scratch/gpfs/sm69/cores/hydro/M5.J2.P{iseed}
 
 # All models
 models = {**M5N512, **M5N1024, **M10N1024, **mhd, **M5N512_ext}
+
+# For MHD paper, overwrite the hydro models with the MHD ones
+hydro = {f"M10J4P{iseed}N1024": f"/projects2/EOSTRIKE/sanghyuk/cores/M10.J4.P{iseed}.N1024" for iseed in range(0, 5)}
+mhd = {f"M10J4B2P{iseed}N1024": f"/scratch/gpfs/sm69/cores/mhd/M10.J4.B2.P{iseed}.N1024" for iseed in range(0, 5)}
+models = {**hydro, **mhd}
