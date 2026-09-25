@@ -221,7 +221,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             stride = 1 if self.legacy or not projection else self._projection_stride
             self.nums_with_projection = sorted(
                 set(self.nums) & {num * stride
-                                  for num in getattr(self.ff, 'nums_projection', [])}
+                                  for num in getattr(self.ff, 'nums_proj', [])}
             )
             if np.any(np.diff(self.nums) != 1):
                 raise ValueError('Gap in output numbering')

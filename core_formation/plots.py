@@ -575,7 +575,7 @@ def plot_projection(s, ds, field='Sigma_gas', axis='z',
     s : LoadSim
         Object containing simulation metadata.
     ds : xarray.Dataset
-        Axis-specific 2D maps from load_projection. Magnetic overlays use
+        Axis-specific 2D maps from load_proj. Magnetic overlays use
         rhoB1/2/3 divided by Sigma_gas. Velocity overlays use supplied
         vel1/2/3 maps, already normalized and in the desired reference frame.
     field : str or sequence of str, optional
@@ -860,7 +860,7 @@ def plot_core_evolution(s, cores, num, hw=0.1):
         quantities = ['Sigma_gas'] + [f'mom{components[dim]}' for dim in transverse]
         if s.mhd:
             quantities += [f'rhoB{components[dim]}' for dim in transverse]
-        projection = s.load_projection(num, axis=prj_axis, quantities=quantities)
+        projection = s.load_proj(num, axis=prj_axis, quantities=quantities)
         snapshot_time = projection.attrs['time']
         # 1. Projections
         plt.sca(axs['proj'][i])
@@ -1142,7 +1142,7 @@ def plot_sinkhistory(s, num):
         quantities = ['Sigma_gas']
         if s.mhd:
             quantities += [f'rhoB{i}' for i in transverse_components[axis]]
-        projection = s.load_projection(num, axis=axis, quantities=quantities)
+        projection = s.load_proj(num, axis=axis, quantities=quantities)
         snapshot_time = projection.attrs['time']
         plot_projection(
             s, projection, field=fields, axis=axis, ax=ax, add_colorbar=False
