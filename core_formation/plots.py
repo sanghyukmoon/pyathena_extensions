@@ -1178,11 +1178,37 @@ def plot_sinkhistory(s, num):
     plt.ylabel(r'$M_*/M_\mathrm{J,0}$')
     return fig
 
-
+def plot_zcps(s, ax=None, tasks=['hydro', 'gravity', 'all']):
+    lt = s.load_loop_time().to_xarray()
+    if ax is None:
+        fig = plt.figure(figsize=(16, 5))
+        ax = plt.gca()
+    meshblock_size = s.par['meshblock']
+    zones_per_meshblock = (
+        meshblock_size['nx1']*meshblock_size['nx2']*meshblock_size['nx3']
+    )
+    zones = lt.Nblocks*zones_per_meshblock
+    label='MHD' if s.par['configure']['Magnetic_fields'] == 'ON' else 'Hydro'
+    if 'hydro' in tasks:
+        (zones / lt.TimeIntegratorTaskList).plot(ax=ax, label=label, lw=1)
+    if 'gravity' in tasks:
+        (zones / lt.SelfGravity).plot(ax=ax, label='Gravity', lw=1)
+    if 'all' in tasks:
+        (zones / lt.All).plot(ax=ax, label='All', lw=1)
+    ax.set_ylim(1e5, 1e7)
+    ax.set_yscale('log')
+    ax.legend(ncol=3)
+    ax.set_ylabel('ZCPS per core')
+    ax_r = ax.twinx()
+    ax_r.plot(lt.ncycle, lt.time, 'k-', lw=1)
+    ax_r.set_ylim(0, 0.8)
+    ax_r.set_ylabel(r'$t/t_{J,0}$')
+    if ax is None:
+        return fig, ax, ax_r
+    else:
+        return ax, ax_r
 
 # DEPRECATED
-
-
 
 def plot_Pspec(s, ds, ax=None, ax_twin=None):
     """Requires load_method='xarray'"""
