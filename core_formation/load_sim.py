@@ -316,7 +316,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         else:
             raise ValueError("Unknown parameter type for basedir_or_Mach")
 
-    def load_projection(self, num, axis='z', quantities=None, header_only=False):
+    def load_proj(self, num, axis='z', quantities=None, header_only=False):
         """Load raw full-box integrals at an analysis output number."""
         if self.legacy:
             native_projection_num = num
@@ -327,8 +327,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 raise ValueError(f'Projection is not scheduled at num={num}; '
                                  f'stride={self._projection_stride}')
             native_projection_num = num // self._projection_stride
-        return super().load_projection(native_projection_num, axis=axis,
-                                       quantities=quantities, header_only=header_only)
+        return super().load_proj(native_projection_num, axis=axis,
+                                 quantities=quantities, header_only=header_only)
 
     def load_hdf5(self, num, sparse=False, **kwargs):
         """Load HDF5 using analysis num (native HDF5 num in legacy mode).
