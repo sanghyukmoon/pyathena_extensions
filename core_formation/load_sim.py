@@ -71,7 +71,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                  verbose=False, override_all=False, override_cores=False,
                  override_rprofs=False, override_collapse_history=False,
                  override_observables=False,
-                 skip_collapse_history=False, *, legacy=True):
+                 skip_collapse_history=False, *, legacy=False):
         """The constructor for LoadSim class for core formation simulations.
 
         Parameters
@@ -97,7 +97,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         override_all : bool
             Refresh all enabled loading stages. Does not enable skipped histories.
         legacy : bool
-            Read existing Python radial profiles (default True), or on-the-fly
+            Read existing Python radial profiles (default False), or on-the-fly
             profiles. Use separate savdirs when comparing the two sources.
             In non-legacy mode, nums and times follow radial-profile outputs;
             load_hdf5 also accepts radial-profile numbers and translates them
@@ -148,10 +148,13 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                     self.color = 'r'
                 else:
                     self.color = 'b'
+            self.mhd = False
             if self.basename.replace(".", "") in models.hydro_old:
                 # Old hydro models does not have 'configure' block
                 # Simply set mhd = False
                 self.mhd = False
+            elif 'mhd' in self.par:
+                self.mhd = True
             else:
                 if self.par['configure']['Magnetic_fields'] == 'ON':
                     self.mhd = True
@@ -186,15 +189,18 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
                 if 'rprof' not in self.dt_output:
                     return
                 dt_rprof = self.dt_output['rprof']
-                dt_hdf5 = self.dt_output['hdf5']
+                if self.athena_variant == 'athenak':
+                    dt_snapshot = self.dt_output['bin']
+                else:
+                    dt_snapshot = self.dt_output['hdf5']
                 if (not np.isfinite(dt_rprof) or dt_rprof <= 0
-                        or not np.isfinite(dt_hdf5) or dt_hdf5 <= 0):
-                    raise ValueError('HDF5 and rprof intervals must be finite and positive')
-                ratio = dt_hdf5 / dt_rprof
+                        or not np.isfinite(dt_snapshot) or dt_snapshot <= 0):
+                    raise ValueError('snapshot and rprof intervals must be finite and positive')
+                ratio = dt_snapshot / dt_rprof
                 tolerance = 64*np.finfo(float).eps*max(1, abs(ratio))
                 if (not np.isfinite(ratio) or round(ratio) < 1
                         or abs(ratio - round(ratio)) > tolerance):
-                    raise ValueError('HDF5 interval must be an integer multiple of rprof')
+                    raise ValueError('snapshot interval must be an integer multiple of rprof')
                 self._hdf5_stride = int(round(ratio))
                 self.nums = getattr(self, 'nums_rprof', [])
                 self.minima, self.times = {}, {}
@@ -247,26 +253,27 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             self.sonic_length = tools.get_sonic(self.Mach, self.Lbox)
 
             # Find the collapse time and corresponding snapshot numbers
-            self.tcoll_cores = self._find_tcoll_cores()
-            if self.legacy:
-                try:
-                    fname = Path(self.savdir, 'GRID', 'minima.p')
-                    with open(fname, 'rb') as handle:
-                        self.minima = pickle.load(handle)
-                except FileNotFoundError:
-                    pass
+            if hasattr(self, 'pids'):
+                self.tcoll_cores = self._find_tcoll_cores()
+                if self.legacy:
+                    try:
+                        fname = Path(self.savdir, 'GRID', 'minima.p')
+                        with open(fname, 'rb') as handle:
+                            self.minima = pickle.load(handle)
+                    except FileNotFoundError:
+                        pass
 
-            if len(self.tcoll_cores) > 0:
-                try:
-                    # Load cores
-                    savdir = Path(self.savdir, config.CORE_DIR)
-                    self.cores = self._load_cores(
-                        savdir=savdir, force_override=override_cores)
-                    if set(self.cores) != set(self.pids):
-                        raise ValueError("Base-core cache does not contain the expected pids")
-                except FileNotFoundError:
-                    self.logger.warning("Cannot find core files to load.")
-                    pass
+                if len(self.tcoll_cores) > 0:
+                    try:
+                        # Load cores
+                        savdir = Path(self.savdir, config.CORE_DIR)
+                        self.cores = self._load_cores(
+                            savdir=savdir, force_override=override_cores)
+                        if set(self.cores) != set(self.pids):
+                            raise ValueError("Base-core cache does not contain the expected pids")
+                    except FileNotFoundError:
+                        self.logger.warning("Cannot find core files to load.")
+                        pass
 
             if hasattr(self, 'cores'):
                 try:
