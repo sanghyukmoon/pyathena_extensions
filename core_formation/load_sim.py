@@ -327,14 +327,91 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         """Read native radial profiles using application field names.
 
         Metadata-only reads retain the base reader's result unchanged. Full
-        reads also add magnetic basis vectors and mass transport rates.
-        Rebuild aggregate caches with override_rprofs=True to expose new fields.
+        reads rename stored fields only. Magnetic basis vectors and transport
+        rates are calculated when assembled profiles are derived.
         """
         profile = super().load_rprof(num, center_ids=center_ids,
                                      metadata_only=metadata_only)
         if metadata_only:
             return profile
-        return radial_profiles.convert_native_radial_profiles(profile)
+        return profile.rename({
+            native: application
+            for native, application in {
+                'velocity_x_origin': 'velx_origin',
+                'velocity_y_origin': 'vely_origin',
+                'velocity_z_origin': 'velz_origin',
+                'shell_volume': 'vshell',
+                'shell_mass': 'mshell',
+                'density': 'rho',
+                'density_sq': 'rho_sq',
+                'velocity_x': 'velx',
+                'velocity_y': 'vely',
+                'velocity_z': 'velz',
+                'velocity_xy': 'velxy',
+                'velocity_xz': 'velxz',
+                'velocity_yz': 'velyz',
+                'velocity_1': 'vel1',
+                'velocity_2': 'vel2',
+                'velocity_3': 'vel3',
+                'velocity_x_sq': 'velx_sq',
+                'velocity_y_sq': 'vely_sq',
+                'velocity_z_sq': 'velz_sq',
+                'velocity_1_sq': 'vel1_sq',
+                'velocity_2_sq': 'vel2_sq',
+                'velocity_3_sq': 'vel3_sq',
+                'velocity_mass_weighted_x': 'velx_mw',
+                'velocity_mass_weighted_y': 'vely_mw',
+                'velocity_mass_weighted_z': 'velz_mw',
+                'velocity_mass_weighted_xy': 'velxy_mw',
+                'velocity_mass_weighted_xz': 'velxz_mw',
+                'velocity_mass_weighted_yz': 'velyz_mw',
+                'velocity_mass_weighted_1': 'vel1_mw',
+                'velocity_mass_weighted_2': 'vel2_mw',
+                'velocity_mass_weighted_3': 'vel3_mw',
+                'velocity_mass_weighted_x_sq': 'velx_sq_mw',
+                'velocity_mass_weighted_y_sq': 'vely_sq_mw',
+                'velocity_mass_weighted_z_sq': 'velz_sq_mw',
+                'velocity_mass_weighted_1_sq': 'vel1_sq_mw',
+                'velocity_mass_weighted_2_sq': 'vel2_sq_mw',
+                'velocity_mass_weighted_3_sq': 'vel3_sq_mw',
+                'angular_momentum_density_x': 'Ldens_x',
+                'angular_momentum_density_y': 'Ldens_y',
+                'angular_momentum_density_z': 'Ldens_z',
+                'mass_flux_in': 'rhov1_in',
+                'mass_flux_out': 'rhov1_out',
+                'bfield_x': 'bx',
+                'bfield_x_sq': 'bx_sq',
+                'bfield_y': 'by',
+                'bfield_y_sq': 'by_sq',
+                'bfield_z': 'bz',
+                'bfield_z_sq': 'bz_sq',
+                'bfield_1': 'b1',
+                'bfield_1_sq': 'b1_sq',
+                'bfield_2': 'b2',
+                'bfield_2_sq': 'b2_sq',
+                'bfield_3': 'b3',
+                'bfield_3_sq': 'b3_sq',
+                'potential_mass_weighted': 'phi_mw',
+                'gravity_1': 'gacc1',
+                'gravity_mass_weighted_1': 'gacc1_mw',
+                'fraction_negative_gravity_1': 'frac_neg_gacc1',
+                'enclosed_field_x': 'mean_bx',
+                'enclosed_field_y': 'mean_by',
+                'enclosed_field_z': 'mean_bz',
+                'magnetic_flux_upper': 'phi_B',
+                'magnetic_flux_lower': 'phi_B_from_lower',
+                'mass_flux_xx': 'rhovx_rhatx',
+                'mass_flux_xy': 'rhovx_rhaty',
+                'mass_flux_xz': 'rhovx_rhatz',
+                'mass_flux_yx': 'rhovy_rhatx',
+                'mass_flux_yy': 'rhovy_rhaty',
+                'mass_flux_yz': 'rhovy_rhatz',
+                'mass_flux_zx': 'rhovz_rhatx',
+                'mass_flux_zy': 'rhovz_rhaty',
+                'mass_flux_zz': 'rhovz_rhatz',
+            }.items()
+            if native in profile
+        })
 
     def load_proj(self, num, axis='z', quantities=None, header_only=False):
         """Load raw full-box integrals at an analysis output number."""

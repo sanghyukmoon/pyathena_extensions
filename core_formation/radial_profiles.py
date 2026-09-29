@@ -6,141 +6,6 @@ import numpy as np
 import xarray as xr
 
 
-_NATIVE_FIELD_NAMES = {
-    'velocity_x_origin': 'velx_origin',
-    'velocity_y_origin': 'vely_origin',
-    'velocity_z_origin': 'velz_origin',
-    'shell_volume': 'vshell',
-    'shell_mass': 'mshell',
-    'density': 'rho',
-    'density_sq': 'rho_sq',
-    'velocity_x': 'velx',
-    'velocity_y': 'vely',
-    'velocity_z': 'velz',
-    'velocity_xy': 'velxy',
-    'velocity_xz': 'velxz',
-    'velocity_yz': 'velyz',
-    'velocity_1': 'vel1',
-    'velocity_2': 'vel2',
-    'velocity_3': 'vel3',
-    'velocity_x_sq': 'velx_sq',
-    'velocity_y_sq': 'vely_sq',
-    'velocity_z_sq': 'velz_sq',
-    'velocity_1_sq': 'vel1_sq',
-    'velocity_2_sq': 'vel2_sq',
-    'velocity_3_sq': 'vel3_sq',
-    'velocity_mass_weighted_x': 'velx_mw',
-    'velocity_mass_weighted_y': 'vely_mw',
-    'velocity_mass_weighted_z': 'velz_mw',
-    'velocity_mass_weighted_xy': 'velxy_mw',
-    'velocity_mass_weighted_xz': 'velxz_mw',
-    'velocity_mass_weighted_yz': 'velyz_mw',
-    'velocity_mass_weighted_1': 'vel1_mw',
-    'velocity_mass_weighted_2': 'vel2_mw',
-    'velocity_mass_weighted_3': 'vel3_mw',
-    'velocity_mass_weighted_x_sq': 'velx_sq_mw',
-    'velocity_mass_weighted_y_sq': 'vely_sq_mw',
-    'velocity_mass_weighted_z_sq': 'velz_sq_mw',
-    'velocity_mass_weighted_1_sq': 'vel1_sq_mw',
-    'velocity_mass_weighted_2_sq': 'vel2_sq_mw',
-    'velocity_mass_weighted_3_sq': 'vel3_sq_mw',
-    'angular_momentum_density_x': 'Ldens_x',
-    'angular_momentum_density_y': 'Ldens_y',
-    'angular_momentum_density_z': 'Ldens_z',
-    'mass_flux_in': 'rhov1_in',
-    'mass_flux_out': 'rhov1_out',
-    'bfield_x': 'bx',
-    'bfield_x_sq': 'bx_sq',
-    'bfield_y': 'by',
-    'bfield_y_sq': 'by_sq',
-    'bfield_z': 'bz',
-    'bfield_z_sq': 'bz_sq',
-    'bfield_1': 'b1',
-    'bfield_1_sq': 'b1_sq',
-    'bfield_2': 'b2',
-    'bfield_2_sq': 'b2_sq',
-    'bfield_3': 'b3',
-    'bfield_3_sq': 'b3_sq',
-    'potential_mass_weighted': 'phi_mw',
-    'gravity_1': 'gacc1',
-    'gravity_mass_weighted_1': 'gacc1_mw',
-    'fraction_negative_gravity_1': 'frac_neg_gacc1',
-    'enclosed_field_x': 'mean_bx',
-    'enclosed_field_y': 'mean_by',
-    'enclosed_field_z': 'mean_bz',
-    'magnetic_flux_upper': 'phi_B',
-    'magnetic_flux_lower': 'phi_B_from_lower',
-    'mass_flux_xx': 'rhovx_rhatx',
-    'mass_flux_xy': 'rhovx_rhaty',
-    'mass_flux_xz': 'rhovx_rhatz',
-    'mass_flux_yx': 'rhovy_rhatx',
-    'mass_flux_yy': 'rhovy_rhaty',
-    'mass_flux_yz': 'rhovy_rhatz',
-    'mass_flux_zx': 'rhovz_rhatx',
-    'mass_flux_zy': 'rhovz_rhaty',
-    'mass_flux_zz': 'rhovz_rhatz',
-}
-
-
-def convert_native_radial_profiles(profile):
-    """Return native profiles with application names, basis and transport rates.
-
-    Stored enclosed magnetic means and hemisphere fluxes are retained exactly.
-    Velocity cross moments remain raw moments, not covariances. Magnetic basis
-    vectors require a finite, nonzero enclosed field at every selected radius.
-    """
-    profile = profile.rename({native: application
-                              for native, application in _NATIVE_FIELD_NAMES.items()
-                              if native in profile})
-    area = 4*np.pi*profile.r**2
-    for axis in 'xyz':
-        profile[f'mdot_{axis}'] = -profile[f'rhov{axis}_rhat{axis}']*area
-    profile['mdot_in'] = profile.rhov1_in*area
-    profile['mdot_out'] = profile.rhov1_out*area
-
-    if 'mean_bx' not in profile:
-        return profile
-
-    field_magnitude = np.sqrt(profile.mean_bx**2 + profile.mean_by**2
-                              + profile.mean_bz**2)
-    invalid = (field_magnitude == 0) | ~np.isfinite(field_magnitude)
-    if invalid.any():
-        indices = dict(zip(invalid.dims, np.argwhere(invalid.values)[0]))
-        location = invalid.isel(indices)
-        raise ValueError(
-            'Zero or nonfinite enclosed magnetic-field magnitude at '
-            f'center_id={location.center_id.item()}, r={location.r.item()}'
-        )
-
-    for axis in 'xyz':
-        profile[f'bhat_{axis}'] = profile[f'mean_b{axis}']/field_magnitude
-
-    # cross(bhat, x) when |bhat_x| < 0.9, otherwise cross(bhat, y).
-    use_x = abs(profile.bhat_x) < 0.9
-    perpendicular = {
-        'x': xr.where(use_x, 0, -profile.bhat_z),
-        'y': xr.where(use_x, profile.bhat_z, 0),
-        'z': xr.where(use_x, -profile.bhat_y, profile.bhat_x),
-    }
-    perpendicular_magnitude = np.sqrt(sum(value**2 for value in perpendicular.values()))
-    for axis in 'xyz':
-        profile[f'bperp1_{axis}'] = perpendicular[axis]/perpendicular_magnitude
-    for axis, j, k in [('x', 'y', 'z'), ('y', 'z', 'x'), ('z', 'x', 'y')]:
-        profile[f'bperp2_{axis}'] = (
-            profile[f'bhat_{j}']*profile[f'bperp1_{k}']
-            - profile[f'bhat_{k}']*profile[f'bperp1_{j}']
-        )
-
-    for basis, rate in [('bhat', 'mdot_b'), ('bperp1', 'mdot_bperp1'),
-                        ('bperp2', 'mdot_bperp2')]:
-        projected_flux = sum(
-            profile[f'{basis}_{i}']*profile[f'rhov{i}_rhat{j}']*profile[f'{basis}_{j}']
-            for i in 'xyz' for j in 'xyz'
-        )
-        profile[rate] = -projected_flux*area
-    return profile
-
-
 def derive_radial_profiles(s, rprofs):
     """Return one core's profiles with derived fields recomputed.
 
@@ -150,7 +15,9 @@ def derive_radial_profiles(s, rprofs):
         Simulation providing only cs, gconst, and mhd.
     rprofs : xarray.Dataset
         Assembled profiles with time and radius dimensions and required raw
-        fields. Existing derived fields are recomputed for the same MHD mode.
+        fields. Native transport and magnetic basis are computed here; legacy
+        profiles retain their precomputed basis and rates. Other derived fields
+        are recomputed for the same MHD mode.
 
     Returns
     -------
@@ -159,6 +26,58 @@ def derive_radial_profiles(s, rprofs):
         Neither the input dataset nor the simulation is modified.
     """
     rprofs = rprofs.copy()
+    # Native profiles store the transport tensor; legacy profiles already
+    # contain their basis and transport rates.
+    if 'rhovx_rhatx' in rprofs:
+        area = 4*np.pi*rprofs.r**2
+        for axis in 'xyz':
+            rprofs[f'mdot_{axis}'] = -rprofs[f'rhov{axis}_rhat{axis}']*area
+        rprofs['mdot_in'] = rprofs.rhov1_in*area
+        rprofs['mdot_out'] = rprofs.rhov1_out*area
+
+        if s.mhd:
+            field_magnitude = np.sqrt(rprofs.mean_bx**2 + rprofs.mean_by**2
+                                      + rprofs.mean_bz**2)
+            invalid = (field_magnitude == 0) | ~np.isfinite(field_magnitude)
+            if invalid.any():
+                indices = dict(zip(invalid.dims, np.argwhere(invalid.values)[0]))
+                location = invalid.isel(indices)
+                coordinates = ', '.join(
+                    f'{name}={location[name].item()}'
+                    for name in ('center_id', 'num', 't', 'r') if name in location.coords
+                )
+                raise ValueError(
+                    'Zero or nonfinite enclosed magnetic-field magnitude at '
+                    + coordinates
+                )
+
+            for axis in 'xyz':
+                rprofs[f'bhat_{axis}'] = rprofs[f'mean_b{axis}']/field_magnitude
+
+            # cross(bhat, x) when |bhat_x| < 0.9, otherwise cross(bhat, y).
+            use_x = abs(rprofs.bhat_x) < 0.9
+            perpendicular = {
+                'x': xr.where(use_x, 0, -rprofs.bhat_z),
+                'y': xr.where(use_x, rprofs.bhat_z, 0),
+                'z': xr.where(use_x, -rprofs.bhat_y, rprofs.bhat_x),
+            }
+            perpendicular_magnitude = np.sqrt(sum(value**2 for value in perpendicular.values()))
+            for axis in 'xyz':
+                rprofs[f'bperp1_{axis}'] = perpendicular[axis]/perpendicular_magnitude
+            for axis, j, k in [('x', 'y', 'z'), ('y', 'z', 'x'), ('z', 'x', 'y')]:
+                rprofs[f'bperp2_{axis}'] = (
+                    rprofs[f'bhat_{j}']*rprofs[f'bperp1_{k}']
+                    - rprofs[f'bhat_{k}']*rprofs[f'bperp1_{j}']
+                )
+
+            for basis, rate in [('bhat', 'mdot_b'), ('bperp1', 'mdot_bperp1'),
+                                ('bperp2', 'mdot_bperp2')]:
+                projected_flux = sum(
+                    rprofs[f'{basis}_{i}']*rprofs[f'rhov{i}_rhat{j}']*rprofs[f'{basis}_{j}']
+                    for i in 'xyz' for j in 'xyz'
+                )
+                rprofs[rate] = -projected_flux*area
+
     for axis in [1, 2, 3, 'x', 'y', 'z']:
         rprofs[f'dvel{axis}_sq_mw'] = (rprofs[f'vel{axis}_sq_mw']
                                      - rprofs[f'vel{axis}_mw']**2)
