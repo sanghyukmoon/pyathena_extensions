@@ -323,6 +323,19 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
         else:
             raise ValueError("Unknown parameter type for basedir_or_Mach")
 
+    def load_rprof(self, num, center_ids=None, *, metadata_only=False):
+        """Read native radial profiles using application field names.
+
+        Metadata-only reads retain the base reader's result unchanged. Full
+        reads also add magnetic basis vectors and mass transport rates.
+        Rebuild aggregate caches with override_rprofs=True to expose new fields.
+        """
+        profile = super().load_rprof(num, center_ids=center_ids,
+                                     metadata_only=metadata_only)
+        if metadata_only:
+            return profile
+        return radial_profiles.convert_native_radial_profiles(profile)
+
     def load_proj(self, num, axis='z', quantities=None, header_only=False):
         """Load raw full-box integrals at an analysis output number."""
         if self.legacy:
