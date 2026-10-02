@@ -12,3 +12,4 @@ job*
 *.slurm
 visitlog.py
 visit_script.py
+AGENTS.md
