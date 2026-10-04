@@ -1,3 +1,4 @@
+from fractions import Fraction
 import json
 import os.path as osp
 import warnings
@@ -30,11 +31,13 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
     ----------
     nums_with_hdf5 : list of int
         Locally discovered HDF5 epochs belonging to nums, in analysis numbering.
-        In non-legacy mode these are radial-profile numbers, not native HDF5
-        file numbers. Reconstruct LoadSim to refresh file discovery.
-    nums_with_projection : list of int
+        HDF5 mapping is retained for legacy/non-AthenaK workflows.
+        Reconstruct LoadSim to refresh file discovery.
+    nums_with_proj : list of int
         Locally discovered full-box projection epochs in analysis numbering.
         Reconstruct LoadSim to refresh file discovery.
+    nums_with_bin : dict of lists of int
+        Available analysis epochs keyed by native binary stream ID.
     rho0 : float
         Mean density of the cloud in the code unit.
     cs : float
@@ -99,9 +102,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
         legacy : bool
             Read existing Python radial profiles (default False), or on-the-fly
             profiles. Use separate savdirs when comparing the two sources.
-            In non-legacy mode, nums and times follow radial-profile outputs;
-            load_hdf5 also accepts radial-profile numbers and translates them
-            internally. Unscheduled or missing HDF5 snapshots raise.
+            In AthenaK non-legacy mode, nums and times follow available rprof,
+            proj, then bin files. Projection and binary loaders translate
+            analysis numbers at shared dt epochs; base loaders use native numbers.
         """
         self.legacy = legacy
         # Set unit system
@@ -149,7 +152,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
                 else:
                     self.color = 'b'
             self.mhd = False
-            if self.basename.replace(".", "") in models.hydro_old:
+            if self.athena_variant == 'athenak':
+                self.mhd = 'mhd' in self.par
+            elif self.basename.replace(".", "") in models.hydro_old:
                 # Old hydro models does not have 'configure' block
                 # Simply set mhd = False
                 self.mhd = False
@@ -164,7 +169,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             self.dt_output = {}
             for k, v in self.par.items():
                 if k.startswith('output'):
-                    self.dt_output[v['file_type']] = v['dt']
+                    self.dt_output[v['file_type']] = v.get('dt', 0)
 
 
             tools.LognormalPDF.__init__(self, self.Mach)
@@ -185,14 +190,11 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
                         self.nums = getattr(self, 'nums_partab', {}).get('par0', [])
                     self.times = {num: self.load_par(num, header_only=True)['time']
                                   for num in self.nums}
+            elif self.athena_variant == 'athenak':
+                self._initialize_native_timeline()
             else:
-                if 'rprof' not in self.dt_output:
-                    return
                 dt_rprof = self.dt_output['rprof']
-                if self.athena_variant == 'athenak':
-                    dt_snapshot = self.dt_output['bin']
-                else:
-                    dt_snapshot = self.dt_output['hdf5']
+                dt_snapshot = self.dt_output['hdf5']
                 if (not np.isfinite(dt_rprof) or dt_rprof <= 0
                         or not np.isfinite(dt_snapshot) or dt_snapshot <= 0):
                     raise ValueError('snapshot and rprof intervals must be finite and positive')
@@ -208,37 +210,16 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
                     header = self.load_rprof(num, metadata_only=True)
                     self.minima[num] = header.center_id.to_numpy()
                     self.times[num] = header.attrs['time']
-            projection = [v for k, v in self.par.items()
-                          if k.startswith('output') and v['file_type'] == 'projection']
-            if len(projection) > 1:
-                raise ValueError('Core formation requires at most one projection output')
-            if projection and not self.legacy:
-                dt_rprof = self.dt_output['rprof']
-                dt_projection = self.dt_output['projection']
-                if (not np.isfinite(dt_rprof) or dt_rprof <= 0
-                        or not np.isfinite(dt_projection) or dt_projection <= 0):
-                    raise ValueError('Projection and rprof intervals must be finite and positive')
-                ratio = dt_projection / dt_rprof
-                tolerance = 64*np.finfo(float).eps*max(1, abs(ratio))
-                if (not np.isfinite(ratio) or round(ratio) < 1
-                        or abs(ratio - round(ratio)) > tolerance):
-                    raise ValueError('Projection interval must be an integer multiple of rprof')
-                self._projection_stride = int(round(ratio))
-            stride = 1 if self.legacy or not projection else self._projection_stride
-            self.nums_with_projection = sorted(
-                set(self.nums) & {num * stride
-                                  for num in getattr(self.ff, 'nums_proj', [])}
-            )
-            if np.any(np.diff(self.nums) != 1):
-                raise ValueError('Gap in output numbering')
 
-            # Available HDF5 epochs use the same numbering as self.nums.
+            if self.legacy or self.athena_variant != 'athenak':
+                if np.any(np.diff(self.nums) != 1):
+                    raise ValueError('Gap in output numbering')
+                self.nums_with_proj = []
+                self.nums_with_bin = {}
             native_hdf5_nums = getattr(self.ff, 'nums_hdf5', {}).get('cons') or []
-            stride = 1 if self.legacy else self._hdf5_stride
-            self.nums_with_hdf5 = sorted(
-                set(self.nums) & {native_hdf5_num * stride
-                                  for native_hdf5_num in native_hdf5_nums}
-            )
+            stride = 1 if self.legacy else getattr(self, '_hdf5_stride', None)
+            self.nums_with_hdf5 = ([] if stride is None else sorted(
+                set(self.nums) & {num*stride for num in native_hdf5_nums}))
 
             # Set domain
             Lbox = set(self.domain['Lx'])
@@ -253,7 +234,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             self.sonic_length = tools.get_sonic(self.Mach, self.Lbox)
 
             # Find the collapse time and corresponding snapshot numbers
-            if hasattr(self, 'pids'):
+            if (self.nums and hasattr(self, 'pids')
+                    and (self.legacy or self.athena_variant != 'athenak'
+                         or self._analysis_stream == 'rprof')):
                 self.tcoll_cores = self._find_tcoll_cores()
                 if self.legacy:
                     try:
@@ -413,19 +396,97 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             if native in profile
         })
 
-    def load_proj(self, num, axis='z', quantities=None, header_only=False):
-        """Load raw full-box integrals at an analysis output number."""
-        if self.legacy:
-            native_projection_num = num
+    def _initialize_native_timeline(self):
+        """Choose an available native stream and record its actual times."""
+        self._stream_dt = {}
+        for block, output in self.par.items():
+            if not block.startswith('output'):
+                continue
+            kind = output['file_type']
+            if kind == 'bin':
+                stream = ('bin', str(output.get('id', output['variable'])))
+            elif kind in ('rprof', 'proj'):
+                stream = kind
+            else:
+                continue
+            self._stream_dt[stream] = output.get('dt', 0)
+        binaries = getattr(self, 'nums_bin', {})
+        self._default_bin_id = next((key for key, nums in binaries.items() if nums), None)
+        self._analysis_stream = None
+        if getattr(self, 'nums_rprof', []):
+            self._analysis_stream = 'rprof'
+            self.nums = self.nums_rprof
+        elif self.nums_proj:
+            self._analysis_stream = 'proj'
+            self.nums = self.nums_proj
+        elif self._default_bin_id is not None:
+            self._analysis_stream = ('bin', self._default_bin_id)
+            self.nums = binaries[self._default_bin_id]
         else:
-            if not hasattr(self, '_projection_stride'):
-                raise ValueError('No projection output is configured')
-            if num % self._projection_stride:
-                raise ValueError(f'Projection is not scheduled at num={num}; '
-                                 f'stride={self._projection_stride}')
-            native_projection_num = num // self._projection_stride
-        return super().load_proj(native_projection_num, axis=axis,
-                                 quantities=quantities, header_only=header_only)
+            self.nums = []
+        self.times, self.minima = {}, {}
+        for num in self.nums:
+            if self._analysis_stream == 'rprof':
+                header = super().load_rprof(num, metadata_only=True)
+                self.minima[num] = header.center_id.to_numpy()
+                time = header.attrs['time']
+            elif self._analysis_stream == 'proj':
+                time = super().load_proj(num, header_only=True).attrs['time']
+            else:
+                time = super().load_bin(num, self._default_bin_id,
+                                        header_only=True).attrs['Time']
+            self.times[num] = time
+        self.nums_with_proj = self._available_epochs('proj', self.nums_proj)
+        self.nums_with_bin = {key: self._available_epochs(('bin', key), nums)
+                              for key, nums in binaries.items()}
+
+    def _native_output_number(self, num, stream):
+        """Translate an analysis number at a shared physical-time epoch."""
+        if self.legacy or stream == self._analysis_stream:
+            return num
+        if self._analysis_stream is None or stream not in self._stream_dt:
+            raise FileNotFoundError(f'No output stream {stream!r} is available')
+        analysis_dt = self._stream_dt[self._analysis_stream]
+        target_dt = self._stream_dt[stream]
+        if (not np.isfinite(analysis_dt) or analysis_dt <= 0
+                or not np.isfinite(target_dt) or target_dt <= 0):
+            raise ValueError('Cross-stream numbering requires positive finite dt intervals')
+        ratio = Fraction(str(analysis_dt)) / Fraction(str(target_dt))
+        numerator = num*ratio.numerator
+        if numerator % ratio.denominator:
+            raise ValueError(f'Output {stream!r} is not scheduled at num={num}')
+        return numerator // ratio.denominator
+
+    def _available_epochs(self, stream, native_nums):
+        """List discovered shared epochs without requiring absent streams."""
+        available = set(native_nums)
+        epochs = []
+        for num in self.nums:
+            try:
+                native_num = self._native_output_number(num, stream)
+            except (ValueError, FileNotFoundError):
+                continue
+            if native_num in available:
+                epochs.append(num)
+        return epochs
+
+    def load_proj(self, num, axis='z', quantities=None, header_only=False):
+        """Load native weighted projection fields at an analysis number."""
+        if not getattr(self, 'nums_proj', []):
+            raise FileNotFoundError('No projection files are available')
+        native_num = self._native_output_number(num, 'proj')
+        return super().load_proj(native_num, axis=axis, quantities=quantities,
+                                 header_only=header_only)
+
+    def load_bin(self, num, output_id=None, *, header_only=False):
+        """Load a binary stream at an analysis output number."""
+        if self.legacy:
+            return super().load_bin(num, output_id, header_only=header_only)
+        output_id = self._default_bin_id if output_id is None else output_id
+        if not getattr(self, 'nums_bin', {}).get(output_id):
+            raise FileNotFoundError(f'No binary files for stream {output_id!r}')
+        native_num = self._native_output_number(num, ('bin', output_id))
+        return super().load_bin(native_num, output_id, header_only=header_only)
 
     def load_hdf5(self, num, sparse=False, **kwargs):
         """Load HDF5 using analysis num (native HDF5 num in legacy mode).

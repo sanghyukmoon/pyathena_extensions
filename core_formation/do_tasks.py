@@ -100,11 +100,11 @@ if __name__ == "__main__":
                         for pid in s.good_cores(all_cores):
                             cores = all_cores[pid]
                             for num in cores.index:
-                                if num in s.nums_with_projection:
+                                if num in s.nums_with_proj:
                                     tasks.plot_core_evolution(s, cores, num,
                                                               overwrite=args.overwrite)
                     elif task == 'plot_sink_history':
-                        for num in s.nums_with_projection:
+                        for num in s.nums_with_proj:
                             tasks.plot_sink_history(s, num, overwrite=args.overwrite)
                     elif task == 'plot_radial_profile_at_tcrit':
                         tasks.plot_radial_profile_at_tcrit(s, all_cores,

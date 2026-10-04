@@ -565,7 +565,7 @@ def plot_lookback_profiles(
 
     return fig, axs
 
-def plot_projection(s, ds, field='Sigma_gas', axis='z',
+def plot_proj(s, ds, field='surface_density', axis='z',
                     vmin=1e-1, vmax=2e2, cmap='pink_r', alpha=1,
                     ax=None, cax=None, add_colorbar=True):
     """Plot one or more projected layers along the selected axis.
@@ -576,10 +576,10 @@ def plot_projection(s, ds, field='Sigma_gas', axis='z',
         Object containing simulation metadata.
     ds : xarray.Dataset
         Axis-specific 2D maps from load_proj. Magnetic overlays use
-        rhoB1/2/3 divided by Sigma_gas. Velocity overlays use supplied
-        vel1/2/3 maps, already normalized and in the desired reference frame.
+        bfield_mass_weighted_x/y/z directly. Velocity overlays use
+        velocity_mass_weighted_x/y/z in the desired reference frame.
     field : str or sequence of str, optional
-        Surface density (Sigma_gas) or vector overlay (b_stream or v_quiver).
+        Surface density (surface_density) or vector overlay (b_stream or v_quiver).
         Multiple layers are drawn in the supplied order.
     axis : str, optional
         Viewing (line-of-sight) axis.
@@ -596,12 +596,10 @@ def plot_projection(s, ds, field='Sigma_gas', axis='z',
     cax : matplotlib.axes, optional
         Axes to draw color bar.
     add_colorbar : bool, optional
-        Add a color bar when Sigma_gas is drawn.
+        Add a color bar when surface_density is drawn.
     """
     fields = (field,) if isinstance(field, str) else tuple(field)
     axis1, axis2 = {'z': ('x', 'y'), 'y': ('x', 'z'), 'x': ('y', 'z')}[axis]
-    components = {'x': 1, 'y': 2, 'z': 3}
-    i1, i2 = components[axis1], components[axis2]
     cell_widths = {'x': s.dx, 'y': s.dy, 'z': s.dz}
     ds = ds.transpose(axis2, axis1)
     x1 = ds.coords[axis1].to_numpy()
@@ -615,15 +613,15 @@ def plot_projection(s, ds, field='Sigma_gas', axis='z',
         ax = plt.gca()
 
     for fld in fields:
-        if fld == 'Sigma_gas':
-            prj = ds.Sigma_gas.to_numpy()
+        if fld == 'surface_density':
+            prj = ds.surface_density.to_numpy()
             im = ax.imshow(
                 prj, norm=LogNorm(vmin, vmax), origin='lower',
                 extent=extent, cmap=cmap, alpha=alpha,
             )
         elif fld == 'b_stream':
-            b1 = (ds[f'rhoB{i1}'] / ds.Sigma_gas).to_numpy()
-            b2 = (ds[f'rhoB{i2}'] / ds.Sigma_gas).to_numpy()
+            b1 = ds[f'bfield_mass_weighted_{axis1}'].to_numpy()
+            b2 = ds[f'bfield_mass_weighted_{axis2}'].to_numpy()
             ax.streamplot(
                 x1, x2, b1, b2, linewidth=1, color='tab:gray',
                 density=1, arrowsize=0.5,
@@ -636,8 +634,8 @@ def plot_projection(s, ds, field='Sigma_gas', axis='z',
             idx1 = sample_indices(ds.sizes[axis1])
             idx2 = sample_indices(ds.sizes[axis2])
             select = {axis1: idx1, axis2: idx2}
-            vel1 = ds[f'vel{i1}'].isel(select).to_numpy()
-            vel2 = ds[f'vel{i2}'].isel(select).to_numpy()
+            vel1 = ds[f'velocity_mass_weighted_{axis1}'].isel(select).to_numpy()
+            vel2 = ds[f'velocity_mass_weighted_{axis2}'].isel(select).to_numpy()
             ax.quiver(
                 x1[idx1], x2[idx2], vel1, vel2,
                 angles='xy', scale_units='width', scale=40*s.cs,
@@ -648,7 +646,7 @@ def plot_projection(s, ds, field='Sigma_gas', axis='z',
             )
     ax.set_xlim(extent[:2])
     ax.set_ylim(extent[2:])
-    if add_colorbar and 'Sigma_gas' in fields:
+    if add_colorbar and 'surface_density' in fields:
         ax.figure.colorbar(im, ax=ax, cax=cax)
 
 
@@ -852,19 +850,18 @@ def plot_core_evolution(s, cores, num, hw=0.1):
                mcrit=fig.add_subplot(gs[-1, 5]))
 
     transverse_axes = {'z': ('x', 'y'), 'y': ('x', 'z'), 'x': ('y', 'z')}
-    components = {'x': 1, 'y': 2, 'z': 3}
     center = dict(x=xc, y=yc, z=zc)
-    fields = ('Sigma_gas', 'b_stream') if s.mhd else ('Sigma_gas',)
+    fields = ('surface_density', 'b_stream') if s.mhd else ('surface_density',)
     for i, prj_axis in enumerate(('z', 'y', 'x')):
         transverse = transverse_axes[prj_axis]
-        quantities = ['Sigma_gas'] + [f'mom{components[dim]}' for dim in transverse]
+        quantities = ['surface_density'] + [f'velocity_mass_weighted_{dim}' for dim in transverse]
         if s.mhd:
-            quantities += [f'rhoB{components[dim]}' for dim in transverse]
+            quantities += [f'bfield_mass_weighted_{dim}' for dim in transverse]
         projection = s.load_proj(num, axis=prj_axis, quantities=quantities)
         snapshot_time = projection.attrs['time']
         # 1. Projections
         plt.sca(axs['proj'][i])
-        plot_projection(
+        plot_proj(
             s, projection, field=fields, axis=prj_axis, add_colorbar=False,
         )
         rec = plt.Rectangle((xlim[prj_axis][0], ylim[prj_axis][0]),
@@ -880,12 +877,12 @@ def plot_core_evolution(s, cores, num, hw=0.1):
         zoom = tools.recenter_dataset(projection, {dim: center[dim] for dim in transverse})
         zoom = zoom.sel({dim: slice(-hw, hw) for dim in transverse})
         zoom = zoom.assign({
-            f'vel{components[dim]}': zoom[f'mom{components[dim]}'] / zoom.Sigma_gas
+            f'velocity_mass_weighted_{dim}': zoom[f'velocity_mass_weighted_{dim}']
                                     - rprf[f'vel{dim}_origin']
             for dim in transverse
         })
         plt.sca(axs['zoom'][i])
-        plot_projection(
+        plot_proj(
             s, zoom, field=(*fields, 'v_quiver'),
             vmin=1e0, vmax=4e2,
             axis=prj_axis, add_colorbar=False,
@@ -914,7 +911,7 @@ def plot_core_evolution(s, cores, num, hw=0.1):
         qhw = hw / 4
         zoom2 = zoom.sel({dim: slice(-qhw, qhw) for dim in transverse})
         plt.sca(axs['zoom2'][i])
-        plot_projection(
+        plot_proj(
             s, zoom2, field=(*fields, 'v_quiver'),
             vmin=1e0, vmax=4e2,
             axis=prj_axis, add_colorbar=False,
@@ -1136,15 +1133,15 @@ def plot_sinkhistory(s, num):
     ax3 = fig.add_subplot(gs[1, :])
 
     # plot projections
-    fields = ('Sigma_gas', 'b_stream') if s.mhd else ('Sigma_gas',)
-    transverse_components = {'z': (1, 2), 'y': (1, 3), 'x': (2, 3)}
+    fields = ('surface_density', 'b_stream') if s.mhd else ('surface_density',)
+    transverse_components = {'z': ('x', 'y'), 'y': ('x', 'z'), 'x': ('y', 'z')}
     for ax, axis in zip((ax0, ax1, ax2), ('z', 'y', 'x')):
-        quantities = ['Sigma_gas']
+        quantities = ['surface_density']
         if s.mhd:
-            quantities += [f'rhoB{i}' for i in transverse_components[axis]]
+            quantities += [f'bfield_mass_weighted_{dim}' for dim in transverse_components[axis]]
         projection = s.load_proj(num, axis=axis, quantities=quantities)
         snapshot_time = projection.attrs['time']
-        plot_projection(
+        plot_proj(
             s, projection, field=fields, axis=axis, ax=ax, add_colorbar=False
         )
         ax.set_xticks([])
