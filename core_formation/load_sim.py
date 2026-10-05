@@ -405,7 +405,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             kind = output['file_type']
             if kind == 'bin':
                 stream = ('bin', str(output.get('id', output['variable'])))
-            elif kind in ('rprof', 'proj'):
+            elif kind in ('rprof', 'proj', 'parbin'):
                 stream = kind
             else:
                 continue
@@ -523,6 +523,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
     def load_par(self, num, **kwargs):
         """Load partab or parbin"""
         if 'parbin' in self.files:
+            if (self.athena_variant == 'athenak' and
+                    self._analysis_stream is not None and kwargs.get('iparbin') is None):
+                num = self._native_output_number(num, 'parbin')
             return self.load_parbin(num, **kwargs)
         elif 'partab' in self.files:
             return self.load_partab(num, **kwargs)
