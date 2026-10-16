@@ -72,7 +72,7 @@ if __name__ == "__main__":
                 for task in args.tasks:
                     if task in ('plot_core_evolution', 'plot_sink_history'):
                         s = sa.set_model(args.model, legacy=False)
-                    elif task in ('save_minima', 'projections', 'core_tracking',
+                    elif task in ('save_minima', 'projections', 'track_cores',
                                 'critical_tes', 'collapse_history'):
                         s = sa.set_model(args.model, skip_collapse_history=True)
                     elif task == 'radial_profile':

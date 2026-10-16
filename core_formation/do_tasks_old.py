@@ -108,7 +108,7 @@ if __name__ == "__main__":
         if args.track_cores:
             s = sa.set_model(mdl, legacy=args.legacy, skip_collapse_history=True)
             def wrapper(pid):
-                tasks.core_tracking(s, [pid,], overwrite=args.overwrite)
+                tasks.track_cores(s, [pid,], overwrite=args.overwrite)
             print(f"Perform core tracking for model {mdl}")
             with Pool(args.np) as p:
                 p.map(wrapper, pids)

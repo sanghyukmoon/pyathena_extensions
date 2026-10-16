@@ -143,15 +143,11 @@ def track_cores(s, pid):
     numcoll = s.tcoll_cores.loc[pid].num
     nums = [num for num in reversed(s.nums) if config.GRID_NUM_START <= num <= numcoll]
     num = nums[0]
-    msg = f'[track_cores] processing model {s.basename} pid {pid} num {num}'
-    print(msg)
-
     lid = find_tcoll_core(s, pid)
     nums_track = [num,]
     time = [s.times[num],]
     leaf_id = [lid,]
     for num in nums[1:]:
-        print(f'[track_cores] processing model {s.basename} pid {pid} num {num}')
         minima = s.minima[num]
         lid_old = lid
 

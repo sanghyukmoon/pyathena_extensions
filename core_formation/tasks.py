@@ -184,10 +184,10 @@ def critical_tes(s, pid, overwrite=False):
         print('[critical_tes] file already exists. Skipping...')
         return
 
+    print(f'[critical_tes] processing model {s.basename} pid {pid}')
     results = []
     for core in s.cores[pid].itertuples():
         num = core.Index
-        print(f'[critical_tes] processing model {s.basename} pid {pid} num {num}')
         rprf = s.rprofs[pid].sel(num=num)
         result = tools.critical_tes_property(s, rprf, core)
         result['num'] = num
@@ -201,7 +201,7 @@ def critical_tes(s, pid, overwrite=False):
     ofname.with_name("cores.p").unlink(missing_ok=True)
 
 
-def core_tracking(s, pids=None, overwrite=False):
+def track_cores(s, pids=None, overwrite=False):
     """Loops over all sink particles and find their progenitor cores
 
     Finds a unique minima at each snapshot that is going to collapse.
@@ -225,9 +225,10 @@ def core_tracking(s, pids=None, overwrite=False):
         ofname = Path(s.savdir, config.CORE_DIR, f'core_trajectories.par{pid}.nc')
         ofname.parent.mkdir(exist_ok=True)
         if ofname.exists() and not overwrite:
-            print('[core_tracking] file already exists. Skipping...')
+            print('[track_cores] file already exists. Skipping...')
             continue
 
+        print(f'[track_cores] processing model {s.basename} pid {pid}')
         cores = tools.track_cores(s, pid)
         myio.save_dataframe(cores, ofname)
         ofname.with_name("cores.p").unlink(missing_ok=True)
@@ -407,8 +408,13 @@ def collapse_history(s, cores, onset_definition, *, overwrite=False):
                   f'collapse_history_{onset_definition.filename_token}.par{pid}.nc')
     ofname.parent.mkdir(exist_ok=True)
     if ofname.exists() and not overwrite:
+        print(f'[collapse_history] model {s.basename} pid {pid} '
+              f'definition {onset_definition.filename_token}: '
+              'file already exists. Skipping...')
         return
 
+    print(f'[collapse_history] processing model {s.basename} pid {pid} '
+          f'definition {onset_definition.filename_token}')
     cores = cores.copy()
     cores.attrs["onset_definition"] = json.dumps(asdict(onset_definition), sort_keys=True)
     rprofs = s.rprofs[pid]
