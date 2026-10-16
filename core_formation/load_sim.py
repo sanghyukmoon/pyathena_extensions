@@ -22,8 +22,8 @@ from pyathena.io.timing_reader import TimingReader
 from . import models, tools, config, hst, slc_prj, myio, radial_profiles
 
 
-class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
-                           TimingReader):
+class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
+              tools.LognormalPDF, TimingReader):
     """LoadSim class for analyzing core collapse simulations.
 
     Attributes
@@ -672,7 +672,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj, tools.LognormalPDF,
             v1[pid] = phst.v1
             v2[pid] = phst.v2
             v3[pid] = phst.v3
-            time[pid] = phst.time - phst.age
+            time[pid] = phst.time
+            if self.athena_variant == 'athena++':
+                time[pid] -= phst.age
             prestellar = [n for n in self.nums if self.times[n] < time[pid]]
             if not prestellar:
                 raise ValueError(f'No output strictly before collapse for pid {pid}')
