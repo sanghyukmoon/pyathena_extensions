@@ -6,6 +6,6 @@ PLOT_PREFIX_RHOC_EVOLUTION = "central_density_evolution"
 PLOT_PREFIX_MASS_RADIUS= "mass_radius"
 CHUNKSIZE = dict(x=128, y=128, z=128)
 CORE_DIR = "cores"
-RPROF_DIR = "radial_profile"
-PROJ_DIR = "projections"
+RPROF_DIR = "rprof"
+PROJ_DIR = "proj"
 FOURIER_DIR = "fourier"
