@@ -19,7 +19,7 @@ if __name__ == "__main__":
                         help="List of particle ids to process")
     parser.add_argument("--np", type=int, default=1,
                         help="Number of processors")
-    parser.add_argument('--legacy', action=argparse.BooleanOptionalAction, default=True,
+    parser.add_argument('--legacy', action=argparse.BooleanOptionalAction, default=False,
                         help='Use Python profiles (default); --no-legacy reads on-the-fly profiles')
     parser.add_argument("-o", "--overwrite", action="store_true",
                         help="Overwrite everything")
