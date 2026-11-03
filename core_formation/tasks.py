@@ -720,8 +720,13 @@ def plot_core_evolution(s, cores, num, overwrite=False):
     onset_def = tools.CollapseOnsetDefinition(
         **json.loads(cores.attrs["onset_definition"]))
 
-    fname = Path(s.savdir, 'figures', "{}.par{}.tcrit_{}.{:05d}.png".format(
-                 config.PLOT_PREFIX_CORE_EVOLUTION, pid, onset_def.filename_token, num))
+    num_proj_native = s._native_output_number(num, 'proj')
+    fname = Path(
+        s.savdir,
+        'figures',
+        f"{config.PLOT_PREFIX_CORE_EVOLUTION}.par{pid}"
+        f".tcrit_{onset_def.filename_token}.{num_proj_native:05d}.png"
+    )
     fname.parent.mkdir(exist_ok=True)
     if fname.exists() and not overwrite:
         print('[plot_core_evolution] file already exists. Skipping...')
@@ -759,8 +764,12 @@ def plot_sink_history(s, num, overwrite=False):
     Args:
         s: LoadSim instance
     """
-    fname = Path(s.savdir, 'figures', "{}.{:05d}.png".format(
-                 config.PLOT_PREFIX_SINK_HISTORY, num))
+    num_proj_native = s._native_output_number(num, 'proj')
+    fname = Path(
+        s.savdir,
+        'figures',
+        f"{config.PLOT_PREFIX_SINK_HISTORY}.{num_proj_native:05d}.png"
+    )
     fname.parent.mkdir(exist_ok=True)
     if fname.exists() and not overwrite:
         print('[plot_sink_history] file already exists. Skipping...')

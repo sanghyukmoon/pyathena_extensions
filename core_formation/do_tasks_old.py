@@ -203,7 +203,7 @@ if __name__ == "__main__":
                 def wrapper(num):
                     tasks.plot_core_evolution(s, cores, num, overwrite=args.overwrite)
                 with Pool(args.np) as p:
-                    p.map(wrapper, [num for num in cores.index if num in s.nums_with_hdf5])
+                    p.map(wrapper, [num for num in cores.index if num in s.nums_with_proj])
 
         if args.plot_sink_history:
             s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
@@ -211,7 +211,7 @@ if __name__ == "__main__":
                 tasks.plot_sink_history(s, num, overwrite=args.overwrite)
             print(f"draw sink history plots for model {mdl}")
             with Pool(args.np) as p:
-                p.map(wrapper, s.nums_with_hdf5)
+                p.map(wrapper, s.nums_with_proj)
 
         if args.plot_pdfs:
             s = sa.set_model(mdl, legacy=args.legacy, override_all=True)
