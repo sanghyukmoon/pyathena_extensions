@@ -200,7 +200,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
                         or abs(ratio - round(ratio)) > tolerance):
                     raise ValueError('snapshot interval must be an integer multiple of rprof')
                 self._hdf5_stride = int(round(ratio))
-                self.nums = getattr(self, 'nums_rprof', [])
+                self.nums = getattr(self.ff, 'nums_rprof', [])
                 self.minima, self.times = {}, {}
                 for num in self.nums:
                     header = self.load_rprof(num, metadata_only=True)
@@ -406,15 +406,15 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             else:
                 continue
             self._stream_dt[stream] = output.get('dt', 0)
-        binaries = getattr(self, 'nums_bin', {})
+        binaries = getattr(self.ff, 'nums_bin', {})
         self._default_bin_id = next((key for key, nums in binaries.items() if nums), None)
         self._analysis_stream = None
-        if getattr(self, 'nums_rprof', []):
+        if getattr(self.ff, 'nums_rprof', []):
             self._analysis_stream = 'rprof'
-            self.nums = self.nums_rprof
-        elif self.nums_proj:
+            self.nums = self.ff.nums_rprof
+        elif self.ff.nums_proj:
             self._analysis_stream = 'proj'
-            self.nums = self.nums_proj
+            self.nums = self.ff.nums_proj
         elif self._default_bin_id is not None:
             self._analysis_stream = ('bin', self._default_bin_id)
             self.nums = binaries[self._default_bin_id]
@@ -432,7 +432,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
                 time = super().load_bin(num, self._default_bin_id,
                                         header_only=True).attrs['Time']
             self.times[num] = time
-        self.nums_with_proj = self._available_epochs('proj', self.nums_proj)
+        self.nums_with_proj = self._available_epochs('proj', self.ff.nums_proj)
         self.nums_with_bin = {key: self._available_epochs(('bin', key), nums)
                               for key, nums in binaries.items()}
 
@@ -468,7 +468,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
 
     def load_proj(self, num, axis='z', quantities=None, header_only=False):
         """Load native weighted projection fields at an analysis number."""
-        if not getattr(self, 'nums_proj', []):
+        if not getattr(self.ff, 'nums_proj', []):
             raise FileNotFoundError('No projection files are available')
         native_num = self._native_output_number(num, 'proj')
         return super().load_proj(native_num, axis=axis, quantities=quantities,
@@ -479,7 +479,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
         if self.legacy:
             return super().load_bin(num, output_id, header_only=header_only)
         output_id = self._default_bin_id if output_id is None else output_id
-        if not getattr(self, 'nums_bin', {}).get(output_id):
+        if not getattr(self.ff, 'nums_bin', {}).get(output_id):
             raise FileNotFoundError(f'No binary files for stream {output_id!r}')
         native_num = self._native_output_number(num, ('bin', output_id))
         return super().load_bin(native_num, output_id, header_only=header_only)
