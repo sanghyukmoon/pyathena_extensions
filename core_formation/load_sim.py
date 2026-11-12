@@ -175,10 +175,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             tools.LognormalPDF.__init__(self, self.Mach)
             TimingReader.__init__(self, self.basedir, self.problem_id)
 
-            # Native HDF5 discovery belongs to FindFiles, not the analysis timeline.
-            if hasattr(self, 'nums_hdf5'):
-                del self.nums_hdf5
-
             if self.legacy:
                 if getattr(self, 'nums', None):
                     self.times = {num: self.load_hdf5(num, header_only=True)['Time']
