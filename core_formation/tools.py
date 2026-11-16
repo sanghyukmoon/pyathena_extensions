@@ -210,7 +210,9 @@ def critical_tes_property(s, rprf, core):
         res, _ = curve_fit(lambda r, b: pmax*np.log(r) + b, rds, np.log(vr/s.cs))
         pindex, intercept = pmax, res[0]
 
-    if pindex <= 0:
+    # Safety net; too small pindex leads to extremely small sonic radius,
+    # leading to unphysical results. Set all critical TES properties to NaN in this case.
+    if pindex <= 0.01:
         rs = dcrit = rtes = mcrit = np.nan
     else:
         # sonic radius
