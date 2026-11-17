@@ -137,13 +137,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
 
             self.Mach = self.par['problem']['Mach']
             self.mhd = False
-            if 'mhd' in self.par:
-                self.mhd = True
-            else:
-                if self.par['configure']['Magnetic_fields'] == 'ON':
-                    self.mhd = True
-                else:
-                    self.mhd = False
+            if self.athena_variant == 'athena++':
+                self.mhd = (self.par['configure']['Magnetic_fields'] == 'ON')
+            elif self.athena_variant == 'athenak':
+                self.mhd = ('mhd' in self.par)
 
             # Set domain
             Lbox = set(self.domain['Lx'])
