@@ -94,7 +94,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             Rebuild the corresponding aggregate pickle. History refresh reads
             NetCDF products; only the collapse_history task recomputes them.
         override_all : bool
-            Refresh all enabled loading stages. Does not enable skipped histories.
+            Refresh snapshot metadata and all enabled loading stages.
+            Does not enable skipped histories.
         """
         # Set unit system
         # [L] = L_{J,0}, [M] = M_{J,0}, [V] = c_s
@@ -172,17 +173,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             tools.LognormalPDF.__init__(self, self.Mach)
             TimingReader.__init__(self, self.basedir, self.problem_id)
 
-            if self.athena_variant == 'athena++':
-                self.times = {num: self.load_hdf5(num, header_only=True)['Time']
-                              for num in self.nums}
-            elif self.athena_variant == 'athenak':
+            if self.athena_variant == 'athenak':
                 binaries = getattr(self.ff, 'nums_bin', {})
                 self.nums = self.ff.nums_rprof
-                self.times, self.minima = {}, {}
-                for num in self.nums:
-                    rprf = self.load_rprof(num, metadata_only=True)
-                    self.minima[num] = rprf.center_id.to_numpy()
-                    self.times[num] = rprf.attrs['time']
                 self.nums_with_proj = self._available_epochs('proj', self.ff.nums_proj)
                 binary_nums = list(binaries.values())[0] if binaries else []
                 self.nums_with_bin = self._available_epochs('bin', binary_nums)
@@ -190,23 +183,21 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             if np.any(np.diff(self.nums) != 1):
                 raise ValueError('Gap in output numbering')
 
-            # Find the collapse time and corresponding snapshot numbers
-            if (self.nums and hasattr(self, 'pids')):
-                self.tcoll_cores = self._find_tcoll_cores()
-                if self.athena_variant == 'athena++':
-                    try:
-                        fname = Path(self.savdir, 'GRID', 'minima.p')
-                        with open(fname, 'rb') as handle:
-                            self.minima = pickle.load(handle)
-                    except FileNotFoundError:
-                        pass
+            self.times, self.minima = self._load_snapshot_metadata(
+                savdir=self.savdir,
+                force_override=override_all
+            )
 
+            # Find the collapse time and corresponding snapshot numbers
+            if hasattr(self, 'pids'):
+                self.tcoll_cores = self._find_tcoll_cores()
                 if len(self.tcoll_cores) > 0:
                     try:
                         # Load cores
-                        savdir = Path(self.savdir, config.CORE_DIR)
                         self.cores = self._load_cores(
-                            savdir=savdir, force_override=override_cores)
+                            savdir=Path(self.savdir, config.CORE_DIR),
+                            force_override=override_cores
+                        )
                         if set(self.cores) != set(self.pids):
                             raise ValueError("Base-core cache does not contain the expected pids")
                     except FileNotFoundError:
@@ -216,10 +207,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             if hasattr(self, 'cores'):
                 try:
                     # Load radial profiles
-                    savdir = Path(self.savdir, config.RPROF_DIR)
                     self.rprofs = self._load_radial_profiles(
-                        savdir = savdir,
-                        force_override = override_rprofs
+                        savdir=Path(self.savdir, config.RPROF_DIR),
+                        force_override=override_rprofs
                     )
                     if set(self.rprofs) != set(self.cores):
                         raise ValueError("Radial-profile cache does not contain the expected pids")
@@ -253,6 +243,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
                             cores.attrs = {k: attrs[k] for k in sorted(attrs)}
                             histories[pid] = cores
                     self.cores_dict[onset_def] = histories
+
         elif isinstance(basedir_or_Mach, (float, int)):
             self.Mach = basedir_or_Mach
             tools.LognormalPDF.__init__(self, self.Mach)
@@ -260,6 +251,29 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             pass
         else:
             raise ValueError("Unknown parameter type for basedir_or_Mach")
+
+    @LoadSimBase.Decorators.check_pickle
+    def _load_snapshot_metadata(self, prefix='snapshot_metadata', savdir=None,
+                                force_override=False):
+        """Read snapshot times and potential-minimum IDs for the analysis timeline.
+
+        Rebuild with override_all=True after outputs or minima change.
+        """
+        times, minima = {}, {}
+        if self.athena_variant == 'athena++':
+            times = {num: self.load_hdf5(num, header_only=True)['Time']
+                     for num in self.nums}
+            try:
+                with open(Path(self.savdir, 'GRID', 'minima.p'), 'rb') as handle:
+                    minima = pickle.load(handle)
+            except FileNotFoundError:
+                pass
+        elif self.athena_variant == 'athenak':
+            for num in self.nums:
+                rprf = self.load_rprof(num, metadata_only=True)
+                minima[num] = rprf.center_id.to_numpy()
+                times[num] = rprf.attrs['time']
+        return times, minima
 
     def load_rprof(self, num, center_ids=None, *, metadata_only=False):
         """Read native radial profiles using application field names.
