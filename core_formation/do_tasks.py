@@ -71,7 +71,7 @@ if __name__ == "__main__":
 
                 for task in args.tasks:
                     if task in ('plot_core_evolution', 'plot_sink_history'):
-                        s = sa.set_model(args.model, legacy=False)
+                        s = sa.set_model(args.model)
                     elif task in ('save_minima', 'projections', 'track_cores',
                                 'critical_tes', 'collapse_history'):
                         s = sa.set_model(args.model, skip_collapse_history=True)
@@ -92,8 +92,7 @@ if __name__ == "__main__":
                     elif task == 'critical_tes':
                         for pid in s.pids:
                             tasks.critical_tes(s, pid, overwrite=args.overwrite)
-                    elif task in ('plot_mass_radius',
-                                'plot_core_structure', 'plot_diagnostics'):
+                    elif task in ('plot_mass_radius', 'plot_core_structure'):
                         for pid in s.good_cores(all_cores):
                             tasks.__dict__[task](s, all_cores[pid], overwrite=args.overwrite)
                     elif task == 'plot_core_evolution':

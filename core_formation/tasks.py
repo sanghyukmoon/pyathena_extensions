@@ -603,6 +603,7 @@ def save_minima(s, overwrite=False):
     with open(ofname, 'wb') as handle:
         pickle.dump(minima, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
+
 def resample_hdf5(s, level=0):
     """Resamples AMR output into uniform resolution.
 
@@ -616,8 +617,6 @@ def resample_hdf5(s, level=0):
         s: LoadSim instance
         level: Refinement level to resample. root level=0.
     """
-    if not s.legacy:
-        raise ValueError('Uniform HDF5 resampling is a legacy-only utility')
     ifname = Path(s.basedir, '{}.out2'.format(s.problem_id))
     odir = Path(s.basedir, 'uniform')
     odir.mkdir(exist_ok=True)
@@ -708,45 +707,6 @@ def plot_sink_history(s, num, overwrite=False):
         return
     print(f'[plot_sink_history] processing model {s.basename} num: {num}')
     fig = plots.plot_sinkhistory(s, num)
-    fig.savefig(fname, bbox_inches='tight', dpi=200)
-    plt.close(fig)
-
-
-def plot_diagnostics(s, cores, overwrite=False):
-    """Creates diagnostics plots for a given model
-
-    Save projections in {basedir}/figures for all snapshots.
-
-    Parameters
-    ----------
-    s : LoadSim
-        LoadSim instance
-    cores : pandas.DataFrame
-        Selected trajectory with onset-definition metadata
-    overwrite : bool, optional
-        Flag to overwrite
-    """
-    pid = cores.attrs['pid']
-    onset_def = tools.CollapseOnsetDefinition(
-        **json.loads(cores.attrs["onset_definition"]))
-    fname = Path(s.savdir, 'figures',
-                 f'diagnostics_normalized.par{pid}.tcrit_{onset_def.filename_token}.png')
-    fname.parent.mkdir(exist_ok=True)
-    if fname.exists() and not overwrite:
-        print('[plot_diagnostics] file already exists. Skipping...')
-        return
-
-    msg = '[plot_diagnostics] model {} pid {}'
-    print(msg.format(s.basename, pid))
-
-    fig = plots.plot_diagnostics(s, cores, normalize_time=True)
-    fig.savefig(fname, bbox_inches='tight', dpi=200)
-    plt.close(fig)
-
-    fname = Path(s.savdir, 'figures', f'diagnostics.par{pid}.tcrit_{onset_def.filename_token}.png')
-    if fname.exists() and not overwrite:
-        return
-    fig = plots.plot_diagnostics(s, cores, normalize_time=False)
     fig.savefig(fname, bbox_inches='tight', dpi=200)
     plt.close(fig)
 
