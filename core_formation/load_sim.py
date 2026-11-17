@@ -29,10 +29,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
 
     Attributes
     ----------
-    nums_with_hdf5 : list of int
-        Locally discovered HDF5 epochs belonging to nums, in analysis numbering.
-        HDF5 mapping is retained for legacy/non-AthenaK workflows.
-        Reconstruct LoadSim to refresh file discovery.
     nums_with_proj : list of int
         Locally discovered full-box projection epochs in analysis numbering.
         Reconstruct LoadSim to refresh file discovery.
@@ -74,7 +70,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
                  verbose=False, override_all=False, override_cores=False,
                  override_rprofs=False, override_collapse_history=False,
                  override_observables=False,
-                 skip_collapse_history=False, *, legacy=False):
+                 skip_collapse_history=False):
         """The constructor for LoadSim class for core formation simulations.
 
         Parameters
@@ -99,14 +95,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             NetCDF products; only the collapse_history task recomputes them.
         override_all : bool
             Refresh all enabled loading stages. Does not enable skipped histories.
-        legacy : bool
-            Read existing Python radial profiles (default False), or on-the-fly
-            profiles. Use separate savdirs when comparing the two sources.
-            In AthenaK non-legacy mode, nums and times follow available rprof,
-            proj, then bin files. Projection and binary loaders translate
-            analysis numbers at shared dt epochs; base loaders use native numbers.
         """
-        self.legacy = legacy
         # Set unit system
         # [L] = L_{J,0}, [M] = M_{J,0}, [V] = c_s
         self.rho0 = 1.0
@@ -167,55 +156,39 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
                     self.mhd = False
 
             self.dt_output = {}
+            n_binary_outputs = 0
             for k, v in self.par.items():
                 if k.startswith('output'):
                     self.dt_output[v['file_type']] = v.get('dt', 0)
+                    if v['file_type'] == 'bin':
+                        n_binary_outputs += 1
+            if n_binary_outputs > 1:
+                self.logger.warning(
+                    "Multiple binary outputs are configured; using the last "
+                    "binary output's dt for all binary streams.")
 
 
             tools.LognormalPDF.__init__(self, self.Mach)
             TimingReader.__init__(self, self.basedir, self.problem_id)
 
-            if self.legacy:
-                if getattr(self, 'nums', None):
-                    self.times = {num: self.load_hdf5(num, header_only=True)['Time']
-                                  for num in self.nums}
-                else:
-                    if getattr(self, 'nums_parbin', {}).get('par0'):
-                        self.nums = self.nums_parbin['par0']
-                    else:
-                        self.nums = getattr(self, 'nums_partab', {}).get('par0', [])
-                    self.times = {num: self.load_par(num, header_only=True)['time']
-                                  for num in self.nums}
+            if self.athena_variant == 'athena++':
+                self.times = {num: self.load_hdf5(num, header_only=True)['Time']
+                              for num in self.nums}
             elif self.athena_variant == 'athenak':
-                self._initialize_native_timeline()
-            else:
-                dt_rprof = self.dt_output['rprof']
-                dt_snapshot = self.dt_output['hdf5']
-                if (not np.isfinite(dt_rprof) or dt_rprof <= 0
-                        or not np.isfinite(dt_snapshot) or dt_snapshot <= 0):
-                    raise ValueError('snapshot and rprof intervals must be finite and positive')
-                ratio = dt_snapshot / dt_rprof
-                tolerance = 64*np.finfo(float).eps*max(1, abs(ratio))
-                if (not np.isfinite(ratio) or round(ratio) < 1
-                        or abs(ratio - round(ratio)) > tolerance):
-                    raise ValueError('snapshot interval must be an integer multiple of rprof')
-                self._hdf5_stride = int(round(ratio))
-                self.nums = getattr(self.ff, 'nums_rprof', [])
-                self.minima, self.times = {}, {}
+                binaries = getattr(self.ff, 'nums_bin', {})
+                self._default_bin_id = next((key for key, nums in binaries.items() if nums), None)
+                self.nums = self.ff.nums_rprof
+                self.times, self.minima = {}, {}
                 for num in self.nums:
-                    header = self.load_rprof(num, metadata_only=True)
-                    self.minima[num] = header.center_id.to_numpy()
-                    self.times[num] = header.attrs['time']
+                    rprf = self.load_rprof(num, metadata_only=True)
+                    self.minima[num] = rprf.center_id.to_numpy()
+                    self.times[num] = rprf.attrs['time']
+                self.nums_with_proj = self._available_epochs('proj', self.ff.nums_proj)
+                self.nums_with_bin = {key: self._available_epochs('bin', nums)
+                                      for key, nums in binaries.items()}
 
-            if self.legacy or self.athena_variant != 'athenak':
-                if np.any(np.diff(self.nums) != 1):
-                    raise ValueError('Gap in output numbering')
-                self.nums_with_proj = []
-                self.nums_with_bin = {}
-            native_hdf5_nums = getattr(self.ff, 'nums_hdf5', {}).get('cons') or []
-            stride = 1 if self.legacy else getattr(self, '_hdf5_stride', None)
-            self.nums_with_hdf5 = ([] if stride is None else sorted(
-                set(self.nums) & {num*stride for num in native_hdf5_nums}))
+            if np.any(np.diff(self.nums) != 1):
+                raise ValueError('Gap in output numbering')
 
             # Set domain
             Lbox = set(self.domain['Lx'])
@@ -230,11 +203,9 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             self.sonic_length = tools.get_sonic(self.Mach, self.Lbox)
 
             # Find the collapse time and corresponding snapshot numbers
-            if (self.nums and hasattr(self, 'pids')
-                    and (self.legacy or self.athena_variant != 'athenak'
-                         or self._analysis_stream == 'rprof')):
+            if (self.nums and hasattr(self, 'pids')):
                 self.tcoll_cores = self._find_tcoll_cores()
-                if self.legacy:
+                if self.athena_variant == 'athena++':
                     try:
                         fname = Path(self.savdir, 'GRID', 'minima.p')
                         with open(fname, 'rb') as handle:
@@ -265,7 +236,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
                     if set(self.rprofs) != set(self.cores):
                         raise ValueError("Radial-profile cache does not contain the expected pids")
                 except FileNotFoundError:
-                    if self.legacy:
+                    if self.athena_variant == 'athena++':
                         self.logger.warning("Cannot find radial profile files to load. "
                                             "Have you run concat_radial_profiles() to "
                                             "concatenate individual radial profiles "
@@ -392,58 +363,14 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             if native in profile
         })
 
-    def _initialize_native_timeline(self):
-        """Choose an available native stream and record its actual times."""
-        self._stream_dt = {}
-        for block, output in self.par.items():
-            if not block.startswith('output'):
-                continue
-            kind = output['file_type']
-            if kind == 'bin':
-                stream = ('bin', str(output.get('id', output['variable'])))
-            elif kind in ('rprof', 'proj', 'parbin'):
-                stream = kind
-            else:
-                continue
-            self._stream_dt[stream] = output.get('dt', 0)
-        binaries = getattr(self.ff, 'nums_bin', {})
-        self._default_bin_id = next((key for key, nums in binaries.items() if nums), None)
-        self._analysis_stream = None
-        if getattr(self.ff, 'nums_rprof', []):
-            self._analysis_stream = 'rprof'
-            self.nums = self.ff.nums_rprof
-        elif self.ff.nums_proj:
-            self._analysis_stream = 'proj'
-            self.nums = self.ff.nums_proj
-        elif self._default_bin_id is not None:
-            self._analysis_stream = ('bin', self._default_bin_id)
-            self.nums = binaries[self._default_bin_id]
-        else:
-            self.nums = []
-        self.times, self.minima = {}, {}
-        for num in self.nums:
-            if self._analysis_stream == 'rprof':
-                header = super().load_rprof(num, metadata_only=True)
-                self.minima[num] = header.center_id.to_numpy()
-                time = header.attrs['time']
-            elif self._analysis_stream == 'proj':
-                time = super().load_proj(num, header_only=True).attrs['time']
-            else:
-                time = super().load_bin(num, self._default_bin_id,
-                                        header_only=True).attrs['Time']
-            self.times[num] = time
-        self.nums_with_proj = self._available_epochs('proj', self.ff.nums_proj)
-        self.nums_with_bin = {key: self._available_epochs(('bin', key), nums)
-                              for key, nums in binaries.items()}
-
     def _native_output_number(self, num, stream):
         """Translate an analysis number at a shared physical-time epoch."""
-        if self.legacy or stream == self._analysis_stream:
+        if self.athena_variant == 'athena++' or stream == 'rprof':
             return num
-        if self._analysis_stream is None or stream not in self._stream_dt:
+        if stream not in self.dt_output:
             raise FileNotFoundError(f'No output stream {stream!r} is available')
-        analysis_dt = self._stream_dt[self._analysis_stream]
-        target_dt = self._stream_dt[stream]
+        analysis_dt = self.dt_output['rprof']
+        target_dt = self.dt_output[stream]
         if (not np.isfinite(analysis_dt) or analysis_dt <= 0
                 or not np.isfinite(target_dt) or target_dt <= 0):
             raise ValueError('Cross-stream numbering requires positive finite dt intervals')
@@ -476,51 +403,32 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
 
     def load_bin(self, num, output_id=None, *, header_only=False):
         """Load a binary stream at an analysis output number."""
-        if self.legacy:
-            return super().load_bin(num, output_id, header_only=header_only)
         output_id = self._default_bin_id if output_id is None else output_id
         if not getattr(self.ff, 'nums_bin', {}).get(output_id):
             raise FileNotFoundError(f'No binary files for stream {output_id!r}')
-        native_num = self._native_output_number(num, ('bin', output_id))
+        native_num = self._native_output_number(num, 'bin')
         return super().load_bin(native_num, output_id, header_only=header_only)
 
     def load_hdf5(self, num, sparse=False, **kwargs):
-        """Load HDF5 using analysis num (native HDF5 num in legacy mode).
+        """Load HDF5 snapshot using its native output number.
 
-        Non-legacy HDF5 is scheduled only at multiples of _hdf5_stride.
-        Sparse files retain native numbering and require explicit chunks.
-        For stride five, num=10 reads native file 2; num=11 raises ValueError.
+        Sparse files require explicit chunks.
         Ordinary missing-file handling is delegated to the base loader.
         """
-        if self.legacy:
-            native_hdf5_num = num
-        else:
-            if not hasattr(self, '_hdf5_stride'):
-                raise FileNotFoundError('No HDF5 output is configured')
-            if kwargs.get('ihdf5') is not None:
-                raise ValueError('Use canonical num, not ihdf5, in non-legacy mode')
-            if num % self._hdf5_stride:
-                raise ValueError(
-                    f'HDF5 is not scheduled at num={num}; stride={self._hdf5_stride}'
-                )
-            native_hdf5_num = num // self._hdf5_stride
-
         if sparse:
-            fname = Path(self.basedir, "sparse", f"{self.problem_id}.{native_hdf5_num:05d}.athdf")
+            fname = Path(self.basedir, "sparse", f"{self.problem_id}.{num:05d}.athdf")
             if not fname.exists():
                 raise FileNotFoundError(f'HDF5 unavailable at num={num}: {fname}')
             if 'chunks' not in kwargs:
                 raise ValueError("chunks must be specified for sparse hdf5")
             chunks = (kwargs['chunks']['x'], kwargs['chunks']['y'], kwargs['chunks']['z'])
             return myio.read_sparse_hdf5(fname, chunks)
-        else:
-            return super().load_hdf5(native_hdf5_num, **kwargs)
+        return super().load_hdf5(num, **kwargs)
 
     def load_par(self, num, **kwargs):
         """Load partab or parbin"""
         if 'parbin' in self.files:
-            if (self.athena_variant == 'athenak' and
-                    self._analysis_stream is not None and kwargs.get('iparbin') is None):
+            if (self.athena_variant == 'athenak' and kwargs.get('iparbin') is None):
                 num = self._native_output_number(num, 'parbin')
             return self.load_parbin(num, **kwargs)
         elif 'partab' in self.files:
@@ -770,7 +678,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             num_start = self.trajectory_start_num(cores, f_mul=3.0)
 
             cutoff_time = self.tcoll_cores.loc[1].time - 1.5 / self.u.Myr
-            if self.legacy:
+            if self.athena_variant == 'athena++':
                 num_start_min = int(cutoff_time / self.dt_output['hdf5'])
             else:
                 num_start_min = max(
@@ -892,7 +800,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
         are assembled directly from on-the-fly outputs. Use separate savdirs
         when comparing the two modes.
         """
-        if self.legacy:
+        if self.athena_variant == 'athena++':
             return self._load_radial_profiles_legacy(savdir=savdir)
 
         rprofs_dict = {}
@@ -964,7 +872,7 @@ class LoadSimAll(object):
     def set_model(self, model, **kwargs):
         return LoadSim(self.basedirs[model], **kwargs)
 
-    def itercore(self, models=None, nres=8, fmul_prune=3, *,
+    def itercore(self, models=None, nres=8, *,
                  rcrit_from="virial_mass", fixed_form_factor=None,
                  criterion="net_force", require_small_std=None, **kwargs):
         """Select once per simulation and yield (s, pid, cores, rprofs)."""

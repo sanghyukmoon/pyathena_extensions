@@ -253,7 +253,7 @@ def radial_profile(s, nums=None, pids=None, overwrite=False, all_minima=False):
         pids = s.pids
 
     if nums is None:
-        nums = s.nums_with_hdf5
+        nums = s.nums
 
     for num in nums:
         print(f"[radial_profile] Start reading snapshot at num = {num}.")
@@ -371,7 +371,7 @@ def prj_radial_profile(s, num, pids, overwrite=False):
 
 def power_spectrum(s, nums=None, overwrite=False):
     if nums is None:
-        nums = s.nums_with_hdf5
+        nums = s.nums
     for num in nums:
         ofname = Path(s.savdir, config.FOURIER_DIR, f'power_spectrum.{num:05d}.nc')
         ofname.parent.mkdir(exist_ok=True)
@@ -554,7 +554,7 @@ def collapse_history(s, cores, onset_definition, *, overwrite=False):
 
 def projections(s, nums=None, overwrite=False):
     if nums is None:
-        nums = s.nums_with_hdf5
+        nums = s.nums
     nums = np.atleast_1d(nums)
 
     def threshold(ds, ncrit, method):

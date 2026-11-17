@@ -25,3 +25,10 @@ models = {**M5N512, **M5N1024, **M10N1024, **mhd, **M5N512_ext}
 hydro = {f"M10J4P{iseed}N1024": f"/projects2/EOSTRIKE/sanghyuk/cores/M10.J4.P{iseed}.N1024" for iseed in range(0, 5)}
 mhd = {f"M10J4B2P{iseed}N1024": f"/scratch/gpfs/sm69/cores/mhd/M10.J4.B2.P{iseed}.N1024" for iseed in range(0, 5)}
 models = {**hydro, **mhd}
+
+models['M10L4B2P0N512'] = "/scratch/gpfs/sm69/gmtf/M10.L4.B2.P0.N512"
+models['M10L4B2P0N1024'] = "/scratch/gpfs/sm69/gmtf/M10.L4.B2.P0.N1024"
+models['M10L4P0N512'] = "/scratch/gpfs/sm69/gmtf/M10.L4.P0.N512"
+for iseed in range(0, 7):
+    models[f'M10L4P{iseed}N2048'] = f"/scratch/gpfs/sm69/gmtf/M10.L4.P{iseed}.N2048"
+    models[f'M10L4P{iseed}N1024'] = f"/scratch/gpfs/sm69/gmtf/M10.L4.P{iseed}.N1024"
