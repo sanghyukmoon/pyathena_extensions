@@ -32,8 +32,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
     nums_with_proj : list of int
         Locally discovered full-box projection epochs in analysis numbering.
         Reconstruct LoadSim to refresh file discovery.
-    nums_with_bin : dict of lists of int
-        Available analysis epochs keyed by native binary stream ID.
+    nums_with_bin : list of int
+        Locally discovered binary epochs in analysis numbering.
     rho0 : float
         Mean density of the cloud in the code unit.
     cs : float
@@ -135,60 +135,14 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             self.u.column_density = (self.u.number_density*self.u.length).to('cm-2')
 
             self.Mach = self.par['problem']['Mach']
-            if self.Mach in {5, 10}:
-                if self.Mach == 5:
-                    self.color = 'r'
-                else:
-                    self.color = 'b'
             self.mhd = False
-            if self.athena_variant == 'athenak':
-                self.mhd = 'mhd' in self.par
-            elif self.basename.replace(".", "") in models.hydro_old:
-                # Old hydro models does not have 'configure' block
-                # Simply set mhd = False
-                self.mhd = False
-            elif 'mhd' in self.par:
+            if 'mhd' in self.par:
                 self.mhd = True
             else:
                 if self.par['configure']['Magnetic_fields'] == 'ON':
                     self.mhd = True
                 else:
                     self.mhd = False
-
-            self.dt_output = {}
-            n_binary_outputs = 0
-            for k, v in self.par.items():
-                if k.startswith('output'):
-                    self.dt_output[v['file_type']] = v.get('dt', 0)
-                    if v['file_type'] == 'bin':
-                        n_binary_outputs += 1
-            if n_binary_outputs > 1:
-                self.logger.warning(
-                    "Multiple binary outputs are configured; using the last "
-                    "binary output's dt for all binary streams.")
-
-
-            tools.LognormalPDF.__init__(self, self.Mach)
-            TimingReader.__init__(self, self.basedir, self.problem_id)
-
-            if self.athena_variant == 'athena++':
-                self.times = {num: self.load_hdf5(num, header_only=True)['Time']
-                              for num in self.nums}
-            elif self.athena_variant == 'athenak':
-                binaries = getattr(self.ff, 'nums_bin', {})
-                self._default_bin_id = next((key for key, nums in binaries.items() if nums), None)
-                self.nums = self.ff.nums_rprof
-                self.times, self.minima = {}, {}
-                for num in self.nums:
-                    rprf = self.load_rprof(num, metadata_only=True)
-                    self.minima[num] = rprf.center_id.to_numpy()
-                    self.times[num] = rprf.attrs['time']
-                self.nums_with_proj = self._available_epochs('proj', self.ff.nums_proj)
-                self.nums_with_bin = {key: self._available_epochs('bin', nums)
-                                      for key, nums in binaries.items()}
-
-            if np.any(np.diff(self.nums) != 1):
-                raise ValueError('Gap in output numbering')
 
             # Set domain
             Lbox = set(self.domain['Lx'])
@@ -201,6 +155,40 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
 
             self.tcr = 0.5*self.Lbox/self.Mach
             self.sonic_length = tools.get_sonic(self.Mach, self.Lbox)
+
+            # Find output files
+            self.dt_output = {}
+            n_binary_outputs = 0
+            for k, v in self.par.items():
+                if k.startswith('output'):
+                    self.dt_output[v['file_type']] = v.get('dt', 0)
+                    if v['file_type'] == 'bin':
+                        n_binary_outputs += 1
+            if n_binary_outputs > 1:
+                self.logger.warning(
+                    "Multiple binary outputs are configured; using the last "
+                    "binary output's dt for all binary streams.")
+
+            tools.LognormalPDF.__init__(self, self.Mach)
+            TimingReader.__init__(self, self.basedir, self.problem_id)
+
+            if self.athena_variant == 'athena++':
+                self.times = {num: self.load_hdf5(num, header_only=True)['Time']
+                              for num in self.nums}
+            elif self.athena_variant == 'athenak':
+                binaries = getattr(self.ff, 'nums_bin', {})
+                self.nums = self.ff.nums_rprof
+                self.times, self.minima = {}, {}
+                for num in self.nums:
+                    rprf = self.load_rprof(num, metadata_only=True)
+                    self.minima[num] = rprf.center_id.to_numpy()
+                    self.times[num] = rprf.attrs['time']
+                self.nums_with_proj = self._available_epochs('proj', self.ff.nums_proj)
+                binary_nums = list(binaries.values())[0] if binaries else []
+                self.nums_with_bin = self._available_epochs('bin', binary_nums)
+
+            if np.any(np.diff(self.nums) != 1):
+                raise ValueError('Gap in output numbering')
 
             # Find the collapse time and corresponding snapshot numbers
             if (self.nums and hasattr(self, 'pids')):
@@ -401,13 +389,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
         return super().load_proj(native_num, axis=axis, quantities=quantities,
                                  header_only=header_only)
 
-    def load_bin(self, num, output_id=None, *, header_only=False):
-        """Load a binary stream at an analysis output number."""
-        output_id = self._default_bin_id if output_id is None else output_id
-        if not getattr(self.ff, 'nums_bin', {}).get(output_id):
-            raise FileNotFoundError(f'No binary files for stream {output_id!r}')
+    def load_bin(self, num, *, header_only=False):
+        """Load the single binary stream at an analysis output number."""
         native_num = self._native_output_number(num, 'bin')
-        return super().load_bin(native_num, output_id, header_only=header_only)
+        return super().load_bin(native_num, header_only=header_only)
 
     def load_par(self, num, **kwargs):
         """Load partab or parbin"""
