@@ -409,22 +409,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
         native_num = self._native_output_number(num, 'bin')
         return super().load_bin(native_num, output_id, header_only=header_only)
 
-    def load_hdf5(self, num, sparse=False, **kwargs):
-        """Load HDF5 snapshot using its native output number.
-
-        Sparse files require explicit chunks.
-        Ordinary missing-file handling is delegated to the base loader.
-        """
-        if sparse:
-            fname = Path(self.basedir, "sparse", f"{self.problem_id}.{num:05d}.athdf")
-            if not fname.exists():
-                raise FileNotFoundError(f'HDF5 unavailable at num={num}: {fname}')
-            if 'chunks' not in kwargs:
-                raise ValueError("chunks must be specified for sparse hdf5")
-            chunks = (kwargs['chunks']['x'], kwargs['chunks']['y'], kwargs['chunks']['z'])
-            return myio.read_sparse_hdf5(fname, chunks)
-        return super().load_hdf5(num, **kwargs)
-
     def load_par(self, num, **kwargs):
         """Load partab or parbin"""
         if 'parbin' in self.files:
