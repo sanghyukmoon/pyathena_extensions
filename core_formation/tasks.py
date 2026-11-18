@@ -164,6 +164,7 @@ def track_cores(s, pids=None, overwrite=False):
         cores = tools.track_cores(s, pid)
         myio.save_dataframe(cores, ofname)
         ofname.with_name("cores.p").unlink(missing_ok=True)
+        Path(s.savdir, config.RPROF_DIR, "radial_profile.p").unlink(missing_ok=True)
 
 
 def radial_profile(s, nums=None, pids=None, overwrite=False, all_minima=False):
