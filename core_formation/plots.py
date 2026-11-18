@@ -785,54 +785,37 @@ def plot_core_evolution(s, cores, num, hw=0.1):
                                     - rprf[f'vel{dim}_origin']
             for dim in transverse
         })
-        plt.sca(axs['zoom'][i])
-        plot_proj(
-            s, zoom, field=(*fields, 'v_quiver'),
-            vmin=1e0, vmax=4e2,
-            axis=prj_axis, add_colorbar=False,
-        )
-        if np.isfinite(selected_radius) and selected_radius <= np.sqrt(2)*hw:
-            c0 = plt.Circle((0, 0), selected_radius, fill=False, color='r', lw=1, ls='-')
-            plt.gca().add_artist(c0)
-        if np.isfinite(core.rtes) and core.rtes <= np.sqrt(2)*hw:
-            c0 = plt.Circle((0, 0), core.rtes, fill=False, color='tab:red', lw=1, ls='--')
-            plt.gca().add_artist(c0)
-        if np.isfinite(core.radius) and core.radius <= np.sqrt(2)*hw:
-            c0 = plt.Circle((0, 0), core.radius, fill=False, color='b', lw=1, ls='-.')
-            plt.gca().add_artist(c0)
-
-        # Overplot star particles and minima
-        plt.scatter(pds[xycoords[prj_axis][0]], pds[xycoords[prj_axis][1]],
-                    marker=MarkerStyle('*', fillstyle='full'), color='y')
-        plt.scatter(pos_minima[xycoords[prj_axis][0]], pos_minima[xycoords[prj_axis][1]],
-                    marker=MarkerStyle('+'), color='tab:gray')
-        plt.xlim(-hw, hw)
-        plt.ylim(-hw, hw)
-        plt.xlabel(xlabel[prj_axis])
-        plt.ylabel(ylabel[prj_axis])
-
-        # 3. Further zoom-in view
         qhw = hw / 4
         zoom2 = zoom.sel({dim: slice(-qhw, qhw) for dim in transverse})
-        plt.sca(axs['zoom2'][i])
-        plot_proj(
-            s, zoom2, field=(*fields, 'v_quiver'),
-            vmin=1e0, vmax=4e2,
-            axis=prj_axis, add_colorbar=False,
-        )
-        if np.isfinite(selected_radius) and selected_radius <= np.sqrt(2)*qhw:
-            c0 = plt.Circle((0, 0), selected_radius, fill=False, color='r', lw=1, ls='-')
-            plt.gca().add_artist(c0)
-        if np.isfinite(core.rtes) and core.rtes <= np.sqrt(2)*qhw:
-            c0 = plt.Circle((0, 0), core.rtes, fill=False, color='tab:red', lw=1, ls='--')
-            plt.gca().add_artist(c0)
-        if np.isfinite(core.radius) and core.radius <= np.sqrt(2)*qhw:
-            c0 = plt.Circle((0, 0), core.radius, fill=False, color='b', lw=1, ls='-.')
-            plt.gca().add_artist(c0)
-        plt.xlim(-qhw, qhw)
-        plt.ylim(-qhw, qhw)
-        plt.xlabel(xlabel[prj_axis])
-        plt.ylabel(ylabel[prj_axis])
+
+        # 3. Plot zoom-in projections with velocity quivers
+        for ax, ds, panel_hw in zip([axs['zoom'][i], axs['zoom2'][i]],
+                              [zoom, zoom2], [hw, qhw]):
+            plt.sca(ax)
+            plot_proj(
+                s, ds, field=(*fields, 'v_quiver'),
+                vmin=1e0, vmax=4e2,
+                axis=prj_axis, add_colorbar=False,
+            )
+            if np.isfinite(selected_radius) and selected_radius <= np.sqrt(2)*panel_hw:
+                c0 = plt.Circle((0, 0), selected_radius, fill=False, color='r', lw=1, ls='-')
+                plt.gca().add_artist(c0)
+            if np.isfinite(core.rtes) and core.rtes <= np.sqrt(2)*panel_hw:
+                c0 = plt.Circle((0, 0), core.rtes, fill=False, color='tab:red', lw=1, ls='--')
+                plt.gca().add_artist(c0)
+            if np.isfinite(core.radius) and core.radius <= np.sqrt(2)*panel_hw:
+                c0 = plt.Circle((0, 0), core.radius, fill=False, color='b', lw=1, ls='-.')
+                plt.gca().add_artist(c0)
+
+            # Overplot star particles and minima
+            plt.scatter(pos_minima[xycoords[prj_axis][0]], pos_minima[xycoords[prj_axis][1]],
+                        marker=MarkerStyle('+'), color='tab:gray')
+            plt.scatter(pds[xycoords[prj_axis][0]], pds[xycoords[prj_axis][1]],
+                        marker=MarkerStyle('*', fillstyle='full'), color='y')
+            plt.xlim(-panel_hw, panel_hw)
+            plt.ylim(-panel_hw, panel_hw)
+            plt.xlabel(xlabel[prj_axis])
+            plt.ylabel(ylabel[prj_axis])
 
     # 4. Radial profiles
     # Density
