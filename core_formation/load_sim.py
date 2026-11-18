@@ -642,16 +642,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
         cores_dict = {}
         pids_not_found = []
 
-        # Try reading the go15 mass
-        try:
-            fname = Path(savdir, 'mcore_go15.p')
-            with open(fname, 'rb') as f:
-                mcore_go15 = pickle.load(f)
-            mcore_go15_found = True
-        except FileNotFoundError:
-            mcore_go15_found = False
-
-
         for pid in self.pids:
             fname = Path(savdir, f'core_trajectories.par{pid}.nc')
             cores = myio.load_dataframe(fname)
@@ -685,8 +675,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
 
                 # Reattach attributes
                 cores.attrs = attrs
-            if mcore_go15_found:
-                cores.attrs['mcore_go15'] = mcore_go15[pid]
 
             # Find collapse time
             cores.attrs['tcoll'] = self.tcoll_cores.loc[pid].time

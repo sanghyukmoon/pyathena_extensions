@@ -11,6 +11,8 @@ import dask.array as da
 def load_dataframe(filename):
     """Read a table sorted by num, rejecting missing or duplicate snapshots.
 
+    Intended as a analogous reader to xr.load_dataset, but for pandas dataframe
+
     A sequence may start at any snapshot. Empty and single-row tables are valid;
     no floating-point time-spacing checks are performed.
     """
