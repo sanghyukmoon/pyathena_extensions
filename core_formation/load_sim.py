@@ -515,13 +515,17 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
         pos2 = self.flatindex_to_cartesian(idx2)
         return tools.periodic_distance(pos1, pos2, self.Lbox)
 
-    def trajectory_start_num(self, cores, *, f_mul):
+    def _trajectory_start_num(self, cores, *, f_mul, max_track_myr=1.5):
         """Find the earliest snapshot with a continuous tracked minimum.
         """
-        cores = cores.sort_index(ascending=False)
+        # Prevent excessive back-tracking to early times, by imposing a limit
+        # on the tracking time in Myr.
+        cutoff_time = cores.attrs['tcoll'] - max_track_myr / self.u.Myr
+        cores = cores[cores.time >= cutoff_time].sort_index(ascending=False)
         leaf_ids = cores['leaf_id']
         leaf_id0 = leaf_ids.iloc[0]
         leaf_id1 = leaf_ids.iloc[1]
+        num_start = cores.index[-1] # earliest snapshot number
         for num, leaf_id2 in leaf_ids.iloc[2:].items():
             dst0 = self.distance_between(leaf_id0, leaf_id1)
             pos0 = np.array(self.flatindex_to_cartesian(leaf_id0))
@@ -531,11 +535,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             dst = tools.periodic_distance(pos2, pos_extrapolated, self.Lbox)
             if dst > f_mul*max(dst0, self.dx):
                 num_start = num+1
-                return num_start
+                break
             leaf_id0 = leaf_id1
             leaf_id1 = leaf_id2
-        # Tracked all the way to the earliest snapshot. Return num
-        return num
+        return num_start
 
     def core_trajectory(self, cores, return_nums=False, num_start=None):
         """Return the backward core trajectory as a continuous path.
@@ -609,6 +612,13 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
 
         Additionally store their mass, position, velocity at the time of
         collapse.
+
+        TODO: Because we call first birth record immediately after merge, but
+        before the accretion, the recorded velocity will be zero.
+
+        Also, the name of this function is misleading; the positions are the
+        position of the sink particle at the time of birth, which does not coin
+        cides with the time corresponding to num_coll
         """
         x1, x2, x3, v1, v2, v3 = {}, {}, {}, {}, {}, {}
         time, num = {}, {}
@@ -645,19 +655,10 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
         for pid in self.pids:
             fname = Path(savdir, f'core_trajectories.par{pid}.nc')
             cores = myio.load_dataframe(fname)
-            num_start = self.trajectory_start_num(cores, f_mul=3.0)
-
-            cutoff_time = self.tcoll_cores.loc[1].time - 1.5 / self.u.Myr
-            if self.athena_variant == 'athena++':
-                num_start_min = int(cutoff_time / self.dt_output['hdf5'])
-            else:
-                num_start_min = max(
-                    (num for num in self.nums if self.times[num] <= cutoff_time),
-                    default=self.nums[0],
-                )
-            # Prevent excessive back-tracking to early times
-            num_start = max(num_start, num_start_min)
-
+            # Find collapse time
+            cores.attrs['tcoll'] = self.tcoll_cores.loc[pid].time
+            # Find the continuous trajectory by limiting the tracking
+            num_start = self._trajectory_start_num(cores, f_mul=3.0)
             cores = cores.loc[num_start:]
 
             # Read critical TES info and concatenate to self.cores
@@ -676,8 +677,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
                 # Reattach attributes
                 cores.attrs = attrs
 
-            # Find collapse time
-            cores.attrs['tcoll'] = self.tcoll_cores.loc[pid].time
 
             # Sort attributes
             cores.attrs = {k: cores.attrs[k] for k in sorted(cores.attrs)}
