@@ -22,10 +22,6 @@ if __name__ == "__main__":
                         help="Overwrite everything")
     parser.add_argument("-r", "--reverse", action="store_true",
                         help="Loop through nums in revserse direction")
-    parser.add_argument("--combine-partab", action="store_true",
-                        help="Join partab files")
-    parser.add_argument("--combine-partab-full", action="store_true",
-                        help="Join partab files including last output")
     parser.add_argument("--track-cores", action="store_true",
                         help="Perform reverse core tracking (prestellar phase)")
     parser.add_argument("--critical-tes", action="store_true",
@@ -52,16 +48,6 @@ if __name__ == "__main__":
 
     # Select models
     for mdl in args.models:
-        s = sa.set_model(mdl, skip_collapse_history=True)
-        # Combine output files.
-        if args.combine_partab:
-            print(f"Combine partab files for model {mdl}")
-            tasks.combine_partab(s, remove=True, include_last=False)
-
-        if args.combine_partab_full:
-            print(f"Combine all partab files for model {mdl}")
-            tasks.combine_partab(s, remove=True, include_last=True)
-
         # Find t_coll cores and save their GRID-dendro node ID's.
         if args.track_cores:
             s = sa.set_model(mdl, skip_collapse_history=True)
@@ -119,11 +105,6 @@ if __name__ == "__main__":
                     tasks.observables(s, pid, num, overwrite=args.overwrite)
                 with Pool(args.np) as p:
                     p.map(wrapper, [num for num in cores.index if num in s.nums_with_proj])
-
-
-        # Resample AMR data into uniform grid
-#        print(f"resample AMR to uniform for model {mdl}")
-#        tasks.resample_hdf5(s)
 
         # Calculate radial profiles of t_coll cores and pickle them.
         if args.linewidth_size:
