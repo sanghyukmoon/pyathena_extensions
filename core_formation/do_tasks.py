@@ -86,11 +86,11 @@ if __name__ == "__main__":
                         all_cores = s.select_cores()
                     if task == 'collapse_history':
                         for onset_def in tools.COLLAPSE_ONSET_DEFINITIONS:
-                            for pid in s.pids:
-                                tasks.collapse_history(s, s.cores[pid], onset_def,
+                            for cores in s.cores.values():
+                                tasks.collapse_history(s, cores, onset_def,
                                                        overwrite=args.overwrite)
                     elif task == 'critical_tes':
-                        for pid in s.pids:
+                        for pid in s.cores:
                             tasks.critical_tes(s, pid, overwrite=args.overwrite)
                     elif task in ('plot_mass_radius', 'plot_core_structure'):
                         for pid in s.good_cores(all_cores):

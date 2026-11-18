@@ -23,6 +23,7 @@ from pyathena.util import transform
 from tesphere import utils, tes
 
 from . import config
+from .exceptions import TCOLLcoreContainsSinkError
 
 
 class LognormalPDF:
@@ -109,6 +110,11 @@ def find_tcoll_core(s, pid):
     -------
     lid : int
         Flat index of the center of the t_coll core.
+
+    Raises
+    ------
+    TCOLLcoreContainsSinkError
+        The closest minimum at the last prestellar snapshot contains a sink.
     """
     # Snapshot number right before the collapse
     num = s.tcoll_cores.loc[pid].num
@@ -125,7 +131,8 @@ def find_tcoll_core(s, pid):
     lid = idx_at_minima[np.argmin(dst)]
     pds = s.load_par(num)
     if _cell_contains_sink(s, lid, pds):
-        raise ValueError(f'Initial core minimum contains a sink at pid={pid}, num={num}')
+        raise TCOLLcoreContainsSinkError(
+            f'Initial core minimum contains a sink at pid={pid}, num={num}')
 
     # return the flat index of the center of the t_coll core.
     return lid
@@ -152,21 +159,25 @@ def track_cores(s, pid):
     # start from t = t_coll and track backward
     numcoll = s.tcoll_cores.loc[pid].num
     nums = [num for num in reversed(s.nums) if config.GRID_NUM_START <= num <= numcoll]
-    num = nums[0]
-    lid = find_tcoll_core(s, pid)
-    nums_track = [num,]
-    time = [s.times[num],]
-    leaf_id = [lid,]
-    for num in nums[1:]:
-        minima = s.minima[num]
-        lid_old = lid
+    if not nums:
+        raise ValueError(f'No snapshots to track for pid={pid}, numcoll={numcoll}')
 
-        # find closeast leaf to the previous preimage
-        dst = [s.distance_between(lid, lid_old) for lid in minima]
-        lid = minima[np.argmin(dst)]
-        pds = s.load_par(num)
-        if _cell_contains_sink(s, lid, pds):
-            break
+    nums_track, time, leaf_id = [], [], []
+    attrs = dict(pid=pid, numcoll=numcoll)
+    for num in nums:
+        if num == numcoll:
+            try:
+                lid = find_tcoll_core(s, pid)
+            except TCOLLcoreContainsSinkError as exc:
+                s.logger.warning(str(exc))
+                attrs['stop_reason'] = type(exc).__name__
+                break
+        else:
+            minima = s.minima[num]
+            dst = [s.distance_between(lid, leaf_id[-1]) for lid in minima]
+            lid = minima[np.argmin(dst)]
+            if _cell_contains_sink(s, lid, s.load_par(num)):
+                break
 
         nums_track.append(num)
         time.append(s.times[num])
@@ -175,9 +186,7 @@ def track_cores(s, pid):
                               leaf_id=np.asarray(leaf_id, dtype=np.uint64)),
                          index=pd.Index(nums_track, dtype='int64', name='num')).sort_index()
 
-    # Set attributes
-    cores.attrs['pid'] = pid
-    cores.attrs['numcoll'] = numcoll
+    cores.attrs = attrs
 
     return cores
 

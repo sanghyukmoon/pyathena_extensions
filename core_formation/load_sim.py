@@ -195,8 +195,6 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
                             savdir=Path(self.savdir, config.CORE_DIR),
                             force_override=override_cores
                         )
-                        if set(self.cores) != set(self.pids):
-                            raise ValueError("Base-core cache does not contain the expected pids")
                     except FileNotFoundError:
                         self.logger.warning("Cannot find core files to load.")
                         pass
@@ -230,7 +228,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
                         filebase=f'collapse_history_{onset_def.filename_token}',
                         savdir=Path(self.savdir, config.CORE_DIR),
                         force_override=override_collapse_history)
-                    if set(histories) != set(self.pids):
+                    if set(histories) != set(self.cores):
                         raise ValueError("Collapse-history cache does not contain the expected pids")
                     for pid, cores in histories.items():
                         if pid in observations:
@@ -443,7 +441,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
         """Read one definition's complete NetCDF histories for aggregation."""
         return {
             pid: myio.load_dataframe(Path(savdir, f'{filebase}.par{pid}.nc'))
-            for pid in self.pids
+            for pid in self.cores
         }
 
     @LoadSimBase.Decorators.check_pickle
@@ -657,6 +655,12 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
         for pid in self.pids:
             fname = Path(savdir, f'core_trajectories.par{pid}.nc')
             cores = myio.load_dataframe(fname)
+            if cores.empty:
+                reason = cores.attrs.get('stop_reason')
+                if reason == 'TCOLLcoreContainsSinkError':
+                    continue
+                raise ValueError(f'Empty trajectory for pid={pid} in {fname} '
+                                 f'with stop_reason={reason!r}')
             # Find collapse time
             cores.attrs['tcoll'] = self.tcoll_cores.loc[pid].time
             # Find the continuous trajectory by limiting the tracking
@@ -699,8 +703,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
         rprofs_dict = {}
         pids_not_found = []
         pids_not_found_prj = []
-        for pid in self.pids:
-            cores = self.cores[pid]
+        for pid, cores in self.cores.items():
             rprofs_pid, nums = [], []
             min_nr = None
             for num in cores.index:
@@ -753,7 +756,7 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             msg = f"Some projected radial profiles are missing for pid {pids_not_found_prj}."
             self.logger.warning(msg)
 
-        if len(rprofs_dict) == 0:
+        if self.cores and len(rprofs_dict) == 0:
             raise FileNotFoundError('No radial profile files found to concatenate.')
 
         with open(fname_concat, 'wb') as handle:
@@ -794,8 +797,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
             with open(fname_concat, 'rb') as handle:
                 raw_rprofs_dict = pickle.load(handle)
         return {
-            pid: radial_profiles.derive_radial_profiles(self, rprofs)
-            for pid, rprofs in raw_rprofs_dict.items()
+            pid: radial_profiles.derive_radial_profiles(self, raw_rprofs_dict[pid])
+            for pid in self.cores
         }
 
     def load_power_spectrum(self, force_override=False):

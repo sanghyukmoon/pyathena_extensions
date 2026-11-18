@@ -11,12 +11,11 @@ from core_formation import config, tasks, models, load_sim, tools
 # behavior explicitly.
 Pool = mp.get_context("fork").Pool
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("models", nargs='+', type=str,
                         help="List of models to process")
-    parser.add_argument("--pids", nargs='+', type=int,
-                        help="List of particle ids to process")
     parser.add_argument("--np", type=int, default=1,
                         help="Number of processors")
     parser.add_argument("-o", "--overwrite", action="store_true",
@@ -47,8 +46,6 @@ if __name__ == "__main__":
                         help="Create core evolution plots")
     parser.add_argument("--plot-sink-history", action="store_true",
                         help="Create sink history plots")
-    parser.add_argument("--pid-start", type=int)
-    parser.add_argument("--pid-end", type=int)
 
     args = parser.parse_args()
     sa = load_sim.LoadSimAll(models.models)
@@ -56,13 +53,6 @@ if __name__ == "__main__":
     # Select models
     for mdl in args.models:
         s = sa.set_model(mdl, skip_collapse_history=True)
-        if args.pid_start is not None and args.pid_end is not None:
-            pids = np.arange(args.pid_start, args.pid_end+1)
-        else:
-            pids = s.pids
-        if args.pids:
-            pids = args.pids
-        pids = sorted(list(set(s.pids) & set(pids)))
         # Combine output files.
         if args.combine_partab:
             print(f"Combine partab files for model {mdl}")
@@ -79,7 +69,7 @@ if __name__ == "__main__":
                 tasks.track_cores(s, [pid,], overwrite=args.overwrite)
             print(f"Perform core tracking for model {mdl}")
             with Pool(args.np) as p:
-                p.map(wrapper, pids)
+                p.map(wrapper, s.pids)
 
         # Find critical tes
         if args.critical_tes:
@@ -88,7 +78,7 @@ if __name__ == "__main__":
             def wrapper(pid):
                 tasks.critical_tes(s, pid, overwrite=args.overwrite)
             with Pool(args.np) as p:
-                p.map(wrapper, pids)
+                p.map(wrapper, s.cores)
 
         # Calculate each requested core's collapse history.
         if args.collapse_history:
@@ -98,7 +88,7 @@ if __name__ == "__main__":
                     tasks.collapse_history(s, s.cores[pid], onset_def,
                                            overwrite=args.overwrite)
                 with Pool(args.np) as p:
-                    p.map(wrapper, pids)
+                    p.map(wrapper, s.cores)
 
         if args.projections:
             s = sa.set_model(mdl)
@@ -115,7 +105,7 @@ if __name__ == "__main__":
                    f"model {mdl}")
             print(msg)
             def wrapper(num):
-                tasks.prj_radial_profile(s, num, pids, overwrite=args.overwrite)
+                tasks.prj_radial_profile(s, num, s.cores, overwrite=args.overwrite)
             with Pool(args.np) as p:
                 p.map(wrapper, s.nums)
 
@@ -123,8 +113,7 @@ if __name__ == "__main__":
         if args.observables:
             s = sa.set_model(mdl, override_all=True)
             print(f"Calculate observable core properties for model {mdl}")
-            for pid in pids:
-                cores = s.cores[pid]
+            for pid, cores in s.cores.items():
                 cores = cores.loc[:cores.attrs['numcoll']]
                 def wrapper(num):
                     tasks.observables(s, pid, num, overwrite=args.overwrite)
@@ -165,9 +154,7 @@ if __name__ == "__main__":
         if args.plot_core_evolution:
             s = sa.set_model(mdl, override_all=True)
             print(f"draw core evolution plots for model {mdl}")
-            all_cores = s.select_cores()
-            for pid in pids:
-                cores = all_cores[pid]
+            for cores in s.select_cores().values():
                 def wrapper(num):
                     tasks.plot_core_evolution(s, cores, num, overwrite=args.overwrite)
                 with Pool(args.np) as p:
@@ -194,7 +181,7 @@ if __name__ == "__main__":
                 subprocess.run(["make_movie", "-p", prefix, "-s", srcdir, "-d",
                                 srcdir])
             prefix = config.PLOT_PREFIX_CORE_EVOLUTION
-            for pid in pids:
+            for pid in s.cores:
                 for onset_def in [tools.CollapseOnsetDefinition()]:
                     prf = f"{prefix}.par{pid}.tcrit_{onset_def.filename_token}"
                     subprocess.run(["make_movie", "-p", prf, "-s", srcdir,

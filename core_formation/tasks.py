@@ -181,8 +181,10 @@ def radial_profile(s, nums=None, pids=None, overwrite=False, all_minima=False):
         If true, overwrites the existing pickle file.
     """
 
-    if pids is None:
-        pids = s.pids
+    if not all_minima:
+        pids = s.cores.keys() if pids is None else s.cores.keys() & pids
+        if not pids:
+            return
 
     if nums is None:
         nums = s.nums
@@ -199,7 +201,7 @@ def radial_profile(s, nums=None, pids=None, overwrite=False, all_minima=False):
         else:
             # Loop through cores and find unique node ids
             unique_leaves = set()
-            for pid in s.pids:
+            for pid in pids:
                 cores = s.cores[pid]
                 if num not in cores.index:
                     # This snapshot `num` does not contain any image of the core `pid`
@@ -241,6 +243,7 @@ def radial_profile(s, nums=None, pids=None, overwrite=False, all_minima=False):
 
 
 def prj_radial_profile(s, num, pids, overwrite=False):
+    pids = s.cores.keys() & pids
     pids_skip = []
     for pid in pids:
         cores = s.cores[pid]
@@ -366,8 +369,7 @@ def collapse_history(s, cores, onset_definition, *, overwrite=False):
                 mass.append(par.mass)
             min_dst.append(min(dst))
             mw_dst.append(np.average(dst, weights=mass))
-        for cid in s.pids:
-            other_cores = s.cores[cid]
+        for other_cores in s.cores.values():
             if num not in other_cores.index:
                 continue
             other_leaf_id = other_cores.at[num, 'leaf_id']
