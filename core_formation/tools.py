@@ -88,6 +88,13 @@ class LognormalPDF:
         return np.exp(x)
 
 
+def _cell_contains_sink(s, lid, pds):
+    return any(
+        s.cartesian_to_flatindex(par.x1, par.x2, par.x3) == lid
+        for par in pds.itertuples()
+    )
+
+
 def find_tcoll_core(s, pid):
     """Find the minima corresponding to t_coll core of given pid
 
@@ -116,12 +123,15 @@ def find_tcoll_core(s, pid):
                              pos_particle, s.Lbox)
            for lid in idx_at_minima]
     lid = idx_at_minima[np.argmin(dst)]
+    pds = s.load_par(num)
+    if _cell_contains_sink(s, lid, pds):
+        raise ValueError(f'Initial core minimum contains a sink at pid={pid}, num={num}')
 
     # return the flat index of the center of the t_coll core.
     return lid
 
 def track_cores(s, pid):
-    """Perform reverse core tracking
+    """Track the core backward until the selected minimum contains a sink.
 
     Parameters
     ----------
@@ -154,6 +164,9 @@ def track_cores(s, pid):
         # find closeast leaf to the previous preimage
         dst = [s.distance_between(lid, lid_old) for lid in minima]
         lid = minima[np.argmin(dst)]
+        pds = s.load_par(num)
+        if _cell_contains_sink(s, lid, pds):
+            break
 
         nums_track.append(num)
         time.append(s.times[num])

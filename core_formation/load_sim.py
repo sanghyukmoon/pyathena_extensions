@@ -522,6 +522,8 @@ class LoadSim(LoadSimBase, hst.Hst, slc_prj.SliceProj,
         # on the tracking time in Myr.
         cutoff_time = cores.attrs['tcoll'] - max_track_myr / self.u.Myr
         cores = cores[cores.time >= cutoff_time].sort_index(ascending=False)
+        if len(cores) == 1:
+            return cores.index[0]
         leaf_ids = cores['leaf_id']
         leaf_id0 = leaf_ids.iloc[0]
         leaf_id1 = leaf_ids.iloc[1]
